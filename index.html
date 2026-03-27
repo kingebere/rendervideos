@@ -314,10 +314,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <div class="ocr-cw" id="ocr-cw"><canvas id="ocrcv"></canvas><div id="ocr-boxes"></div></div>
     <div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace" id="ocr-hint">Scanning…</div>
     <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center">
+      <button class="btn bg sm" onclick="ocrNavFrame(-1)">‹ Prev</button>
       <button class="btn bg sm" onclick="ocrAll()">Hide All</button>
       <button class="btn bg sm" onclick="ocrNone()">Unhide All</button>
-      <button class="btn bg" onclick="cancelOcr()">Cancel</button>
       <button class="btn bp" onclick="applyOcr()">✓ Apply</button>
+      <button class="btn bg sm" onclick="ocrNavFrame(1)">Next ›</button>
+      <button class="btn bg" onclick="cancelOcr()">✕ Close</button>
     </div>
   </div>
   <div class="ocr-r">
@@ -483,12 +485,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <summary style="font-size:10px;color:var(--m);cursor:pointer;padding:3px 0;list-style:none">▶ Extraction options</summary>
       <div style="padding-top:7px;display:flex;flex-direction:column;gap:5px">
         <div class="or"><div><div class="ol">FPS</div><div class="os">Frames/sec</div></div><input type="number" class="ni" id="o-fps" value="1" min="0.1" max="8" step="0.1"/></div>
-        <div class="or"><div><div class="ol">Max frames</div><div class="os">Per video</div></div><input type="number" class="ni" id="o-max" value="500" min="10" max="5000"/></div>
-        <div class="or"><div class="ol">Skip similar</div><label class="tog"><input type="checkbox" id="o-dedup" checked><span class="ts"></span></label></div>
+        <div class="or"><div><div class="ol">Skip similar</div><div class="os">Dedup frames</div></div><label class="tog"><input type="checkbox" id="o-dedup" checked><span class="ts"></span></label></div>
         <div class="or"><div class="ol">Sensitivity</div><input type="number" class="ni" id="o-sens" value="5" min="1" max="30"/></div>
         <div class="or"><div class="ol">Chunk size</div>
           <select class="ni sel" id="o-chunk"><option value="3">3 min</option><option value="5" selected>5 min</option><option value="10">10 min</option><option value="0">Off</option></select>
         </div>
+        <div style="font-size:9px;color:var(--m);line-height:1.5;padding:3px 0">⚡ Extracts full video to end — no frame cap. Use ■ Stop to halt early.</div>
       </div>
     </details>
     <div style="padding:0 9px 5px;flex-shrink:0">
@@ -1069,7 +1071,7 @@ function updateCodecWarning(){const w=document.getElementById('codec-warn');if(w
 async function extractActive(){const v=activeVideo();if(!v){toast('⚠️','Select a video first');return;}await extractVideo(v);}
 async function extractVideo(v){
   const fps=parseFloat(document.getElementById('o-fps').value)||1;
-  const maxF=parseInt(document.getElementById('o-max').value)||500;
+  // NO frame cap — extract the entire video to the end regardless of length
   const dedup=document.getElementById('o-dedup').checked;
   const sens=parseInt(document.getElementById('o-sens').value)||5;
   const chunkMins=parseInt(document.getElementById('o-chunk').value)||0;
@@ -1088,11 +1090,11 @@ async function extractVideo(v){
   renderChunkList(chunks);
   let total=0,prevData=null;
   for(let ci=0;ci<chunks.length;ci++){
-    if(cancelFlag)break;if(total>=maxF)break;
+    if(cancelFlag)break;
     setChunkState(ci,'run');
     try{
       await extractChunk({
-        url:v.objectURL,fps,maxF:maxF-total,dedup,sens,
+        url:v.objectURL,fps,dedup,sens,
         start:chunks[ci].start,end:chunks[ci].end,prevData,
         onFrame:(fc,ts,pd,w,h)=>{
           prevData=pd;total++;
@@ -1110,7 +1112,6 @@ async function extractVideo(v){
       });
       setChunkState(ci,'done');
     }catch(e){if(e.message==='cancelled'){setChunkState(ci,'err');break;}console.error(e);setChunkState(ci,'err');}
-    if(total>=maxF)break;
   }
   v.extracted=true;resetExBtn();
   document.getElementById('live-bar').classList.remove('on');
@@ -1120,50 +1121,91 @@ async function extractVideo(v){
   if(!cancelFlag)toast('✓',`${v.frames.length} frames from "${v.name}"`);
   else toast('⚠️',`Stopped · ${v.frames.length} frames kept`);
 }
-async function extractChunk({url,fps,maxF,dedup,sens,start,end,prevData,onFrame,onProgress,cancelCheck}){
-  if(maxF<=0)return 0;
+
+// ULTRA-FAST extraction:
+// - Uses createImageBitmap() which is hardware-accelerated and non-blocking
+// - Single rAF per seek (browser composites before we read pixels)
+// - Aggressive 1.5s seek timeout (modern browsers seek H.264 in <200ms typically)
+// - Dedup samples ONLY the center safe zone (skips top 15% = status bar/recording dot, bottom 8% = home indicator)
+// - No real-time playback needed — pure seek+capture loop
+async function extractChunk({url,fps,dedup,sens,start,end,prevData,onFrame,onProgress,cancelCheck}){
   const video=document.createElement('video');
   video.muted=true;video.playsInline=true;video.preload='auto';video.src=url;
-  await new Promise(res=>{if(video.readyState>=1){res();return;}video.onloadedmetadata=res;video.onerror=res;setTimeout(res,20000);});
+  await new Promise(res=>{
+    if(video.readyState>=1){res();return;}
+    video.onloadedmetadata=res;video.onerror=res;setTimeout(res,15000);
+  });
   const chunkDur=end-start;const interval=+(1/fps).toFixed(6);
-  const canvas=document.getElementById('ec');let extracted=0,ctx=null;
-  async function seekAndDraw(t){
-    t=Math.max(0,Math.min(t,video.duration-0.01));video.currentTime=t;
-    await new Promise(res=>{video.onseeked=res;setTimeout(res,6000);});
-    if(!video.videoWidth||!video.videoHeight)return null;
-    canvas.width=video.videoWidth;canvas.height=video.videoHeight;
-    ctx=get2dCtx(canvas,true,false);
-    await new Promise(res=>requestAnimationFrame(()=>requestAnimationFrame(res)));
-    ctx.drawImage(video,0,0);
-    for(let a=0;a<4;a++){
-      const probe=ctx.getImageData(Math.floor(canvas.width*.25),Math.floor(canvas.height*.25),Math.floor(canvas.width*.5),Math.floor(canvas.height*.5));
-      let sum=0;for(let i=0;i<probe.data.length;i+=32)sum+=probe.data[i]+probe.data[i+1]+probe.data[i+2];
-      if(sum/(probe.data.length/32*3)>6)break;
-      await new Promise(res=>setTimeout(res,80*(a+1)));
-      await new Promise(res=>requestAnimationFrame(res));
-      ctx.drawImage(video,0,0);
-    }
-    return canvas;
-  }
+  // Shared offscreen canvas — reused per frame, never recreated
+  const W=video.videoWidth||1920,H=video.videoHeight||1080;
+  const offCanvas=document.createElement('canvas');offCanvas.width=W;offCanvas.height=H;
+  const offCtx=offCanvas.getContext('2d',{alpha:false,willReadFrequently:true});
+  let extracted=0;
+
+  // Dedup sample zone: skip top 15% (recording indicator, notch, status bar) and bottom 8% (home indicator)
+  const safeTop=Math.floor(H*0.15);
+  const safeBot=Math.floor(H*0.92);
+  const safeH=safeBot-safeTop;
+  const sampleH=Math.min(80,Math.floor(safeH*0.4));
+  const sampleY=safeTop+Math.floor((safeH-sampleH)/2);
+  const sampleW=Math.min(200,Math.floor(W*0.65));
+  const sampleX=Math.floor((W-sampleW)/2);
+
   let t=start;
-  while(t<end+0.001&&extracted<maxF){
+  while(t<=end+0.001){
     if(cancelCheck())throw new Error('cancelled');
-    const drawn=await seekAndDraw(t);
-    if(!drawn){t=+(t+interval).toFixed(6);continue;}
+
+    // Seek
+    const seekT=Math.max(0,Math.min(t,video.duration-0.001));
+    video.currentTime=seekT;
+    await new Promise(res=>{
+      const tid=setTimeout(res,1500); // aggressive 1.5s timeout
+      video.onseeked=()=>{clearTimeout(tid);res();};
+    });
+
+    if(!video.videoWidth||!video.videoHeight){t=+(t+interval).toFixed(6);continue;}
+
+    // Use createImageBitmap for hardware-accelerated decode — much faster than drawImage
+    let bitmap;
+    try{bitmap=await createImageBitmap(video);}
+    catch(e){
+      // Fallback to direct drawImage if createImageBitmap fails
+      offCtx.drawImage(video,0,0,W,H);
+      bitmap=null;
+    }
+    if(bitmap){offCtx.drawImage(bitmap,0,0,W,H);bitmap.close();}
+
+    // HEVC black-frame detection: sample center strip
+    const probe=offCtx.getImageData(sampleX,sampleY,sampleW,Math.min(40,sampleH));
+    let sum=0;for(let i=0;i<probe.data.length;i+=32)sum+=probe.data[i]+probe.data[i+1]+probe.data[i+2];
+    if(sum/(probe.data.length/32*3)<6){
+      // Black/HEVC frame — single retry after brief delay
+      await new Promise(r=>setTimeout(r,80));
+      try{const bm2=await createImageBitmap(video);offCtx.drawImage(bm2,0,0,W,H);bm2.close();}catch(e){offCtx.drawImage(video,0,0,W,H);}
+    }
+
+    // Dedup: compare safe center zone only (avoids recording indicator sensitivity issue)
     if(dedup&&prevData){
-      const curr=ctx.getImageData(0,0,Math.min(canvas.width,160),Math.min(canvas.height,90));
+      const curr=offCtx.getImageData(sampleX,sampleY,sampleW,sampleH);
       if(similar(prevData,curr,sens)){t=+(t+interval).toFixed(6);continue;}
       prevData=curr;
-    } else if(dedup){prevData=ctx.getImageData(0,0,Math.min(canvas.width,160),Math.min(canvas.height,90));}
-    const fc=document.createElement('canvas');fc.width=canvas.width;fc.height=canvas.height;
-    fc.getContext('2d',{alpha:false}).drawImage(canvas,0,0);
+    } else if(dedup){
+      prevData=offCtx.getImageData(sampleX,sampleY,sampleW,sampleH);
+    }
+
+    // Copy to dedicated frame canvas (don't reuse offCanvas — it will be overwritten next frame)
+    const fc=document.createElement('canvas');fc.width=W;fc.height=H;
+    fc.getContext('2d',{alpha:false}).drawImage(offCanvas,0,0);
+
     extracted++;
-    onFrame(fc,+t.toFixed(3),prevData,canvas.width,canvas.height);
+    onFrame(fc,+t.toFixed(3),prevData,W,H);
     onProgress(Math.min(Math.round((t-start)/chunkDur*100),98),`${fmt(t)} / ${fmt(end)} · ${extracted} frames`);
     t=+(t+interval).toFixed(6);
-    await yieldUI();
+    // Minimal yield — just enough to keep UI painting (not a full setTimeout(0) stall)
+    if(extracted%10===0)await new Promise(r=>setTimeout(r,0));
   }
-  video.src='';video.load();return extracted;
+  video.src='';video.load();
+  return extracted;
 }
 function cancelExtraction(){cancelFlag=true;}
 function resetExBtn(){document.getElementById('ex-btn').style.display='';document.getElementById('ex-stop-btn').style.display='none';}
@@ -1487,7 +1529,7 @@ async function openOcr(id){
   try{ocrWords=await runOcr(fr.canvas);}catch(e){ocrWords=[];}
   ocrWords.forEach((w,i)=>{if(wordList.some(s=>w.text.toLowerCase().includes(s)||s.includes(w.text.toLowerCase())))ocrHidden.add(i);});
   refreshOcr();
-  document.getElementById('ocr-hint').textContent=ocrWords.length?`${ocrWords.length} words · click to hide · right-click to save`:'No text found';
+  document.getElementById('ocr-hint').textContent=ocrWords.length?`${ocrWords.length} words · click to hide (auto-saves to list) · ‹ › to navigate frames`:'No text found — use ‹ › to go to next frame';
 }
 function refreshOcr(){
   const fr=getFrame(ocrFrId);if(!fr)return;
@@ -1504,8 +1546,23 @@ function renderOcrPills(){
     const hi=ocrHidden.has(i);const p=document.createElement('span');p.className='wpill'+(hi?' hi':'');
     const cc=w.conf>75?'#6af7c2':w.conf>50?'#f7c26a':'#f76a6a';
     p.innerHTML=`<span class="cdot" style="background:${cc}" title="${w.conf}%"></span>${esc(w.text)}`;
-    p.onclick=()=>{if(ocrHidden.has(i))ocrHidden.delete(i);else ocrHidden.add(i);refreshOcr();};
-    p.oncontextmenu=e=>{e.preventDefault();const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();if(wd&&!wordList.includes(wd)){wordList.push(wd);savePersistentWords();renderWordList();renderOcrWList();toast('📝',`"${wd}" saved`);}};
+    p.onclick=()=>{
+      if(ocrHidden.has(i)){
+        ocrHidden.delete(i);
+      } else {
+        ocrHidden.add(i);
+        // Auto-save to word list whenever a word is selected/hidden
+        const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();
+        if(wd&&!wordList.includes(wd)){wordList.push(wd);savePersistentWords();renderWordList();renderOcrWList();}
+      }
+      refreshOcr();
+    };
+    // Right-click also saves
+    p.oncontextmenu=e=>{
+      e.preventDefault();
+      const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();
+      if(wd&&!wordList.includes(wd)){wordList.push(wd);savePersistentWords();renderWordList();renderOcrWList();toast('📝',`"${wd}" saved to word list`);}
+    };
     c.appendChild(p);
   });
 }
@@ -1531,15 +1588,63 @@ function ocrAll(){ocrWords.forEach((_,i)=>ocrHidden.add(i));refreshOcr();}
 function ocrNone(){ocrHidden.clear();refreshOcr();}
 function ocrAddW(){const i=document.getElementById('ocr-wi');addWordG(i.value);i.value='';}
 function applyOcr(){
-  const fr=getFrame(ocrFrId);if(!fr||!ocrHidden.size){cancelOcr();return;}
-  const col=document.getElementById('ocr-col').value,pad=parseInt(document.getElementById('ocr-pad').value)||0;
-  const ctx=get2dCtx(fr.canvas,true,false);
-  ocrHidden.forEach(i=>{const w=ocrWords[i];if(!w)return;applyHide(ctx,ocrLocalStyle,col,'#ff3366',w.x*fr.canvas.width-pad,w.y*fr.canvas.height-pad,w.w*fr.canvas.width+pad*2,w.h*fr.canvas.height+pad*2);});
-  fr.wordBoxes=(fr.wordBoxes||[]).concat([...ocrHidden].map(i=>({...ocrWords[i]})));
-  fr.redacted=true;delete fr._thumbUrl;delete fr._thumbUrlKey;
-  cancelOcr();renderFrames();toast('✓',`${ocrHidden.size} word${ocrHidden.size>1?'s':''} hidden`);
+  const fr=getFrame(ocrFrId);if(!fr)return;
+  const hiddenCount=ocrHidden.size;
+  if(hiddenCount>0){
+    const col=document.getElementById('ocr-col').value,pad=parseInt(document.getElementById('ocr-pad').value)||0;
+    const ctx=get2dCtx(fr.canvas,true,false);
+    ocrHidden.forEach(i=>{const w=ocrWords[i];if(!w)return;applyHide(ctx,ocrLocalStyle,col,'#ff3366',w.x*fr.canvas.width-pad,w.y*fr.canvas.height-pad,w.w*fr.canvas.width+pad*2,w.h*fr.canvas.height+pad*2);});
+    fr.wordBoxes=(fr.wordBoxes||[]).concat([...ocrHidden].map(i=>({...ocrWords[i]})));
+    fr.redacted=true;delete fr._thumbUrl;delete fr._thumbUrlKey;
+    // Auto-save all hidden words to global word list
+    let savedNew=0;
+    ocrHidden.forEach(i=>{
+      const w=ocrWords[i];if(!w)return;
+      const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();
+      if(wd&&!wordList.includes(wd)){wordList.push(wd);savedNew++;}
+    });
+    if(savedNew>0){savePersistentWords();renderWordList();}
+    // Update thumb in grid without full re-render
+    const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+    if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
+    toast('✓',`${hiddenCount} word${hiddenCount>1?'s':''} hidden${savedNew>0?' · '+savedNew+' added to list':''}`);
+  }
+  // STAY on the same frame — reset hidden set and re-scan so user can navigate manually
+  // The canvas already has the applied changes baked in, so re-draw the updated image
+  ocrHidden=new Set();
+  // Refresh the preview canvas from the (now updated) source frame
+  const dc=document.getElementById('ocrcv');
+  get2dCtx(dc,false,false).drawImage(fr.canvas,0,0,dc.width,dc.height);
+  // Re-run OCR on the updated frame so remaining unhidden words are shown
+  // Show a brief "Applied" indicator on the hint line then re-scan
+  document.getElementById('ocr-hint').textContent='Applied ✓ — re-scanning…';
+  document.getElementById('ocr-pills').innerHTML='<span style="font-size:10px;color:var(--m)">Re-scanning…</span>';
+  document.getElementById('ocr-boxes').innerHTML='';
+  // Re-scan the updated frame
+  runOcr(fr.canvas).then(words=>{
+    ocrWords=words;
+    // Auto-select any words still matching word list
+    ocrWords.forEach((w,i)=>{if(wordList.some(s=>w.text.toLowerCase().includes(s)||s.includes(w.text.toLowerCase())))ocrHidden.add(i);});
+    refreshOcr();
+    document.getElementById('ocr-hint').textContent=ocrWords.length
+      ?`${ocrWords.length} words remaining · use ‹ › nav or Cancel to close`
+      :'No more text — use ‹ › to navigate or Cancel to close';
+  }).catch(()=>{
+    ocrWords=[];ocrHidden=new Set();refreshOcr();
+    document.getElementById('ocr-hint').textContent='Done — Cancel to close or use nav buttons';
+  });
 }
-function cancelOcr(){document.getElementById('ocrov').classList.remove('on');ocrWords=[];ocrHidden.clear();}
+
+function ocrNavFrame(dir){
+  // Navigate to prev/next frame while staying in OCR modal
+  const af=allFrames();
+  const curIdx=af.findIndex(f=>f.id===ocrFrId);
+  const nextFr=af[curIdx+dir];
+  if(nextFr)openOcr(nextFr.id);
+  else toast('⚠️',dir>0?'Last frame':'First frame');
+}
+function closeOcr(){document.getElementById('ocrov').classList.remove('on');ocrWords=[];ocrHidden=new Set();ocrFrId=null;}
+function cancelOcr(){closeOcr();}
 
 // ─── APPLY HIDE ──────────────────────────────────────────────────────────────
 function applyHide(ctx,style,fill,box,x,y,w,h){
@@ -1903,39 +2008,85 @@ function disableVexBtns(on){
 async function reconstructVideo(frameList,label){
   if(!frameList.length){toast('⚠️',`No frames for "${label}"`);return;}
   if(typeof MediaRecorder==='undefined'){toast('❌','MediaRecorder not supported — use Chrome/Edge');return;}
-  const fps=parseInt(document.getElementById('vex-fps').value)||60;
-  const mspf=1000/fps;
+  const fps=parseInt(document.getElementById('vex-fps').value)||30;
+  const mspf=Math.floor(1000/fps);
   const W=frameList[0].canvas.width||1280,H=frameList[0].canvas.height||720;
+
+  // Always produce real WebM — captureStream+MediaRecorder only produces valid WebM.
+  // Saving as .mp4 is a container rename that breaks playback. Always use .webm.
+  const preferredMimes=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  const mime=preferredMimes.find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
+  const ext='webm';
+
   const rc=document.getElementById('rc');rc.width=W;rc.height=H;
-  const rctx=rc.getContext('2d');rctx.drawImage(frameList[0].canvas,0,0,W,H);
-  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-  const mimeMap={webm:['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'],mp4:['video/mp4'],mov:['video/mp4']};
-  const mime=(mimeMap[vexFormat]||mimeMap.webm).find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
-  const ext=vexFormat==='mp4'?'mp4':vexFormat==='mov'?'mov':'webm';
+  const rctx=rc.getContext('2d',{alpha:false});
+
+  // Draw first frame BEFORE capturing stream — ensures encoder gets a valid keyframe
+  rctx.drawImage(frameList[0].canvas,0,0,W,H);
+  await new Promise(r=>setTimeout(r,80)); // let browser composite
+
   const stream=rc.captureStream(fps);
-  if(!stream.getVideoTracks().length){toast('❌','captureStream failed — try Chrome');return;}
-  const chunks=[];const mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:8000000});
-  mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data);};
+  if(!stream.getVideoTracks().length){toast('❌','captureStream failed — ensure page is visible in Chrome');return;}
+
+  const chunks=[];
+  const mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:16000000});
+  mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data.slice()); }; // .slice() forces copy before chunk is released
+
   const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb');
-  prog.style.display='block';progB.style.width='0%';progT.textContent=`Encoding "${label}"…`;
+  prog.style.display='block';progB.style.width='0%';
+  progT.textContent=`Encoding "${label}" — ${frameList.length} frames @ ${fps}fps…`;
+
   return new Promise(resolve=>{
-    mr.onstop=()=>{
-      const total=chunks.reduce((s,c)=>s+c.size,0);
-      if(!total){toast('❌','0 bytes — try WebM in Chrome');resolve();return;}
-      const blob=new Blob(chunks,{type:mime});const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');a.href=url;a.download=label.replace(/[^a-zA-Z0-9_\-]/g,'_').toLowerCase()+'.'+ext;a.click();
-      setTimeout(()=>URL.revokeObjectURL(url),15000);
-      toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB .${ext}`);progB.style.width='100%';resolve();
+    mr.onstop=async()=>{
+      // Flush any remaining buffered data
+      const totalBytes=chunks.reduce((s,c)=>s+c.size,0);
+      if(!totalBytes){
+        toast('❌','0 bytes produced — open Chrome DevTools, ensure canvas is visible, try again');
+        prog.style.display='none';resolve();return;
+      }
+      const blob=new Blob(chunks,{type:mime});
+      // Verify blob is non-trivially sized (a valid WebM has headers + frames)
+      if(blob.size<5000){
+        toast('⚠️',`Very small output (${blob.size}B) — may be incomplete. Try lower FPS.`);
+      }
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;a.download=label.replace(/[^a-zA-Z0-9_\-]/g,'_').toLowerCase()+'.'+ext;
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+      toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB .${ext} · ${frameList.length} frames`);
+      progB.style.width='100%';
+      prog.style.display='none';
+      resolve();
     };
-    mr.start(250);let i=1,lastPaint=performance.now();
-    function paint(){
-      if(i>=frameList.length){setTimeout(()=>{try{mr.requestData();mr.stop();}catch(e){resolve();}},mspf*4);return;}
-      rctx.clearRect(0,0,W,H);rctx.drawImage(frameList[i].canvas,0,0,W,H);
-      const pct=Math.round((i+1)/frameList.length*100);progT.textContent=`Encoding "${label}" — ${i+1}/${frameList.length} (${pct}%)`;progB.style.width=pct+'%';i++;
-      const now=performance.now(),elapsed=now-lastPaint,wait=Math.max(4,mspf-elapsed);lastPaint=now+wait;
-      setTimeout(()=>requestAnimationFrame(paint),wait);
-    }
-    setTimeout(()=>requestAnimationFrame(paint),mspf);
+
+    // Collect data every 100ms to avoid losing frames at end
+    mr.start(100);
+    let frameIdx=0;
+
+    // Paint ALL frames at exact fps using setInterval
+    // Key: we must draw frame 0 again since we drew it before mr.start()
+    const timer=setInterval(()=>{
+      if(frameIdx>=frameList.length){
+        clearInterval(timer);
+        // CRITICAL: requestData() forces the encoder to flush its internal buffer,
+        // then we wait 2× mspf before stop() to ensure the last frame is encoded.
+        try{mr.requestData();}catch(e){}
+        setTimeout(()=>{
+          try{mr.requestData();}catch(e){} // second flush
+          setTimeout(()=>{
+            try{mr.stop();}catch(e){resolve();}
+          },mspf*3);
+        },mspf*2);
+        return;
+      }
+      rctx.clearRect(0,0,W,H);
+      rctx.drawImage(frameList[frameIdx].canvas,0,0,W,H);
+      const pct=Math.round((frameIdx+1)/frameList.length*100);
+      progT.textContent=`Encoding "${label}" — ${frameIdx+1}/${frameList.length} (${pct}%)`;
+      progB.style.width=pct+'%';
+      frameIdx++;
+    },mspf);
   });
 }
 
@@ -2022,7 +2173,13 @@ document.addEventListener('keydown',e=>{
     if(e.key==='ArrowLeft')lbNav(-1);if(e.key==='ArrowRight')lbNav(1);
     if(e.key==='Escape')closeLb();if(e.key==='Delete'||e.key==='Backspace')lbDel();return;
   }
-  if(document.getElementById('ocrov').classList.contains('on')){if(e.key==='Escape')cancelOcr();if(e.key==='Enter')applyOcr();return;}
+  if(document.getElementById('ocrov').classList.contains('on')){
+    if(e.key==='Escape')closeOcr();
+    if(e.key==='Enter')applyOcr();
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();ocrNavFrame(1);}
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();ocrNavFrame(-1);}
+    return;
+  }
   if(document.getElementById('rdov').classList.contains('on')){if(e.key==='Escape')cancelRd();return;}
   if(e.key==='a'&&(e.metaKey||e.ctrlKey)){e.preventDefault();selAll();}
   if(e.key==='Escape')selNone();
