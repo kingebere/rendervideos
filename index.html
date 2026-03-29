@@ -787,17 +787,159 @@ const LS_FLOWS   = 'uiland_flows_v2';
 const LS_WORDS   = 'uiland_words_v2';
 const LS_PREFS   = 'uiland_prefs_v2';
 const LS_THEME   = 'uiland_theme';
-const DB_NAME='uiland_db', DB_VER=1, STORE='frames';
+const LS_SESSION = 'uiland_session_v1'; // metadata only
+const DB_NAME='uiland_db', DB_VER=2, STORE='frames', STORE_BLOBS='frame_blobs';
 let db=null;
 
 async function openDB(){
   return new Promise((res,rej)=>{
     const r=indexedDB.open(DB_NAME,DB_VER);
-    r.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});};
+    r.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});
+      if(!d.objectStoreNames.contains(STORE_BLOBS))d.createObjectStore(STORE_BLOBS,{keyPath:'id'});
+    };
     r.onsuccess=e=>{db=e.target.result;res(db);};
     r.onerror=()=>rej(r.error);
   });
 }
+
+// Save a single frame's blobs to IndexedDB
+async function dbSaveFrameBlob(fr){
+  if(!db||!fr.blobUrl)return;
+  try{
+    // Convert blobUrl → ArrayBuffer for persistent storage
+    const [mainResp,thumbResp]=await Promise.all([
+      fetch(fr.blobUrl),
+      fr._thumbBlobUrl?fetch(fr._thumbBlobUrl):Promise.resolve(null)
+    ]);
+    const mainBuf=await mainResp.arrayBuffer();
+    const thumbBuf=thumbResp?await thumbResp.arrayBuffer():null;
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(STORE_BLOBS,'readwrite');
+      tx.objectStore(STORE_BLOBS).put({id:fr.id,main:mainBuf,thumb:thumbBuf});
+      tx.oncomplete=res;tx.onerror=rej;
+    });
+  }catch(e){console.warn('dbSaveFrameBlob',e);}
+}
+
+// Load a single frame's blobs back from IndexedDB → restore blobUrl
+async function dbLoadFrameBlob(fr){
+  if(!db)return false;
+  try{
+    const rec=await new Promise((res,rej)=>{
+      const tx=db.transaction(STORE_BLOBS,'readonly');
+      const req=tx.objectStore(STORE_BLOBS).get(fr.id);
+      req.onsuccess=()=>res(req.result);req.onerror=rej;
+    });
+    if(!rec)return false;
+    fr.blobUrl=URL.createObjectURL(new Blob([rec.main],{type:'image/webp'}));
+    if(rec.thumb)fr._thumbBlobUrl=URL.createObjectURL(new Blob([rec.thumb],{type:'image/webp'}));
+    return true;
+  }catch(e){return false;}
+}
+
+// Delete all blobs for a list of frame ids
+async function dbDeleteFrameBlobs(ids){
+  if(!db||!ids.length)return;
+  try{
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(STORE_BLOBS,'readwrite');
+      const st=tx.objectStore(STORE_BLOBS);
+      ids.forEach(id=>st.delete(id));
+      tx.oncomplete=res;tx.onerror=rej;
+    });
+  }catch(e){}
+}
+
+// Clear ALL blobs from IndexedDB
+async function dbClearAllBlobs(){
+  if(!db)return;
+  try{
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(STORE_BLOBS,'readwrite');
+      tx.objectStore(STORE_BLOBS).clear();
+      tx.oncomplete=res;tx.onerror=rej;
+    });
+  }catch(e){}
+}
+
+// Save session metadata (videos + frame metadata, no pixel data) to localStorage
+function saveSession(){
+  try{
+    const meta={
+      savedAt:Date.now(),
+      videos:videos.map(v=>({
+        id:v.id,name:v.name,sizeMB:v.sizeMB,duration:v.duration,
+        source:v.source,extracted:v.extracted,mimeType:v.mimeType,
+        codec:v.codec,needsTranscode:v.needsTranscode,
+        _gridSrc:v._gridSrc,
+        frames:v.frames.map(fr=>({
+          id:fr.id,name:fr.name,flows:fr.flows,
+          timestamp:fr.timestamp,videoId:fr.videoId,
+          source:fr.source,_gridSrc:fr._gridSrc,
+          redacted:fr.redacted,
+          redactBoxes:fr.redactBoxes||[],
+          wordBoxes:fr.wordBoxes||[]
+        }))
+      })),
+      activeVideoId
+    };
+    localStorage.setItem(LS_SESSION,JSON.stringify(meta));
+  }catch(e){console.warn('saveSession',e);}
+}
+
+function clearSession(){
+  try{localStorage.removeItem(LS_SESSION);}catch(e){}
+  dbClearAllBlobs();
+}
+
+function getSessionMeta(){
+  try{const d=localStorage.getItem(LS_SESSION);return d?JSON.parse(d):null;}catch(e){return null;}
+}
+
+// Restore session: reload metadata + re-hydrate blobUrls from IndexedDB
+async function restoreSession(){
+  const meta=getSessionMeta();if(!meta||!meta.videos?.length)return false;
+  showLd('Restoring session…');
+  videos=[];
+  let loaded=0;
+  const total=meta.videos.reduce((s,v)=>s+v.frames.length,0);
+  for(const vm of meta.videos){
+    const v={...vm,objectURL:null,file:null,frames:[]};
+    for(const fm of vm.frames){
+      const fr={...fm,canvas:null,blobUrl:null,_thumbBlobUrl:null,selected:false};
+      const ok=await dbLoadFrameBlob(fr);
+      if(!ok){
+        // Blob missing — session is stale, abort
+        hideLd();videos=[];
+        clearSession();
+        return false;
+      }
+      v.frames.push(fr);
+      loaded++;
+      if(loaded%20===0){setLdPb(Math.round(loaded/total*90),'Loading frames…');await yieldUI();}
+    }
+    videos.push(v);
+  }
+  activeVideoId=meta.activeVideoId||videos[0]?.id||null;
+  hideLd();
+  renderVideoList();updateVDD();renderFrames();updateStats();
+  renderFlows();renderQFlows();toggleExpBtns();
+  showSessionBanner(meta.savedAt,total);
+  return true;
+}
+
+function showSessionBanner(savedAt,frameCount){
+  const rb=document.getElementById('rb');
+  const when=new Date(savedAt);
+  const diff=Math.round((Date.now()-savedAt)/60000);
+  const ago=diff<1?'just now':diff<60?`${diff}m ago`:`${Math.round(diff/60)}h ago`;
+  document.getElementById('rm').textContent=
+    `${frameCount} frames · ${allFrames().filter(f=>f.flows.length).length} tagged · saved ${ago}`;
+  rb.classList.add('on');
+}
+function dismissSessionBanner(){document.getElementById('rb').classList.remove('on');}
 
 // ─── LOAD/SAVE PERSISTENT FLOWS & WORDS ───────────────────────────────────
 function savePersistentFlows(){
@@ -829,6 +971,7 @@ let darkMode=true;
 let ocrWorker=null, ocrReady=false;
 let ocrFrId=null, ocrWords=[], ocrHidden=new Set(), ocrLocalStyle='fill';
 let lbFrId=null;
+let lbStickyFlow=null; // auto-tag flow when navigating in lightbox
 let rdFrId=null, rdBoxes=[], rdDrawing=false, rdStart=null, rdCur=null;
 let trimStart=0, trimEnd=0, videoDuration=0;
 let uploadMode='video';
@@ -861,46 +1004,84 @@ function getVideo(id){return videos.find(v=>v.id===id)||null;}
 function activeVideo(){return getVideo(activeVideoId);}
 function yieldUI(ms=0){return new Promise(r=>setTimeout(r,ms));}
 
-// ─── THUMBNAIL / LAZY LOAD ─────────────────────────────────────────────────
-function getFrameThumbUrl(fr,maxEdge=THUMB_MAX_EDGE,quality=.85){
-  const cacheKey=`${maxEdge}|${quality}`;
-  if(fr._thumbUrl&&fr._thumbUrlKey===cacheKey)return fr._thumbUrl;
-  const src=fr.canvas;
-  const scale=Math.min(1,maxEdge/Math.max(src.width,src.height));
-  const w=Math.max(1,Math.round(src.width*scale)),h=Math.max(1,Math.round(src.height*scale));
-  const tc=document.createElement('canvas');tc.width=w;tc.height=h;
-  const ctx=get2dCtx(tc,false,false);
-  if(ctx){ctx.imageSmoothingEnabled=true;try{ctx.imageSmoothingQuality='high';}catch(e){}ctx.drawImage(src,0,0,w,h);}
-  fr._thumbUrl=tc.toDataURL('image/webp',quality);
-  fr._thumbUrlKey=cacheKey;
-  return fr._thumbUrl;
-}
-function loadThumbIntoImg(img,fr){
-  if(img.dataset.loaded==='1')return;
-  img.onload=()=>img.classList.add('is-loaded');
-  img.onerror=()=>{img.removeAttribute('src');img.classList.remove('is-loaded');};
-  img.src=getFrameThumbUrl(fr);
-  img.dataset.loaded='1';
-}
-function ensureThumbObserver(){
-  if(gridLazyObserver)return gridLazyObserver;
-  gridLazyObserver=new IntersectionObserver((entries)=>{
-    entries.forEach(entry=>{
-      if(!entry.isIntersecting)return;
-      const img=entry.target;
-      const fr=getFrame(img.dataset.frameId);
-      if(fr)loadThumbIntoImg(img,fr);
-      gridLazyObserver.unobserve(img);
-    });
-  },{root:document.getElementById('frames-area'),rootMargin:'400px'});
-  return gridLazyObserver;
-}
-function queueThumbLoad(img,fr){
-  img.dataset.frameId=fr.id;
-  img.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-  ensureThumbObserver().observe(img);
+// ─── REPLACE: getFrameThumbUrl, loadThumbIntoImg, ensureThumbObserver, queueThumbLoad
+// New approach: fr.blobUrl = compressed webp blob url (the "canvas" is released immediately)
+// fr.canvas is kept ONLY for frames that need edit operations, then released after.
+
+
+
+// Revoke a frame's blob URLs to free memory
+function releaseFrameBlobs(fr) {
+  if (fr.blobUrl) { URL.revokeObjectURL(fr.blobUrl); fr.blobUrl = null; }
+  if (fr._thumbBlobUrl) { URL.revokeObjectURL(fr._thumbBlobUrl); fr._thumbBlobUrl = null; }
 }
 
+// Store frame as a compressed WebP blob URL — releases the canvas immediately
+async function storeFrameAsBlob(fr,canvas){
+  await new Promise(res=>{
+    canvas.toBlob(blob=>{
+      fr.blobUrl=URL.createObjectURL(blob);
+      const tw=Math.min(THUMB_MAX_EDGE,canvas.width);
+      const th2=Math.round(canvas.height*(tw/canvas.width));
+      const tc=document.createElement('canvas');tc.width=tw;tc.height=th2;
+      tc.getContext('2d',{alpha:false}).drawImage(canvas,0,0,tw,th2);
+      tc.toBlob(tb=>{fr._thumbBlobUrl=URL.createObjectURL(tb);res();},'image/webp',0.75);
+    },'image/webp',0.82);
+  });
+  // Persist blob to IndexedDB immediately
+  await dbSaveFrameBlob(fr);
+}
+
+// Throttled session metadata save (max once per 2s)
+let _saveSessionTimer=null;
+function scheduleSaveSession(){
+  clearTimeout(_saveSessionTimer);
+  _saveSessionTimer=setTimeout(saveSession,2000);
+}
+
+// Reconstruct a canvas from blobUrl on demand (for export/edit)
+function getFrameCanvas(fr) {
+  if (fr.canvas) return Promise.resolve(fr.canvas);
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d', { alpha: false }).drawImage(img, 0, 0);
+      res(c);
+    };
+    img.onerror = rej;
+    img.src = fr.blobUrl;
+  });
+}
+
+function loadThumbIntoImg(img, fr) {
+  if (img.dataset.loaded === '1') return;
+  img.onload = () => img.classList.add('is-loaded');
+  img.onerror = () => { img.removeAttribute('src'); img.classList.remove('is-loaded'); };
+  img.src = fr._thumbBlobUrl || fr.blobUrl;
+  img.dataset.loaded = '1';
+}
+
+function ensureThumbObserver() {
+  if (gridLazyObserver) return gridLazyObserver;
+  gridLazyObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const img = entry.target;
+      const fr = getFrame(img.dataset.frameId);
+      if (fr) loadThumbIntoImg(img, fr);
+      gridLazyObserver.unobserve(img);
+    });
+  }, { root: document.getElementById('frames-area'), rootMargin: '400px' });
+  return gridLazyObserver;
+}
+
+function queueThumbLoad(img, fr) {
+  img.dataset.frameId = fr.id;
+  img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+  ensureThumbObserver().observe(img);
+}
 // ─── FLOWS (PERSISTENT) ─────────────────────────────────────────────────────
 function initFlows(){
   const saved=loadPersistentFlows();
@@ -1011,6 +1192,7 @@ function assignFlow(fid){
   if(!sel.length){toast('⚠️','Select frames first');return;}
   const fl=flows.find(f=>f.id===fid);
   sel.forEach(fr=>{if(!fr.flows.includes(fid))fr.flows.push(fid);});
+  scheduleSaveSession();
   document.querySelectorAll('#qflows .qfb').forEach(b=>{if(b._fid===fid){b.classList.remove('fl');void b.offsetWidth;b.classList.add('fl');}});
   // Update cards in place
   const ids=sel.map(f=>f.id);
@@ -1107,7 +1289,7 @@ function updateFSum(){
       wrap.title=`${fr.name} · click to preview`;
       const img=document.createElement('img');
       img.className='fsit';img.alt=fr.name;
-      img.src=getFrameThumbUrl(fr,80,.5);
+      img.src=fr._thumbBlobUrl||fr.blobUrl||'';
       img.onclick=()=>openLb(fr.id);
       // Remove-from-flow ✕ button
       const rx=document.createElement('button');
@@ -1143,11 +1325,19 @@ function updateFSum(){
 async function addImages(files){
   const imgs=files.filter(f=>f.type.match(/^image\//)&&f.name.match(/\.(png|jpg|jpeg|webp)$/i));
   if(!imgs.length){toast('⚠️','No image files found (PNG, JPG, WebP)');return;}
-  // FIX: Sort and deduplicate by name+size to prevent double-loading
   const seen=new Set();
   const unique=imgs.filter(f=>{const key=f.name+'|'+f.size;if(seen.has(key))return false;seen.add(key);return true;});
   unique.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
   const folderName=unique[0].webkitRelativePath?unique[0].webkitRelativePath.split('/')[0]:'Screenshots';
+
+  // Replace ALL existing frames + clear session when a new folder is uploaded
+  const oldIds=allFrames().map(f=>f.id);
+  allFrames().forEach(releaseFrameBlobs);
+  videos=[];activeVideoId=null;
+  await dbDeleteFrameBlobs(oldIds);
+  clearSession();
+  dismissSessionBanner();
+
   const vid={
     id:'img_'+Date.now(),name:folderName+` (${unique.length})`,
     sizeMB:(unique.reduce((s,f)=>s+f.size,0)/1024/1024).toFixed(1),
@@ -1155,7 +1345,7 @@ async function addImages(files){
     mimeType:'image',file:null,codec:'image',needsTranscode:false
   };
   videos.push(vid);
-  if(!activeVideoId)activeVideoId=vid.id;
+  activeVideoId=vid.id;
   renderVideoList();
   let loaded=0;
   document.getElementById('live-bar').classList.add('on');
@@ -1164,23 +1354,24 @@ async function addImages(files){
     await new Promise(res=>{
       const img=new Image();
       const url=URL.createObjectURL(f);
-      img.onload=()=>{
+      img.onload=async()=>{
         const c=document.createElement('canvas');
         c.width=img.naturalWidth;c.height=img.naturalHeight;
         c.getContext('2d').drawImage(img,0,0);
         URL.revokeObjectURL(url);loaded++;
         const fr={
           id:'fr_img_'+Date.now()+'_'+Math.random().toString(36).slice(2),
-          canvas:c,name:f.name.replace(/\.[^.]+$/,''),
+          canvas:null,name:f.name.replace(/\.[^.]+$/,''),
           flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],
           timestamp:loaded,videoId:vid.id,source:'screenshot'
         };
         if(!vid._sourceSet){
-          const ar=c.width/c.height;
+          const ar=img.naturalWidth/img.naturalHeight;
           vid._gridSrc=ar<0.8?'iphone':ar>1.1?'mac':'unknown';
           vid._sourceSet=true;
         }
         fr._gridSrc=vid._gridSrc;
+        await storeFrameAsBlob(fr,c);
         vid.frames.push(fr);
         appendFrameCard(fr,'screenshot');
         updateStatsQuick();
@@ -1188,6 +1379,7 @@ async function addImages(files){
         document.getElementById('live-txt').textContent=`Loading · ${loaded}/${unique.length} · ${esc(f.name)}`;
         res();
       };
+      
       img.onerror=()=>{URL.revokeObjectURL(url);res();};
       img.src=url;
     });
@@ -1195,6 +1387,7 @@ async function addImages(files){
   }
   document.getElementById('live-bar').classList.remove('on');
   renderVideoList();updateStats();renderFlows();toggleExpBtns();
+  saveSession();
   toast('✓',`${loaded} screenshot${loaded!==1?'s':''} loaded`);
 }
 
@@ -1293,10 +1486,13 @@ async function extractVideo(v){
       await extractChunk({
         url:v.objectURL,fps,dedup,sens,
         start:chunks[ci].start,end:chunks[ci].end,prevData,
-        onFrame:(fc,ts,pd,w,h)=>{
+        onFrame:async(fc,ts,pd,w,h)=>{
           prevData=pd;total++;
           if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
-          const fr={id:'fr_'+Date.now()+'_'+total,canvas:fc,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,videoId:v.id,source:v.source};
+          const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,videoId:v.id,source:v.source};
+          // Convert to blob immediately, release the canvas
+          await storeFrameAsBlob(fr, fc);
+          // fc is now unreferenced — GC can collect it
           v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
           document.getElementById('live-ct').textContent=total;
           document.getElementById('live-txt').textContent=`${esc(v.name)} · ${fmt(ts)} / ${fmtDur(dur)}`;
@@ -1566,10 +1762,12 @@ function selInvert(){allFrames().forEach(f=>f.selected=!f.selected);scheduleRend
 function delSel(){
   const n=allFrames().filter(f=>f.selected).length;
   if(!n){toast('⚠️','Nothing selected');return;}
+  allFrames().filter(f=>f.selected).forEach(releaseFrameBlobs);
   videos.forEach(v=>{v.frames=v.frames.filter(f=>!f.selected);});
   scheduleRenderFrames();renderFlows();toggleExpBtns();toast('🗑',`Deleted ${n} frame${n>1?'s':''}`);
 }
 function delFrame(id){
+  const _df=getFrame(id);if(_df)releaseFrameBlobs(_df);
   videos.forEach(v=>{v.frames=v.frames.filter(f=>f.id!==id);});
   scheduleRenderFrames();renderFlows();toggleExpBtns();
 }
@@ -1598,6 +1796,7 @@ function toggleExpBtns(){
 // ─── VIDEO LIST ──────────────────────────────────────────────────────────────
 function removeVideo(id){
   const v=getVideo(id);if(!v)return;
+  v.frames.forEach(releaseFrameBlobs);
   if(v.objectURL)URL.revokeObjectURL(v.objectURL);
   videos=videos.filter(x=>x.id!==id);
   if(activeVideoId===id)activeVideoId=videos[0]?.id||null;
@@ -1617,7 +1816,7 @@ function renderVideoList(){
   videos.forEach(v=>{
     const isAct=v.id===activeVideoId;
     const d=document.createElement('div');d.className='vi'+(isAct?' on':'');
-    const thumbSrc=v.frames[0]?getFrameThumbUrl(v.frames[0],120,.5):'';
+    const thumbSrc=v.frames[0]?(v.frames[0]._thumbBlobUrl||v.frames[0].blobUrl||''):'';
     const src=SRC_LABELS[v.source]||'?';const srcCls=SRC_COLORS[v.source]||'';
     d.innerHTML=`${thumbSrc?`<img class="vt" src="${thumbSrc}" alt=""/>`:`<div class="vt" style="display:flex;align-items:center;justify-content:center;font-size:12px">📹</div>`}
       <div style="flex:1;min-width:0">
@@ -1660,15 +1859,17 @@ function ltab(n){
 
 // ─── REDACT ──────────────────────────────────────────────────────────────────
 
-function openRd(id){
+async function openRd(id){
   const fr=getFrame(id);if(!fr)return;
   const _fromLbR=document.getElementById('lb').classList.contains('on');
   const _lbOriginR=lbFrId;
   rdFrId=id;rdBoxes=(fr.redactBoxes||[]).map(b=>({...b}));
   const dc=document.getElementById('rdcv');
+  const canvas=await getFrameCanvas(fr);
+  fr.canvas=canvas; // hold for drawRd session, released on cancelRd/applyRd
   const maxW=window.innerWidth*.90-160,maxH=window.innerHeight*.92;
-  const ratio=Math.min(maxW/fr.canvas.width,maxH/fr.canvas.height);
-  dc.width=Math.round(fr.canvas.width*ratio);dc.height=Math.round(fr.canvas.height*ratio);
+  const ratio=Math.min(maxW/canvas.width,maxH/canvas.height);
+  dc.width=Math.round(canvas.width*ratio);dc.height=Math.round(canvas.height*ratio);
   const fn=document.getElementById('rd-fname');if(fn)fn.textContent=fr.name;
   closeLb();
   document.getElementById('rdov').classList.add('on');
@@ -1676,7 +1877,7 @@ function openRd(id){
   drawRd();setupRdEv(dc);
 }
 function drawRd(){
-  const fr=getFrame(rdFrId);if(!fr)return;
+  const fr=getFrame(rdFrId);if(!fr||!fr.canvas)return;
   const dc=document.getElementById('rdcv');const ctx=get2dCtx(dc,true,false);
   ctx.clearRect(0,0,dc.width,dc.height);ctx.drawImage(fr.canvas,0,0,dc.width,dc.height);
   rdBoxes.forEach(b=>{ctx.fillStyle='#000';ctx.fillRect(b.x*dc.width,b.y*dc.height,b.w*dc.width,b.h*dc.height);ctx.strokeStyle='#f76a6a';ctx.lineWidth=1.5;ctx.strokeRect(b.x*dc.width,b.y*dc.height,b.w*dc.width,b.h*dc.height);});
@@ -1690,24 +1891,28 @@ function setupRdEv(dc){
 }
 function undoRd(){rdBoxes.pop();drawRd();}
 
-function applyRd(){
+async function applyRd(){
   const fr=getFrame(rdFrId);if(!fr)return;
   fr.redactBoxes=rdBoxes.map(b=>({...b}));fr.redacted=rdBoxes.length>0;
-  const ctx=fr.canvas.getContext('2d',{willReadFrequently:true});
-  fr.redactBoxes.forEach(b=>{ctx.fillStyle='#000';ctx.fillRect(b.x*fr.canvas.width,b.y*fr.canvas.height,b.w*fr.canvas.width,b.h*fr.canvas.height);});
-  delete fr._thumbUrl;delete fr._thumbUrlKey;
+  const canvas=await getFrameCanvas(fr);
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  fr.redactBoxes.forEach(b=>{ctx.fillStyle='#000';ctx.fillRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);});
+  releaseFrameBlobs(fr);
+  await storeFrameAsBlob(fr,canvas);
   // Update thumb in grid without closing
   const card=document.querySelector(`.card[data-id="${fr.id}"]`);
   if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
-  // Refresh the redact canvas from the updated source so it stays sharp
   const dc=document.getElementById('rdcv');
-  ctx.clearRect&&(()=>{})(); // noop — canvas already updated above
+  get2dCtx(dc,false,false).drawImage(canvas,0,0,dc.width,dc.height);
   rdBoxes=[];drawRd();
   toast('✅',`Redacted · use ‹ › to navigate or ✕ to close`);
 }
 function cancelRd(){
   const fromLb=document.getElementById('rdov').dataset.fromLb||'';
   rdDrawing=false;
+  // Release temp canvas held during redact session
+  const fr=getFrame(rdFrId);
+  if(fr&&fr.canvas&&fr.blobUrl){fr.canvas=null;}
   document.getElementById('rdov').classList.remove('on');
   document.getElementById('rdov').dataset.fromLb='';
   rdFrId=null;
@@ -1749,12 +1954,13 @@ async function openOcr(id){
   document.getElementById('ocr-hint').textContent='Scanning…';
   document.getElementById('ocr-pills').innerHTML='<span style="font-size:10px;color:var(--m)">Scanning…</span>';
   const dc=document.getElementById('ocrcv'),cw=document.getElementById('ocr-cw');
- 
- const maxH=window.innerHeight-100,maxW=window.innerWidth*.72-280;
-  const ratio=Math.min(maxW/fr.canvas.width,maxH/fr.canvas.height);
-  dc.width=fr.canvas.width*ratio;dc.height=fr.canvas.height*ratio;
+  const canvas=await getFrameCanvas(fr);
+  fr.canvas=canvas; // hold for OCR session
+  const maxH=window.innerHeight-100,maxW=window.innerWidth*.72-280;
+  const ratio=Math.min(maxW/canvas.width,maxH/canvas.height);
+  dc.width=canvas.width*ratio;dc.height=canvas.height*ratio;
   cw.style.width=dc.width+'px';cw.style.height=dc.height+'px';
-  get2dCtx(dc,false,false).drawImage(fr.canvas,0,0,dc.width,dc.height);
+  get2dCtx(dc,false,false).drawImage(canvas,0,0,dc.width,dc.height);
   renderOcrWList();
   // Auto-hide words from global word list immediately
  
@@ -1769,7 +1975,7 @@ async function openOcr(id){
   document.getElementById('ocr-hint').textContent=ocrWords.length?`${ocrWords.length} words · click to hide (auto-saves to list) · ‹ › to navigate frames`:'No text found — use ‹ › to go to next frame';
 }
 function refreshOcr(){
-  const fr=getFrame(ocrFrId);if(!fr)return;
+  const fr=getFrame(ocrFrId);if(!fr||!fr.canvas)return;
   const dc=document.getElementById('ocrcv'),ctx=dc.getContext('2d');
   const col=document.getElementById('ocr-col').value,pad=parseInt(document.getElementById('ocr-pad').value)||0;
   ctx.clearRect(0,0,dc.width,dc.height);ctx.drawImage(fr.canvas,0,0,dc.width,dc.height);
@@ -1824,16 +2030,17 @@ function setOs(v,el){ocrLocalStyle=v;document.querySelectorAll('#osr .osb').forE
 function ocrAll(){ocrWords.forEach((_,i)=>ocrHidden.add(i));refreshOcr();}
 function ocrNone(){ocrHidden.clear();refreshOcr();}
 function ocrAddW(){const i=document.getElementById('ocr-wi');addWordG(i.value);i.value='';}
-function applyOcr(){
+async function applyOcr(){
   const fr=getFrame(ocrFrId);if(!fr)return;
   const hiddenCount=ocrHidden.size;
   if(hiddenCount>0){
     const col=document.getElementById('ocr-col').value,pad=parseInt(document.getElementById('ocr-pad').value)||0;
-    const ctx=get2dCtx(fr.canvas,true,false);
-    ocrHidden.forEach(i=>{const w=ocrWords[i];if(!w)return;applyHide(ctx,ocrLocalStyle,col,'#ff3366',w.x*fr.canvas.width-pad,w.y*fr.canvas.height-pad,w.w*fr.canvas.width+pad*2,w.h*fr.canvas.height+pad*2);});
+    const canvas=fr.canvas||(await getFrameCanvas(fr));
+    const ctx=get2dCtx(canvas,true,false);
+    ocrHidden.forEach(i=>{const w=ocrWords[i];if(!w)return;applyHide(ctx,ocrLocalStyle,col,'#ff3366',w.x*canvas.width-pad,w.y*canvas.height-pad,w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);});
     fr.wordBoxes=(fr.wordBoxes||[]).concat([...ocrHidden].map(i=>({...ocrWords[i]})));
-    
-    fr.redacted=true;delete fr._thumbUrl;delete fr._thumbUrlKey;delete fr._ocrWords;
+    fr.redacted=true;delete fr._ocrWords;
+    releaseFrameBlobs(fr);await storeFrameAsBlob(fr,canvas);fr.canvas=canvas;
     // Auto-save all hidden words to global word list
     let savedNew=0;
     ocrHidden.forEach(i=>{
@@ -1884,6 +2091,8 @@ function ocrNavFrame(dir){
 
 function closeOcr(){
   const fromLb=document.getElementById('ocrov').dataset.fromLb||'';
+  const fr=getFrame(ocrFrId);
+  if(fr&&fr.canvas&&fr.blobUrl){fr.canvas=null;}
   document.getElementById('ocrov').classList.remove('on');
   document.getElementById('ocrov').dataset.fromLb='';
   ocrWords=[];ocrHidden=new Set();ocrFrId=null;
@@ -1940,9 +2149,10 @@ async function batchApply(targets){
         ocrCanvas.getContext('2d').drawImage(fr.canvas,0,0,ocrCanvas.width,ocrCanvas.height);
       }
       const words=await runOcr(ocrCanvas);
-      const scaleX=fr.canvas.width/ocrCanvas.width;
-      const scaleY=fr.canvas.height/ocrCanvas.height;
-      const ctx=get2dCtx(fr.canvas,true,false);let n=0;
+      const srcCanvas=await getFrameCanvas(fr);
+      const scaleX=srcCanvas.width/ocrCanvas.width;
+      const scaleY=srcCanvas.height/ocrCanvas.height;
+      const ctx=get2dCtx(srcCanvas,true,false);let n=0;
       words.forEach(w=>{
         if(matchers.some(s=>w.text.toLowerCase().includes(s)||s.includes(w.text.toLowerCase()))){
           applyHide(ctx,globalHideStyle,col,bc2,
@@ -1951,7 +2161,7 @@ async function batchApply(targets){
           fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});n++;
         }
       });
-      if(n>0){fr.redacted=true;delete fr._thumbUrl;delete fr._thumbUrlKey;total+=n;}
+      if(n>0){fr.redacted=true;releaseFrameBlobs(fr);await storeFrameAsBlob(fr,srcCanvas);total+=n;}
     }catch(e){console.warn(fr.name,e);}
     if(i%5===0)await yieldUI();
   }
@@ -1996,12 +2206,13 @@ async function openFace(id){
   document.getElementById('fov-hint').textContent='Loading model…';
   document.getElementById('fov-stat').textContent='—';document.getElementById('fov-thumbs').innerHTML='';
   const dc=document.getElementById('fovcv'),cw=document.getElementById('fov-cw');
-  
+  const canvas=await getFrameCanvas(fr);
+  fr.canvas=canvas; // hold for face session
   const maxH=window.innerHeight-100,maxW=window.innerWidth*.72-260;
-  const ratio=Math.min(maxW/fr.canvas.width,maxH/fr.canvas.height);
-  dc.width=Math.round(fr.canvas.width*ratio);dc.height=Math.round(fr.canvas.height*ratio);
+  const ratio=Math.min(maxW/canvas.width,maxH/canvas.height);
+  dc.width=Math.round(canvas.width*ratio);dc.height=Math.round(canvas.height*ratio);
   cw.style.width=dc.width+'px';cw.style.height=dc.height+'px';
-  get2dCtx(dc,false,false).drawImage(fr.canvas,0,0,dc.width,dc.height);
+  get2dCtx(dc,false,false).drawImage(canvas,0,0,dc.width,dc.height);
   const ok=await loadFaceModels();if(!ok){document.getElementById('fov-hint').textContent='Model failed';return;}
   document.getElementById('fov-hint').textContent='Detecting faces…';
   try{
@@ -2079,20 +2290,23 @@ function renderFaceThumbs(){
 function setFs(s,el){faceStyle=s;document.querySelectorAll('#fsr .osb').forEach(b=>b.classList.toggle('on',b===el));refreshFacePreview();}
 function faceAll(){faceDetections.forEach(d=>d.hidden=true);renderFaceBoxes();refreshFacePreview();renderFaceThumbs();}
 function faceNone(){faceDetections.forEach(d=>d.hidden=false);renderFaceBoxes();refreshFacePreview();renderFaceThumbs();}
-function applyFace(){
+async function applyFace(){
   const fr=getFrame(faceFrId);if(!fr){cancelFace();return;}
   const toHide=faceDetections.filter(d=>d.hidden);if(!toHide.length){cancelFace();return;}
   const pad=parseInt(document.getElementById('face-pad').value)||12;
   const fillCol=document.getElementById('face-col').value;
-  const ctx=fr.canvas.getContext('2d',{willReadFrequently:true});
+  const canvas=fr.canvas||(await getFrameCanvas(fr));
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
   toHide.forEach(det=>{
-    const x=Math.max(0,det.box.x*fr.canvas.width-pad),y=Math.max(0,det.box.y*fr.canvas.height-pad);
-    const w=Math.min(det.box.w*fr.canvas.width+pad*2,fr.canvas.width-x),h=Math.min(det.box.h*fr.canvas.height+pad*2,fr.canvas.height-y);
+    const x=Math.max(0,det.box.x*canvas.width-pad),y=Math.max(0,det.box.y*canvas.height-pad);
+    const w=Math.min(det.box.w*canvas.width+pad*2,canvas.width-x),h=Math.min(det.box.h*canvas.height+pad*2,canvas.height-y);
     applyFaceHide(ctx,faceStyle,fillCol,x,y,w,h);
-    fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/fr.canvas.width,y:y/fr.canvas.height,w:w/fr.canvas.width,h:h/fr.canvas.height});
+    fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/canvas.width,y:y/canvas.height,w:w/canvas.width,h:h/canvas.height});
   });
-
-fr.redacted=true;delete fr._thumbUrl;delete fr._thumbUrlKey;
+  fr.redacted=true;
+  releaseFrameBlobs(fr);
+  
+  await storeFrameAsBlob(fr,canvas);fr.canvas=canvas;
   // Update thumb in grid without closing modal
   const _fcard=document.querySelector(`.card[data-id="${fr.id}"]`);
   if(_fcard){const _fi=_fcard.querySelector('img');if(_fi){_fi.dataset.loaded='0';_fi.classList.remove('is-loaded');loadThumbIntoImg(_fi,fr);}}
@@ -2107,6 +2321,8 @@ fr.redacted=true;delete fr._thumbUrl;delete fr._thumbUrlKey;
 }
 function cancelFace(){
   const fromLb=document.getElementById('fov').dataset.fromLb||'';
+  const fr=getFrame(faceFrId);
+  if(fr&&fr.canvas&&fr.blobUrl){fr.canvas=null;}
   document.getElementById('fov').classList.remove('on');
   document.getElementById('fov').dataset.fromLb='';
   faceFrId=null;faceDetections=[];
@@ -2143,15 +2359,16 @@ async function batchFaceApply(targets){
       get2dCtx(detCanvas,false,false).drawImage(fr.canvas,0,0,detCanvas.width,detCanvas.height);
       const dets=await faceapi.detectAllFaces(detCanvas,new faceapi.TinyFaceDetectorOptions({inputSize:416,scoreThreshold:0.45}));
       if(!dets.length)continue;
-      const ctx=fr.canvas.getContext('2d',{willReadFrequently:true});
+      const srcCanvas=await getFrameCanvas(fr);
+      const ctx=srcCanvas.getContext('2d',{willReadFrequently:true});
       dets.forEach(d=>{
         const x=Math.max(0,d.box.x/scale-pad),y=Math.max(0,d.box.y/scale-pad);
-        const w=Math.min(d.box.width/scale+pad*2,fr.canvas.width-x),h=Math.min(d.box.height/scale+pad*2,fr.canvas.height-y);
+        const w=Math.min(d.box.width/scale+pad*2,srcCanvas.width-x),h=Math.min(d.box.height/scale+pad*2,srcCanvas.height-y);
         applyFaceHide(ctx,faceStyle,fillCol,x,y,w,h);
-        fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/fr.canvas.width,y:y/fr.canvas.height,w:w/fr.canvas.width,h:h/fr.canvas.height});
+        fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/srcCanvas.width,y:y/srcCanvas.height,w:w/srcCanvas.width,h:h/srcCanvas.height});
         totalFaces++;
       });
-      fr.redacted=true;delete fr._thumbUrl;delete fr._thumbUrlKey;
+      fr.redacted=true;releaseFrameBlobs(fr);await storeFrameAsBlob(fr,srcCanvas);
     }catch(e){console.warn(e);}
     await yieldUI();
   }
@@ -2181,17 +2398,24 @@ function lbAddFlow(){
   renderLbFlows();renderFlows();updateFDD();
   toast('✓',`Flow "${name}" created`);
 }
-function openLb(id){lbFrId=id;renderLb();document.getElementById('lb').classList.add('on');
+function openLb(id){
+  lbFrId=id;
+  document.getElementById('lb').classList.add('on');
+  renderLb();
   // Restore sidebar to visible on open
   lbFspVisible=true;
   document.getElementById('lb-fsp').classList.remove('hidden');
   document.getElementById('lb-ft').classList.remove('fsp-hidden');
 }
 
-function renderLb(){
+async function renderLb(){
   const fr=getFrame(lbFrId);if(!fr)return;
   const af=allFrames();const idx=af.indexOf(fr);const src=fr.source||'unknown';
-  document.getElementById('lb-img').src=fr.canvas.toDataURL('image/png');
+  document.getElementById('lb-img').src=fr.blobUrl||'';
+  // Swap to full-res once loaded
+  getFrameCanvas(fr).then(c=>{
+    if(lbFrId===fr.id)document.getElementById('lb-img').src=c.toDataURL('image/png');
+  }).catch(()=>{});
   document.getElementById('lb-name').textContent=fr.name;
   document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
   document.getElementById('lb-p').disabled=idx===0;document.getElementById('lb-n').disabled=idx===af.length-1;
@@ -2207,6 +2431,21 @@ function renderLbFlows(){
   const sorted=[...flows].sort((a,b)=>a.name.localeCompare(b.name));
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
   c.innerHTML='';
+
+  // ── Sticky flow banner ──────────────────────────────────────────────────
+  const sfl=flows.find(f=>f.id===lbStickyFlow);
+  const banner=document.createElement('div');
+  if(sfl){
+    banner.style.cssText='display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:4px;border-radius:6px;background:#2563eb18;border:1.5px solid #2563eb50;flex-shrink:0';
+    banner.innerHTML=`<div style="width:8px;height:8px;border-radius:50%;background:${sfl.color};flex-shrink:0"></div>`+
+      `<span style="flex:1;font-size:10px;font-weight:600;color:var(--a)">Auto-tagging: ${esc(sfl.name)}</span>`+
+      `<button style="background:none;border:none;color:var(--m);cursor:pointer;font-size:10px;padding:0 2px" title="Stop auto-tag" onclick="lbStickyFlow=null;renderLbFlows()">✕</button>`;
+  } else {
+    banner.style.cssText='padding:4px 8px;margin-bottom:4px;font-size:9px;color:var(--m);font-family:"DM Mono",monospace;line-height:1.6;border-radius:6px;background:var(--s2);border:1px solid var(--b)';
+    banner.textContent='Click a flow to tag + auto-tag while navigating →';
+  }
+  c.appendChild(banner);
+
   let lastLetter='';
   filtered.forEach(fl=>{
     if(!srch&&filtered.length>8){
@@ -2219,14 +2458,35 @@ function renderLbFlows(){
       }
     }
     const assigned=fr.flows.includes(fl.id);
+    const isSticky=fl.id===lbStickyFlow;
     const d=document.createElement('div');
     d.className='lb-fsp-item'+(assigned?' assigned':'');
-    d.innerHTML=`<div class="lb-fsp-dot" style="background:${fl.color}"></div><span class="lb-fsp-name">${esc(fl.name)}</span><div class="lb-fsp-chk">${assigned?'✓':''}</div>`;
+    if(isSticky)d.style.cssText='border-color:var(--a);box-shadow:0 0 0 2px #2563eb30';
+    d.innerHTML=
+      `<div class="lb-fsp-dot" style="background:${fl.color}"></div>`+
+      `<span class="lb-fsp-name">${esc(fl.name)}</span>`+
+      (isSticky?`<span style="font-size:8px;font-family:'DM Mono',monospace;color:var(--a);margin-right:2px">AUTO</span>`:``) +
+      `<div class="lb-fsp-chk">${assigned?'✓':''}</div>`;
     d.onclick=()=>{
-      if(assigned){lbRemoveFlow(fl.id);}else{lbAssignFlow(fl.id);}
+      if(isSticky&&assigned){
+        // Clicking the active sticky flow = clear sticky + remove from frame
+        lbStickyFlow=null;
+        lbRemoveFlow(fl.id);
+      } else {
+        // Replace current frame's flow with this one, set as new sticky
+        lbStickyFlow=fl.id;
+        const cur=getFrame(lbFrId);
+        if(cur){
+          cur.flows=[fl.id]; // one flow per frame — replace
+          const card=document.querySelector(`.card[data-id="${cur.id}"]`);
+          if(card)updateCardBadges(card,cur);
+        }
+        renderLb();updateFSum();renderFlows();
+      }
     };
     c.appendChild(d);
   });
+
   if(!filtered.length){
     const em=document.createElement('div');em.style.cssText='font-size:10px;color:var(--m);text-align:center;padding:16px 0';
     em.textContent=srch?'No matches':'No flows';c.appendChild(em);
@@ -2236,28 +2496,40 @@ function lbAssignFlow(fid){
   const fr=getFrame(lbFrId);if(!fr)return;
   const fl=flows.find(f=>f.id===fid);if(!fl)return;
   if(!fr.flows.includes(fid))fr.flows.push(fid);
-  // Sync grid card badge immediately
   const card=document.querySelector(`.card[data-id="${fr.id}"]`);
   if(card)updateCardBadges(card,fr);
   renderLb();updateFSum();renderFlows();
+  scheduleSaveSession();
   toast('✓',`"${fl.name}" assigned`);
 }
 function lbRemoveFlow(fid){
   const fr=getFrame(lbFrId);if(!fr)return;
   fr.flows=fr.flows.filter(x=>x!==fid);
-  // Sync grid card badge immediately
   const card=document.querySelector(`.card[data-id="${fr.id}"]`);
   if(card)updateCardBadges(card,fr);
   renderLb();updateFSum();renderFlows();
+  scheduleSaveSession();
 }
-function lbNav(d){const af=allFrames();const i=af.findIndex(f=>f.id===lbFrId);const n=af[i+d];if(n){lbFrId=n.id;renderLb();}}
+function lbNav(d){
+  const af=allFrames();const i=af.findIndex(f=>f.id===lbFrId);const n=af[i+d];
+  if(!n)return;
+  lbFrId=n.id;
+  // Forward only: auto-tag new frame with sticky flow (replace existing, one flow per frame)
+  if(d>0&&lbStickyFlow){
+    n.flows=[lbStickyFlow];
+    const card=document.querySelector(`.card[data-id="${n.id}"]`);
+    if(card)updateCardBadges(card,n);
+  }
+  renderLb();updateFSum();renderFlows();
+  scheduleSaveSession();
+}
 function lbDel(){
   const af=allFrames();const i=af.findIndex(f=>f.id===lbFrId);
   videos.forEach(v=>{v.frames=v.frames.filter(f=>f.id!==lbFrId);});
   if(!allFrames().length)closeLb();else{const n=allFrames()[Math.min(i,allFrames().length-1)];if(n)lbFrId=n.id;renderLb();}
   scheduleRenderFrames();renderFlows();toggleExpBtns();toast('🗑','Deleted');
 }
-function closeLb(){document.getElementById('lb').classList.remove('on');lbFrId=null;}
+function closeLb(){document.getElementById('lb').classList.remove('on');lbFrId=null;lbStickyFlow=null;}
 
 // ─── TRIM ─────────────────────────────────────────────────────────────────────
 function initTrimmer(){
@@ -2359,87 +2631,114 @@ function disableVexBtns(on){
 }
 async function reconstructVideo(frameList,label){
   if(!frameList.length){toast('⚠️',`No frames for "${label}"`);return;}
-  if(typeof MediaRecorder==='undefined'){toast('❌','MediaRecorder not supported — use Chrome/Edge');return;}
   const fps=parseInt(document.getElementById('vex-fps').value)||30;
-  const mspf=Math.floor(1000/fps);
-  const W=frameList[0].canvas.width||1280,H=frameList[0].canvas.height||720;
-
-  // Always produce real WebM — captureStream+MediaRecorder only produces valid WebM.
-  // Saving as .mp4 is a container rename that breaks playback. Always use .webm.
-  const preferredMimes=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
-  const mime=preferredMimes.find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
-  const ext='webm';
-
-  const rc=document.getElementById('rc');rc.width=W;rc.height=H;
-  const rctx=rc.getContext('2d',{alpha:false});
-
-  // Draw first frame BEFORE capturing stream — ensures encoder gets a valid keyframe
-  rctx.drawImage(frameList[0].canvas,0,0,W,H);
-  await new Promise(r=>setTimeout(r,80)); // let browser composite
-
-  const stream=rc.captureStream(fps);
-  if(!stream.getVideoTracks().length){toast('❌','captureStream failed — ensure page is visible in Chrome');return;}
-
-  const chunks=[];
-  const mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:16000000});
-  mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data.slice()); }; // .slice() forces copy before chunk is released
-
   const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb');
   prog.style.display='block';progB.style.width='0%';
-  progT.textContent=`Encoding "${label}" — ${frameList.length} frames @ ${fps}fps…`;
+  progT.textContent=`Loading frames for "${label}"…`;
+  // Pre-load all canvases from blobs — works even when tab is backgrounded
+  const canvases=[];
+  for(let i=0;i<frameList.length;i++){
+    canvases.push(await getFrameCanvas(frameList[i]));
+    if(i%20===0){progB.style.width=Math.round(i/frameList.length*30)+'%';await yieldUI();}
+  }
+  const W=canvases[0].width,H=canvases[0].height;
+  // Try WebCodecs first (works off-page)
+  if(typeof VideoEncoder!=='undefined'){
+    try{return await _encodeWebCodecs(canvases,label,fps,W,H,prog,progT,progB);}
+    catch(e){console.warn('WebCodecs failed, fallback:',e);}
+  }
+  // Fallback: captureStream
+  return await _encodeMediaRecorder(canvases,label,fps,W,H,prog,progT,progB);
+}
 
+async function _encodeWebCodecs(canvases,label,fps,W,H,prog,progT,progB){
+  const chunks=[];
+  let encErr=null;
+  const encoder=new VideoEncoder({
+    output:(chunk)=>{
+      const buf=new ArrayBuffer(chunk.byteLength);chunk.copyTo(buf);
+      chunks.push({buf,type:chunk.type,timestamp:chunk.timestamp});
+    },
+    error:(e)=>{encErr=e;}
+  });
+  const cfg={codec:'vp8',width:W,height:H,bitrate:8_000_000,framerate:fps};
+  const sup=await VideoEncoder.isConfigSupported(cfg);
+  if(!sup.supported)throw new Error('vp8 unsupported');
+  encoder.configure(cfg);
+  for(let i=0;i<canvases.length;i++){
+    if(encErr)throw encErr;
+    const ts=Math.round(i*(1_000_000/fps));
+    const vf=new VideoFrame(canvases[i],{timestamp:ts,duration:Math.round(1_000_000/fps)});
+    encoder.encode(vf,{keyFrame:i%30===0});vf.close();
+    if(i%10===0){await encoder.flush();progT.textContent=`Encoding "${label}" — ${i+1}/${canvases.length}`;progB.style.width=(30+Math.round(i/canvases.length*65))+'%';await yieldUI();}
+  }
+  await encoder.flush();encoder.close();
+  if(!chunks.length)throw new Error('no chunks');
+  const blob=_chunksToWebM(chunks,W,H,fps);
+  _triggerDownload(blob,label,'webm');
+  toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB .webm · ${canvases.length} frames`);
+  progB.style.width='100%';prog.style.display='none';
+}
+
+async function _encodeMediaRecorder(canvases,label,fps,W,H,prog,progT,progB){
+  if(typeof MediaRecorder==='undefined'){toast('❌','MediaRecorder not supported');prog.style.display='none';return;}
+  const mspf=Math.floor(1000/fps);
+  const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
+  const rc=document.getElementById('rc');rc.width=W;rc.height=H;
+  const rctx=rc.getContext('2d',{alpha:false});
+  rctx.drawImage(canvases[0],0,0,W,H);
+  await new Promise(r=>setTimeout(r,80));
+  const stream=rc.captureStream(fps);
+  if(!stream.getVideoTracks().length){toast('❌','captureStream failed — stay on page');prog.style.display='none';return;}
+  const chunks=[];
+  const mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:16000000});
+  mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data.slice());};
   return new Promise(resolve=>{
-    mr.onstop=async()=>{
-      // Flush any remaining buffered data
-      const totalBytes=chunks.reduce((s,c)=>s+c.size,0);
-      if(!totalBytes){
-        toast('❌','0 bytes produced — open Chrome DevTools, ensure canvas is visible, try again');
-        prog.style.display='none';resolve();return;
-      }
+    mr.onstop=()=>{
       const blob=new Blob(chunks,{type:mime});
-      // Verify blob is non-trivially sized (a valid WebM has headers + frames)
-      if(blob.size<5000){
-        toast('⚠️',`Very small output (${blob.size}B) — may be incomplete. Try lower FPS.`);
-      }
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');
-      a.href=url;a.download=label.replace(/[^a-zA-Z0-9_\-]/g,'_').toLowerCase()+'.'+ext;
-      document.body.appendChild(a);a.click();a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url),30000);
-      toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB .${ext} · ${frameList.length} frames`);
-      progB.style.width='100%';
-      prog.style.display='none';
-      resolve();
+      if(blob.size<5000)toast('⚠️',`Small output (${blob.size}B) — stay on page while encoding`);
+      _triggerDownload(blob,label,'webm');
+      toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB · ${canvases.length} frames`);
+      progB.style.width='100%';prog.style.display='none';resolve();
     };
-
-    // Collect data every 100ms to avoid losing frames at end
-    mr.start(100);
-    let frameIdx=0;
-
-    // Paint ALL frames at exact fps using setInterval
-    // Key: we must draw frame 0 again since we drew it before mr.start()
+    mr.start(100);let fi=0;
     const timer=setInterval(()=>{
-      if(frameIdx>=frameList.length){
+      if(fi>=canvases.length){
         clearInterval(timer);
-        // CRITICAL: requestData() forces the encoder to flush its internal buffer,
-        // then we wait 2× mspf before stop() to ensure the last frame is encoded.
         try{mr.requestData();}catch(e){}
-        setTimeout(()=>{
-          try{mr.requestData();}catch(e){} // second flush
-          setTimeout(()=>{
-            try{mr.stop();}catch(e){resolve();}
-          },mspf*3);
-        },mspf*2);
+        setTimeout(()=>{try{mr.requestData();}catch(e){}setTimeout(()=>{try{mr.stop();}catch(e){resolve();}},mspf*3);},mspf*2);
         return;
       }
-      rctx.clearRect(0,0,W,H);
-      rctx.drawImage(frameList[frameIdx].canvas,0,0,W,H);
-      const pct=Math.round((frameIdx+1)/frameList.length*100);
-      progT.textContent=`Encoding "${label}" — ${frameIdx+1}/${frameList.length} (${pct}%)`;
-      progB.style.width=pct+'%';
-      frameIdx++;
+      rctx.clearRect(0,0,W,H);rctx.drawImage(canvases[fi],0,0,W,H);
+      progT.textContent=`Encoding "${label}" — ${fi+1}/${canvases.length}`;
+      progB.style.width=(30+Math.round(fi/canvases.length*65))+'%';
+      fi++;
     },mspf);
   });
+}
+
+function _chunksToWebM(chunks,W,H,fps){
+  function ebml(id,data){const ib=_eid(id),sb=_esz(data.length),o=new Uint8Array(ib.length+sb.length+data.length);o.set(ib);o.set(sb,ib.length);o.set(data,ib.length+sb.length);return o;}
+  function _eid(id){if(id<=0xff)return new Uint8Array([id]);if(id<=0xffff)return new Uint8Array([(id>>8)&0xff,id&0xff]);if(id<=0xffffff)return new Uint8Array([(id>>16)&0xff,(id>>8)&0xff,id&0xff]);return new Uint8Array([(id>>24)&0xff,(id>>16)&0xff,(id>>8)&0xff,id&0xff]);}
+  function _esz(s){if(s<0x7f)return new Uint8Array([0x80|s]);if(s<0x3fff)return new Uint8Array([0x40|(s>>8),s&0xff]);if(s<0x1fffff)return new Uint8Array([0x20|(s>>16),(s>>8)&0xff,s&0xff]);return new Uint8Array([0x10|(s>>24),(s>>16)&0xff,(s>>8)&0xff,s&0xff]);}
+  function num(v,b){const a=new Uint8Array(b);for(let i=b-1;i>=0;i--){a[i]=v&0xff;v>>=8;}return a;}
+  function cat(...a){const t=a.reduce((s,x)=>s+x.length,0),o=new Uint8Array(t);let p=0;a.forEach(x=>{o.set(x,p);p+=x.length;});return o;}
+  function str(s){return new TextEncoder().encode(s);}
+  function f64(v){const b=new ArrayBuffer(8);new DataView(b).setFloat64(0,v,false);return new Uint8Array(b);}
+  const blocks=chunks.map(ch=>{const d=new Uint8Array(ch.buf);const h=new Uint8Array([0x81,0x00,0x00,ch.type==='key'?0x80:0x00]);return cat(h,d);});
+  const clusterData=cat(ebml(0xe7,num(0,8)),...blocks.map(b=>ebml(0xa3,b)));
+  const trackEntry=cat(ebml(0xd7,num(1,1)),ebml(0x73c5,num(1,1)),ebml(0x83,num(1,1)),ebml(0x86,str('V_VP8')),ebml(0xe0,cat(ebml(0xb0,num(W,2)),ebml(0xba,num(H,2)))));
+  const info=cat(ebml(0x2ad7b1,num(1000000,4)),ebml(0x4d80,str('UILand')),ebml(0x5741,str('UILand')),ebml(0x4489,f64(chunks.length*1000/fps)));
+  const seg=cat(ebml(0x1549a966,info),ebml(0x1654ae6b,ebml(0xae,trackEntry)),ebml(0x1f43b675,clusterData));
+  const hdr=ebml(0x1a45dfa3,cat(ebml(0x4286,num(1,1)),ebml(0x42f7,num(1,1)),ebml(0x42f2,num(4,1)),ebml(0x42f3,num(8,1)),ebml(0x4282,str('webm')),ebml(0x4287,num(2,1)),ebml(0x4285,num(2,1))));
+  return new Blob([cat(hdr,ebml(0x18538067,seg))],{type:'video/webm'});
+}
+
+function _triggerDownload(blob,label,ext){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=label.replace(/[^a-zA-Z0-9_\-]/g,'_').toLowerCase()+'.'+ext;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
 }
 
 // ─── ZIP EXPORT (FULL QUALITY - PNG) ─────────────────────────────────────────
@@ -2493,7 +2792,8 @@ async function exportZip(vid){
     for(const fr of toExport){
       globalSeq++;
       // Export at FULL quality PNG
-      const blob=await new Promise(r=>fr.canvas.toBlob(r,'image/png'));
+      const _fc=await getFrameCanvas(fr);
+      const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
       const fn=`seq${String(globalSeq).padStart(4,'0')}_${fr.name}.png`;
       const flowNames=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?fl.name:'';}).filter(Boolean);
       if(fr.flows.length>0){fr.flows.forEach(fid=>{if(flowFolders[fid])flowFolders[fid].file(fn,blob,{binary:true});});}
@@ -2512,7 +2812,10 @@ async function exportZip(vid){
   const safeApp=appName.replace(/[^a-zA-Z0-9_\-]/g,'_').toLowerCase();
   a.href=url;a.download=`${safeApp}_export.zip`;a.click();
   setTimeout(()=>URL.revokeObjectURL(url),15000);
-  hideLd();toast('⬇',`ZIP ready · ${globalSeq} frames`);
+  hideLd();
+  clearSession();
+  dismissSessionBanner();
+  toast('⬇',`ZIP ready · ${globalSeq} frames · session cleared`);
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
@@ -2683,15 +2986,10 @@ function renderFad(){
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 async function init(){
   await openDB();
-  // Load persistent preferences
   try{const p=JSON.parse(localStorage.getItem(LS_PREFS)||'{}');if(p.globalHideStyle)globalHideStyle=p.globalHideStyle;if(p.vexFormat)vexFormat=p.vexFormat;if(p.currentView)currentView=p.currentView;}catch(e){}
-  // Load persistent flows (includes presets)
   initFlows();
-  // Load persistent words
   initWords();
-  // Theme
   try{const th=localStorage.getItem(LS_THEME);if(th==='light'){darkMode=false;document.body.classList.add('light');document.getElementById('theme-btn').textContent='☀️';}}catch(e){}
-  // UI
   renderFlows();renderQFlows();renderWordList();updateFDD();
   document.getElementById('nfi').addEventListener('keydown',e=>{if(e.key==='Enter')addFlowCustom();});
   document.getElementById('nwi').addEventListener('keydown',e=>{if(e.key==='Enter')addWordG();});
@@ -2701,7 +2999,48 @@ async function init(){
   setView(currentView);
   initTrimmer();
   initOcr();
+
+  // Check for saved session
+  const meta=getSessionMeta();
+  if(meta&&meta.videos?.length){
+    const total=meta.videos.reduce((s,v)=>s+v.frames.length,0);
+    showSessionBanner(meta.savedAt,total);
+  }
 }
+
+// Wire restore/dismiss to the existing session banner buttons
+async function restoreSession(){
+  dismissSessionBanner();
+  const ok=await restoreSession._fn();
+  if(!ok)toast('⚠️','Session data missing — may have expired');
+}
+// Rename inner to avoid collision
+restoreSession._fn=async function(){
+  const meta=getSessionMeta();if(!meta||!meta.videos?.length)return false;
+  showLd('Restoring session…');
+  videos=[];
+  let loaded=0;
+  const total=meta.videos.reduce((s,v)=>s+v.frames.length,0);
+  for(const vm of meta.videos){
+    const v={...vm,objectURL:null,file:null,frames:[]};
+    for(const fm of vm.frames){
+      const fr={...fm,canvas:null,blobUrl:null,_thumbBlobUrl:null,selected:false};
+      const ok=await dbLoadFrameBlob(fr);
+      if(!ok){hideLd();videos=[];clearSession();return false;}
+      v.frames.push(fr);loaded++;
+      if(loaded%20===0){setLdPb(Math.round(loaded/total*90),'Loading frames…');await yieldUI();}
+    }
+    videos.push(v);
+  }
+  activeVideoId=meta.activeVideoId||videos[0]?.id||null;
+  hideLd();
+  renderVideoList();updateVDD();renderFrames();updateStats();
+  renderFlows();renderQFlows();toggleExpBtns();
+  toast('✓',`Session restored · ${total} frames`);
+  return true;
+};
+
+function dismissRestore(){dismissSessionBanner();}
 
 init();
 </script>
