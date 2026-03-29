@@ -971,7 +971,8 @@ let darkMode=true;
 let ocrWorker=null, ocrReady=false;
 let ocrFrId=null, ocrWords=[], ocrHidden=new Set(), ocrLocalStyle='fill';
 let lbFrId=null;
-let lbStickyFlow=null; // auto-tag flow when navigating in lightbox
+let lbStickyFlow=null;
+let lbPendingHits=[]; // word-list hits pending accept/reject in lightbox // auto-tag flow when navigating in lightbox
 let rdFrId=null, rdBoxes=[], rdDrawing=false, rdStart=null, rdCur=null;
 let trimStart=0, trimEnd=0, videoDuration=0;
 let uploadMode='video';
@@ -1880,8 +1881,19 @@ function drawRd(){
   const fr=getFrame(rdFrId);if(!fr||!fr.canvas)return;
   const dc=document.getElementById('rdcv');const ctx=get2dCtx(dc,true,false);
   ctx.clearRect(0,0,dc.width,dc.height);ctx.drawImage(fr.canvas,0,0,dc.width,dc.height);
-  rdBoxes.forEach(b=>{ctx.fillStyle='#000';ctx.fillRect(b.x*dc.width,b.y*dc.height,b.w*dc.width,b.h*dc.height);ctx.strokeStyle='#f76a6a';ctx.lineWidth=1.5;ctx.strokeRect(b.x*dc.width,b.y*dc.height,b.w*dc.width,b.h*dc.height);});
-  if(rdDrawing&&rdCur){ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(rdCur.x*dc.width,rdCur.y*dc.height,rdCur.w*dc.width,rdCur.h*dc.height);ctx.strokeStyle='#f76a6a';ctx.lineWidth=1.5;ctx.setLineDash([4,4]);ctx.strokeRect(rdCur.x*dc.width,rdCur.y*dc.height,rdCur.w*dc.width,rdCur.h*dc.height);ctx.setLineDash([]);}
+  rdBoxes.forEach(b=>{
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(b.x*dc.width,b.y*dc.height,b.w*dc.width,b.h*dc.height);
+    ctx.strokeStyle='rgba(0,0,0,0.25)';ctx.lineWidth=1;
+    ctx.strokeRect(b.x*dc.width,b.y*dc.height,b.w*dc.width,b.h*dc.height);
+  });
+  if(rdDrawing&&rdCur){
+    ctx.fillStyle='rgba(255,255,255,0.85)';
+    ctx.fillRect(rdCur.x*dc.width,rdCur.y*dc.height,rdCur.w*dc.width,rdCur.h*dc.height);
+    ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
+    ctx.strokeRect(rdCur.x*dc.width,rdCur.y*dc.height,rdCur.w*dc.width,rdCur.h*dc.height);
+    ctx.setLineDash([]);
+  }
 }
 function setupRdEv(dc){
   dc.onmousedown=e=>{const r=dc.getBoundingClientRect();rdStart={x:(e.clientX-r.left)/dc.width,y:(e.clientY-r.top)/dc.height};rdDrawing=true;rdCur=null;};
@@ -1896,7 +1908,12 @@ async function applyRd(){
   fr.redactBoxes=rdBoxes.map(b=>({...b}));fr.redacted=rdBoxes.length>0;
   const canvas=await getFrameCanvas(fr);
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  fr.redactBoxes.forEach(b=>{ctx.fillStyle='#000';ctx.fillRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);});
+  fr.redactBoxes.forEach(b=>{
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);
+    ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=1;
+    ctx.strokeRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);
+  });
   releaseFrameBlobs(fr);
   await storeFrameAsBlob(fr,canvas);
   // Update thumb in grid without closing
@@ -1940,12 +1957,28 @@ async function runOcr(canvas){
   }));
 }
 
+function wordMatches(detectedText, savedWord){
+  const t=detectedText.toLowerCase().trim();
+  const s=savedWord.toLowerCase().trim();
+  if(!t||!s)return false;
+  // Exact match
+  if(t===s)return true;
+  // Saved word is multi-word phrase: check if detected text is contained exactly
+  if(s.includes(' '))return t===s||t.includes(s);
+  // Single saved word: detected text must equal it or contain it as a whole word only
+  // Do NOT match if saved word merely contains the detected fragment
+  return new RegExp('(?:^|[^a-z0-9])'+s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?:[^a-z0-9]|$)').test(t)||t===s;
+}
 async function openOcr(id){
   const fr=getFrame(id);if(!fr)return;
   const _fromLb=document.getElementById('lb').classList.contains('on');
   const _lbOrigin=lbFrId;
+  // capture sameFrame BEFORE updating ocrFrId
   const sameFrame=(ocrFrId===id);
-  ocrFrId=id;if(!sameFrame)ocrHidden=new Set();ocrLocalStyle=globalHideStyle;
+  ocrFrId=id;
+  // always clear hidden set when navigating to a different frame
+  if(!sameFrame)ocrHidden=new Set();
+  ocrLocalStyle=globalHideStyle;
   document.querySelectorAll('#osr .osb').forEach(b=>b.classList.toggle('on',b.dataset.v===ocrLocalStyle));
   document.getElementById('ocr-col').value=document.getElementById('hc').value;
   document.getElementById('ocr-pad').value=document.getElementById('hp').value;
@@ -1955,24 +1988,32 @@ async function openOcr(id){
   document.getElementById('ocr-pills').innerHTML='<span style="font-size:10px;color:var(--m)">Scanning…</span>';
   const dc=document.getElementById('ocrcv'),cw=document.getElementById('ocr-cw');
   const canvas=await getFrameCanvas(fr);
-  fr.canvas=canvas; // hold for OCR session
+  fr.canvas=canvas;
   const maxH=window.innerHeight-100,maxW=window.innerWidth*.72-280;
   const ratio=Math.min(maxW/canvas.width,maxH/canvas.height);
   dc.width=canvas.width*ratio;dc.height=canvas.height*ratio;
   cw.style.width=dc.width+'px';cw.style.height=dc.height+'px';
   get2dCtx(dc,false,false).drawImage(canvas,0,0,dc.width,dc.height);
   renderOcrWList();
-  // Auto-hide words from global word list immediately
- 
   // Cache OCR results per frame — avoid re-scanning same frame twice
   if(!sameFrame||!fr._ocrWords){
     document.getElementById('ocr-hint').textContent='Scanning…';
     try{fr._ocrWords=await runOcr(fr.canvas);}catch(e){fr._ocrWords=[];}
   }
   ocrWords=fr._ocrWords||[];
-  if(!sameFrame)ocrWords.forEach((w,i)=>{if(wordList.some(s=>w.text.toLowerCase().includes(s)||s.includes(w.text.toLowerCase())))ocrHidden.add(i);});
+  // auto-hide wordlist matches AFTER OCR scan completes, only on new frame
+  if(!sameFrame){
+    ocrHidden=new Set();
+    ocrWords.forEach((w,i)=>{
+      if(wordList.some(s=>wordMatches(w.text,s)))
+        ocrHidden.add(i);
+    });
+  }
   refreshOcr();
-  document.getElementById('ocr-hint').textContent=ocrWords.length?`${ocrWords.length} words · click to hide (auto-saves to list) · ‹ › to navigate frames`:'No text found — use ‹ › to go to next frame';
+  const wlCount=ocrHidden.size;
+  document.getElementById('ocr-hint').textContent=ocrWords.length
+    ?`${ocrWords.length} words · ${wlCount>0?wlCount+' auto-hidden from word list · ':''}click to hide · ‹ › navigate`
+    :'No text found — use ‹ › to go to next frame';
 }
 function refreshOcr(){
   const fr=getFrame(ocrFrId);if(!fr||!fr.canvas)return;
@@ -1986,9 +2027,12 @@ function renderOcrPills(){
   const c=document.getElementById('ocr-pills');c.innerHTML='';
   if(!ocrWords.length){c.innerHTML='<span style="font-size:10px;color:var(--m)">None detected</span>';return;}
   ocrWords.forEach((w,i)=>{
-    const hi=ocrHidden.has(i);const p=document.createElement('span');p.className='wpill'+(hi?' hi':'');
+    const hi=ocrHidden.has(i);
+    const isWL=wordList.some(s=>wordMatches(w.text,s));
+    const p=document.createElement('span');p.className='wpill'+(hi?' hi':'');
     const cc=w.conf>75?'#6af7c2':w.conf>50?'#f7c26a':'#f76a6a';
-    p.innerHTML=`<span class="cdot" style="background:${cc}" title="${w.conf}%"></span>${esc(w.text)}`;
+    const wlBadge=isWL?`<span style="font-size:7px;background:#2563eb;color:#fff;border-radius:3px;padding:0 3px;margin-left:2px;font-family:'DM Mono',monospace" title="In word list">WL</span>`:'';
+    p.innerHTML=`<span class="cdot" style="background:${cc}" title="${w.conf}%"></span>${esc(w.text)}${wlBadge}`;
     p.onclick=()=>{
       if(ocrHidden.has(i)){
         ocrHidden.delete(i);
@@ -2069,7 +2113,7 @@ async function applyOcr(){
   runOcr(fr.canvas).then(words=>{
     ocrWords=words;
     // Auto-select any words still matching word list
-    ocrWords.forEach((w,i)=>{if(wordList.some(s=>w.text.toLowerCase().includes(s)||s.includes(w.text.toLowerCase())))ocrHidden.add(i);});
+    ocrWords.forEach((w,i)=>{if(wordList.some(s=>wordMatches(w.text,s)))ocrHidden.add(i);});
     refreshOcr();
     document.getElementById('ocr-hint').textContent=ocrWords.length
       ?`${ocrWords.length} words remaining · use ‹ › nav or Cancel to close`
@@ -2139,22 +2183,23 @@ async function batchApply(targets){
     lbl.textContent=`Frame ${i+1} of ${targets.length} · ${total} hidden so far`;
     try{
       // Use smaller canvas for OCR if large (speed optimization)
-      let ocrCanvas=fr.canvas;
+      // FIX: always reconstruct from blob — fr.canvas may be null
+      const srcCanvas=await getFrameCanvas(fr);
       const maxOcrW=1200;
-      if(fr.canvas.width>maxOcrW){
-        const scale=maxOcrW/fr.canvas.width;
+      let ocrCanvas=srcCanvas;
+      if(srcCanvas.width>maxOcrW){
+        const scale=maxOcrW/srcCanvas.width;
         ocrCanvas=document.createElement('canvas');
-        ocrCanvas.width=Math.round(fr.canvas.width*scale);
-        ocrCanvas.height=Math.round(fr.canvas.height*scale);
-        ocrCanvas.getContext('2d').drawImage(fr.canvas,0,0,ocrCanvas.width,ocrCanvas.height);
+        ocrCanvas.width=Math.round(srcCanvas.width*scale);
+        ocrCanvas.height=Math.round(srcCanvas.height*scale);
+        ocrCanvas.getContext('2d').drawImage(srcCanvas,0,0,ocrCanvas.width,ocrCanvas.height);
       }
       const words=await runOcr(ocrCanvas);
-      const srcCanvas=await getFrameCanvas(fr);
       const scaleX=srcCanvas.width/ocrCanvas.width;
       const scaleY=srcCanvas.height/ocrCanvas.height;
       const ctx=get2dCtx(srcCanvas,true,false);let n=0;
       words.forEach(w=>{
-        if(matchers.some(s=>w.text.toLowerCase().includes(s)||s.includes(w.text.toLowerCase()))){
+        if(matchers.some(s=>wordMatches(w.text,s))){
           applyHide(ctx,globalHideStyle,col,bc2,
             (w.x*ocrCanvas.width*scaleX)-pad,(w.y*ocrCanvas.height*scaleY)-pad,
             (w.w*ocrCanvas.width*scaleX)+pad*2,(w.h*ocrCanvas.height*scaleY)+pad*2);
@@ -2380,6 +2425,21 @@ async function batchFaceApply(targets){
 
 // ─── LIGHTBOX ─────────────────────────────────────────────────────────────────
 
+// Silently OCR a frame and return word-list matching boxes
+async function autoScanWordList(frId){
+  if(!wordList.length||!ocrReady)return[];
+  const fr=getFrame(frId);if(!fr)return[];
+  try{
+    const canvas=await getFrameCanvas(fr);
+    if(!fr._ocrWords){
+      fr._ocrWords=await runOcr(canvas);
+    }
+    return (fr._ocrWords||[]).filter((_,i)=>
+      wordList.some(s=>wordMatches(fr._ocrWords[i].text,s))
+    ).map(w=>({...w}));
+  }catch(e){return[];}
+}
+
 let lbFspVisible=true;
 function toggleLbFsp(){
   lbFspVisible=!lbFspVisible;
@@ -2387,6 +2447,9 @@ function toggleLbFsp(){
   document.getElementById('lb-ft').classList.toggle('fsp-hidden',!lbFspVisible);
   document.getElementById('lb-fsp-tog').textContent=lbFspVisible?'🏷':'🏷';
   document.getElementById('lb-fsp-tog').style.opacity=lbFspVisible?'1':'0.5';
+  // keep word bar aligned with sidebar state
+  const bar=document.getElementById('lb-word-bar');
+  if(bar)bar.style.right=lbFspVisible?'320px':'0';
 }
 function lbAddFlow(){
   const inp=document.getElementById('lb-fsp-new');
@@ -2420,9 +2483,65 @@ async function renderLb(){
   document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
   document.getElementById('lb-p').disabled=idx===0;document.getElementById('lb-n').disabled=idx===af.length-1;
   document.getElementById('lb-bgs').innerHTML=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Remove flow">${esc(fl.name)} ✕</span>`:''}).join('');
-  // Clear search when navigating to a new frame
   const si=document.getElementById('lb-fsp-search');if(si&&si._lastFrId!==lbFrId){si.value='';si._lastFrId=lbFrId;}
   renderLbFlows();
+  // Auto-scan word list and show pending hits banner
+  lbPendingHits=[];
+  renderLbWordBanner(null); // clear previous
+  if(wordList.length&&ocrReady){
+    const hits=await autoScanWordList(lbFrId);
+    if(lbFrId===fr.id){// still on same frame
+      lbPendingHits=hits;
+      renderLbWordBanner(hits);
+    }
+  }
+}
+
+function renderLbWordBanner(hits){
+  let bar=document.getElementById('lb-word-bar');
+  if(!bar){
+    bar=document.createElement('div');
+    bar.id='lb-word-bar';
+    bar.style.cssText='position:fixed;top:48px;left:0;right:320px;z-index:375;display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(247,194,106,0.13);border-bottom:1px solid rgba(247,194,106,0.35);font-size:11px;backdrop-filter:blur(6px);transition:opacity .2s';
+    document.getElementById('lb').appendChild(bar);
+  }
+  if(!hits||!hits.length){bar.style.display='none';return;}
+  bar.style.display='flex';
+  const words=[...new Set(hits.map(h=>h.text))];
+  bar.innerHTML=
+    `<span style="color:var(--a2);font-weight:700;flex-shrink:0">🔤 ${hits.length} word-list match${hits.length>1?'es':''}</span>`+
+    `<span style="color:var(--m);font-size:10px;flex:1">${words.slice(0,6).map(w=>`<b style="color:var(--t)">${esc(w)}</b>`).join(', ')}${words.length>6?` +${words.length-6} more`:''}</span>`+
+    `<button onclick="lbAcceptWordHits()" style="background:var(--a2);color:#1a1000;border:none;border-radius:5px;padding:3px 10px;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">✓ Apply</button>`+
+    `<button onclick="lbRejectWordHits()" style="background:none;border:1px solid rgba(247,194,106,0.4);color:var(--m);border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer;flex-shrink:0">✕ Skip</button>`;
+}
+
+async function lbAcceptWordHits(){
+  const fr=getFrame(lbFrId);if(!fr||!lbPendingHits.length)return;
+  const col=document.getElementById('hc').value;
+  const pad=parseInt(document.getElementById('hp').value)||0;
+  const canvas=await getFrameCanvas(fr);
+  const ctx=get2dCtx(canvas,true,false);
+  lbPendingHits.forEach(w=>{
+    applyHide(ctx,globalHideStyle,col,'#ff3366',
+      w.x*canvas.width-pad,w.y*canvas.height-pad,
+      w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);
+    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});
+  });
+  fr.redacted=true;delete fr._ocrWords;
+  releaseFrameBlobs(fr);await storeFrameAsBlob(fr,canvas);
+  // refresh lightbox image
+  document.getElementById('lb-img').src=canvas.toDataURL('image/png');
+  // refresh grid thumb
+  const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+  if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
+  lbPendingHits=[];
+  renderLbWordBanner([]);
+  toast('✓',`${fr.wordBoxes.length} word${fr.wordBoxes.length>1?'s':''} hidden`);
+}
+
+function lbRejectWordHits(){
+  lbPendingHits=[];
+  renderLbWordBanner([]);
 }
 function renderLbFlows(){
   const fr=getFrame(lbFrId);if(!fr)return;
@@ -2529,7 +2648,11 @@ function lbDel(){
   if(!allFrames().length)closeLb();else{const n=allFrames()[Math.min(i,allFrames().length-1)];if(n)lbFrId=n.id;renderLb();}
   scheduleRenderFrames();renderFlows();toggleExpBtns();toast('🗑','Deleted');
 }
-function closeLb(){document.getElementById('lb').classList.remove('on');lbFrId=null;lbStickyFlow=null;}
+function closeLb(){
+  document.getElementById('lb').classList.remove('on');
+  lbFrId=null;lbStickyFlow=null;lbPendingHits=[];
+  const bar=document.getElementById('lb-word-bar');if(bar)bar.style.display='none';
+}
 
 // ─── TRIM ─────────────────────────────────────────────────────────────────────
 function initTrimmer(){
