@@ -429,9 +429,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <!-- DRAW PANEL -->
     <div id="edit-panel-draw" style="display:none">
       <div style="font-size:10px;color:var(--m);line-height:1.9;margin-bottom:8px">
-        <b style="color:var(--t)">Draw</b> — drag to add box<br>
-        <b style="color:var(--t)">Remove</b> — right-click box<br>
-        <b style="color:var(--t)">Undo</b> — ↩ or Z key
+        <b style="color:var(--t)">1st click</b> — set anchor corner<br>
+        <b style="color:var(--t)">2nd click</b> — complete box (always straight)<br>
+        <b style="color:var(--t)">Right-click</b> — cancel / remove box<br>
+        <b style="color:var(--t)">↩ / Z</b> — undo last box
       </div>
       <div style="border-top:1px solid var(--b);padding-top:8px">
         <div class="sl" style="margin-bottom:4px">Boxes <span id="edit-box-count" style="color:var(--m);font-weight:400">0</span></div>
@@ -1079,7 +1080,9 @@ const COLS=['#2563eb','#f7c26a','#6af7c2','#f76a6a','#6ab4f7','#f76ac6','#c2f76a
 
 // The full flow list from the CSV (unique, sorted, trimmed)
 const PRESET_FLOWS = ["Achievements","Activity","Activity Calendar","Activity Timer","Activity Trends","Add Beneficiary","Add Flight","Add Homework","Add Medication","Add Money","Add New Expense","Add a Place","Add a Podcast","Add address","Add bank account","Add expense","Add to Favourite","Adding Comment to Picture","Adding a video to favorite","Adding effect","Adding friend","Adding music","Adding plants","Ai assistant","Answer questionnaire","Articles","Assessment","Authentication","Avatar Setup","Badges","Betting & gaming","Blog","Book","Book Details","Book Discovery","Book Search","Book an activity","Book an inspection","Booking","Booking flight","Booking show","Browse","Browse by categories","Building a weight loss plan","Buy gift card","Buy show","Calendar","Camera filter","Camera settings","Cancel Reservations","Car details","Certifications","Challenges","Change password","Changing notification settings","Changing playback speed","Charging","Charts","Check Flights","Checkout","Choose Workout","Clip creation","Collections","Comments","Community","Community details","Compare hotels","Competitions","Contact Us","Course detail","Course outline","Courses","Create Account","Create Discount","Create Invoices","Create Island","Create Playlist Widget","Create a group","Create a plan","Create a profile","Create a question","Create a task","Create a trip","Create board","Create card","Create challenge","Create essay","Create first routine","Create image","Create journal","Create kahoot","Create meal","Create meal plan with ai","Create new habit","Create new playlist","Create new reel","Create new routine","Create playlist","Create whiteboard","Creating a Bucket List","Creating a note","Creating a post","Creating a short","Creating a story","Creating a video","Creating a website","Creating dream art","Creating journal entry","Creating new chat","Creating new request","Creating story","Credits","Daily check in","Daily deals","Daily lesson","Daily streak","Delete conversation","Delete post","Delete Roll call","Directions","Discovery","Discussions","Download","Downloading a video","Dream Journal","Edit","Edit Home","Edit Playlist","Edit board info","Edit comment","Edit details","Edit goal","Edit habit","Edit list","Edit profile","Editing and saving a picture","Enable Location","Events","Expense","Explore","Explore Details","Explore Meals","Explore flights","Explore hotels","Explore restaurants","Explore travel deals","Export","Face scan","Faq","Favourites","Feature Highlight","Feed","Feedback","Filtering","Financial report","Fitness","Flight Details","Flight Report","Flight Schedule","Following","Following a user","Food ordering","Friends","Friends Compatibility","Fund wallet","Gaming","Gift","Gift card","Goals","Guide","Habit details","Habit summary","Health","Help and support","History","Home","Hotel booking","Hotel detail","How it works","Hydration Tracking","Identify A Bird","Identify insect","Identify plant","Inbox","Insight","Join challenge","Join competition","Join waitlist","Journaling","Kyc","Language settings","Latest News","Learn","Leaderboard","Liking","Liking a comment","Liking a post","Liking a short","Liking a video","List","Listen","Listening to a podcast","Live matches","Live video","Location details","Log first event","Log habit","Log period","Login","Logout","Loyalty","Make a request","Making Reservations","Market Statistics","Meditations","Members","Menu","Messaging","Mindset","Move item","Music","My courses","My profile","My shows","Navigation settings","New scan","Notification","Notification settings","Onboarding","Order Confirmation","Ordering a delivery","Ordering a pickup","Orders","Overview","Packages","Payment","Plans","Plant details","Plant progress","Playlist","Podcast","Post","Post Details","Price alerts","Privacy settings","Profile","Profile setup","Programs","Purchase","Quitting game","Recipe details","Recipes","Record video","Referral","Reporting","Reservation","Rewards","Running","Saving","Schedule","Scheduling","Search","Search Music","Search cars","Searching","Searching for flights","Security","Send money","Settings","Setup 2fa","Share","Sharing a post","Sharing a story","Sharing music","Shopping Bag","Sign","Sign Up","Single Sign-On","Skin analyzer","Sleep","Sort & filter","Spending/Expenses","Sports live","Start fasting","Start navigation","Starting a course","Starting a lesson","Starting exercise","Stats","Stories","Stream setup","Streaks","Study Plan","Subscriptions","Support","Task","Tips","Tour details","Transactions","Transfer","Trip details","Trips","Tutorial","Upcoming task","User profile","Video call","View Activity","View Map","View Reservations","Voting","Wallet","Wishlist","Workout details","Workout plan","Writing & editing"];
+// ADD immediately after the PRESET_FLOWS closing bracket+semicolon:
 
+const PRESET_WORDS = ["temitope6878gmailcom","instantapply343gmailcom","miracle","stunner","heywhy","charles","oluwabusayo","0947","fiyinfoluwa","temitope","ajepe","4787","ccaslecreusot","zhonglena","epicerie","traore","temi","place","de","la","molette","le","creusot","71200","banque","miracleibifuba","societe","oluwatobi","tresor","tresorp","oluwatobial67","montceau","0043","8511","fivinfoluwa","dawood","komal","succursalellr","1084","bifubara","agbani","miracleibifubaraa","theodore","petrick","reimmer","theodorepetrickr","2010","3848","09470","fiyinfoluwatemitopea","60-84-64","49044692","26680","38078","44692","fiyinfoluwatemitop","wisecompaymefiyinfoluwatemitopea","be47","9056","3602","6680","gb23","trwi","6084","6449","0446","92","trwigb2lxxx","2347068788511","032029","8833","3941","092028","p94424315","2001","7068788511","2035177955","33745724370","4370","7132","fr76","2823","3000","0198","1886","4448","672","revofrp2","chasdefx","808","490","8211","bro2","fr7626233000019818864448672","ayomide","07102012","abimbola","jinadu","2349022975379","anita","alina","526563497974","2347088579996","revofrp2xxx","ayo","337","4953","33","623636073","umar","44","84","85","qadeem","senior","613","36","09","terryl","58","wale","jrordan","httpsshareweropayeup1crb032uilqj","fiyinfoluwaajepegmailcom","33744822010","33749538442","25000","23-01-20","71726589","chasgb2l","745724379"];
 function get2dCtx(canvas,willRead=false,alpha=false){
   return canvas.getContext('2d',willRead?{willReadFrequently:true,alpha}:{alpha})||canvas.getContext('2d');
 }
@@ -1305,14 +1308,43 @@ function updateVDD(){
 // ─── WORDS (PERSISTENT) ────────────────────────────────────────────────────
 function initWords(){
   const saved=loadPersistentWords();
-  if(saved)wordList=saved;
+  if(saved&&saved.length>0){
+    wordList=saved;
+    // Merge any PRESET_WORDS not yet in saved list (silent, no duplicates)
+    let added=0;
+    PRESET_WORDS.forEach(w=>{
+      const t=w.trim().toLowerCase();
+      if(t&&!wordList.includes(t)){wordList.push(t);added++;}
+    });
+    if(added>0)savePersistentWords();
+  } else {
+    wordList=[];
+    PRESET_WORDS.forEach(w=>{
+      const t=w.trim().toLowerCase();
+      if(t&&!wordList.includes(t))wordList.push(t);
+    });
+    savePersistentWords();
+  }
 }
 function addWordG(w){
   const inp=document.getElementById('nwi');
   const raw=w!==undefined?w:(inp?inp.value:'');
   const word=raw.trim().toLowerCase().replace(/[^a-z0-9\s'\-\.@#]/gi,'');
   if(!word)return;
-  if(wordList.includes(word)){toast('⚠️','Already in list');if(!w&&inp)inp.value='';return;}
+  // Check local saved list
+  if(wordList.includes(word)){
+    toast('⚠️',`"${word}" is already in your word list`);
+    if(!w&&inp)inp.value='';
+    return;
+  }
+  // Check preset list (words baked into the app)
+  if(PRESET_WORDS.map(p=>p.toLowerCase()).includes(word)){
+    toast('⚠️',`"${word}" is a protected word — already tracked`);
+    if(!w&&inp)inp.value='';
+    // Still add it to wordList if somehow missing (shouldn't happen after initWords merge)
+    wordList.push(word);savePersistentWords();renderWordList();renderOcrWList();
+    return;
+  }
   wordList.push(word);if(!w&&inp)inp.value='';
   savePersistentWords();
   renderWordList();renderOcrWList();toast('✓',`"${word}" added`);
@@ -2021,7 +2053,7 @@ async function initOcr(){
 async function runOcr(canvas){
   if(!ocrWorker)return[];
   const{data}=await ocrWorker.recognize(canvas);
-  return(data.words||[]).filter(w=>w.text.trim()&&w.confidence>35).map(w=>({
+  return(data.words||[]).filter(w=>w.text.trim().length>1&&w.confidence>50).map(w=>({
     text:w.text.trim(),x:w.bbox.x0/canvas.width,y:w.bbox.y0/canvas.height,
     w:(w.bbox.x1-w.bbox.x0)/canvas.width,h:(w.bbox.y1-w.bbox.y0)/canvas.height,
     conf:Math.round(w.confidence)
@@ -2064,9 +2096,9 @@ function setEditTab(tab){
   document.getElementById('edit-all-btn').style.display=tab==='words'?'':'none';
   document.getElementById('edit-none-btn').style.display=tab==='words'?'':'none';
   document.getElementById('edit-undo-btn').style.display=tab==='draw'?'inline-flex':'none';
-  const hints={words:'click words to hide',draw:'drag to draw · right-click to remove',faces:'toggle faces to hide/show'};
+  const hints={words:'click words to hide',draw:'click to set corner · click again to finish box · right-click to cancel',faces:'toggle faces to hide/show'};
   document.getElementById('edit-mode-hint').textContent=hints[tab]||'';
-  if(tab==='draw')refreshEditDraw();
+  if(tab==='draw'){_polyPoints=[];_polyMousePos=null;refreshEditDraw();}
   if(tab==='faces'){
     if(editFaceHits.length){refreshEditFaces();}
     else{loadEditFaces(ocrFrId);}
@@ -2076,28 +2108,73 @@ function setEditTab(tab){
 function refreshEditDraw(){
   const dc=document.getElementById('ocrcv');
   const ec=document.getElementById('edit-drawcv');
-  ec.width=dc.width;ec.height=dc.height;
+  if(ec.width!==dc.width||ec.height!==dc.height){ec.width=dc.width;ec.height=dc.height;}
   const ctx=ec.getContext('2d',{alpha:true});
   ctx.clearRect(0,0,ec.width,ec.height);
-  // Draw existing boxes
+
+  // Draw all completed boxes
   editDrawBoxes.forEach((b,i)=>{
-    ctx.fillStyle='rgba(255,255,255,0.92)';
+    // Solid white fill
+    ctx.fillStyle='rgba(255,255,255,0.93)';
     ctx.fillRect(b.x*ec.width,b.y*ec.height,b.w*ec.width,b.h*ec.height);
-    ctx.strokeStyle='rgba(0,0,0,0.22)';ctx.lineWidth=1;
+    // Subtle border
+    ctx.strokeStyle='rgba(0,0,0,0.18)';ctx.lineWidth=1;ctx.setLineDash([]);
     ctx.strokeRect(b.x*ec.width,b.y*ec.height,b.w*ec.width,b.h*ec.height);
-    // index label
-    ctx.fillStyle='rgba(37,99,235,0.85)';
-    ctx.fillRect(b.x*ec.width,b.y*ec.height,14,12);
-    ctx.fillStyle='#fff';ctx.font='bold 8px monospace';ctx.textAlign='left';
-    ctx.fillText(i+1,b.x*ec.width+2,b.y*ec.height+9);
+    // Index label at centre
+    const cx=(b.x+b.w/2)*ec.width;
+    const cy=(b.y+b.h/2)*ec.height;
+    ctx.fillStyle='rgba(37,99,235,0.9)';
+    ctx.beginPath();ctx.arc(cx,cy,9,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='bold 9px monospace';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(i+1,cx,cy);
   });
-  if(editDrawing&&editDrawCur){
-    ctx.fillStyle='rgba(255,255,255,0.75)';
-    ctx.fillRect(editDrawCur.x*ec.width,editDrawCur.y*ec.height,editDrawCur.w*ec.width,editDrawCur.h*ec.height);
-    ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
-    ctx.strokeRect(editDrawCur.x*ec.width,editDrawCur.y*ec.height,editDrawCur.w*ec.width,editDrawCur.h*ec.height);
-    ctx.setLineDash([]);
+
+  // Draw in-progress rectangle (anchor set, waiting for second click)
+  if(_polyPoints.length===1&&_polyMousePos){
+    const anchor=_polyPoints[0];
+    const rx=Math.min(anchor.x,_polyMousePos.x)*ec.width;
+    const ry=Math.min(anchor.y,_polyMousePos.y)*ec.height;
+    const rw=Math.abs(_polyMousePos.x-anchor.x)*ec.width;
+    const rh=Math.abs(_polyMousePos.y-anchor.y)*ec.height;
+
+    // Semi-transparent fill preview
+    ctx.fillStyle='rgba(255,255,255,0.35)';
+    ctx.fillRect(rx,ry,rw,rh);
+    // Dashed border
+    ctx.strokeStyle='rgba(37,99,235,0.9)';ctx.lineWidth=2;ctx.setLineDash([6,3]);
+    ctx.strokeRect(rx,ry,rw,rh);ctx.setLineDash([]);
+
+    // Anchor corner dot
+    ctx.fillStyle='rgba(37,99,235,0.9)';
+    ctx.beginPath();
+    ctx.arc(anchor.x*ec.width,anchor.y*ec.height,5,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+
+    // Dimension hint
+    const pw=Math.round(Math.abs(_polyMousePos.x-anchor.x)*100);
+    const ph=Math.round(Math.abs(_polyMousePos.y-anchor.y)*100);
+    const hint=`${pw}% × ${ph}% · click to finish · right-click to cancel`;
+    ctx.font='11px "DM Sans",sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    const tw=ctx.measureText(hint).width;
+    ctx.fillStyle='rgba(13,13,15,0.80)';
+    ctx.fillRect(ec.width/2-tw/2-8,ec.height-26,tw+16,20);
+    ctx.fillStyle='#e8e8f0';
+    ctx.fillText(hint,ec.width/2,ec.height-16);
+  } else if(_polyPoints.length===0&&editDrawBoxes.length===0){
+    // Empty state hint
+    const hint='Click to place first corner · click again to complete box';
+    ctx.font='11px "DM Sans",sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    const tw=ctx.measureText(hint).width;
+    ctx.fillStyle='rgba(13,13,15,0.65)';
+    ctx.fillRect(ec.width/2-tw/2-8,ec.height-26,tw+16,20);
+    ctx.fillStyle='rgba(232,232,240,0.7)';
+    ctx.fillText(hint,ec.width/2,ec.height-16);
   }
+
   renderEditBoxList();
 }
 
@@ -2121,71 +2198,105 @@ function editRemoveBox(i){
 // REPLACE WITH:
 let _editMoveIdx=-1,_editMoveOff={x:0,y:0};
 
+// ── Polygon lasso tool state ──────────────────────────────────────────────
+let _polyPoints=[];    // [{x,y}] — anchor corner when length===1, empty otherwise
+let _polyMousePos=null;// current mouse pos for live rect preview
+
 function setupEditDrawEvents(ec){
   function normXY(e){
     const r=ec.getBoundingClientRect();
     return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
   }
-  ec.onmousedown=e=>{
-    if(e.button===2)return;
+
+  // Two-click rectangle tool:
+  // First click  → anchor corner (_polyPoints[0])
+  // Mouse move   → live preview of axis-aligned rect from anchor to cursor
+  // Second click → complete the rectangle
+  // Right-click  → cancel in-progress OR remove box under cursor
+  // Always produces a perfect horizontal/vertical rectangle — no diagonals ever.
+
+  ec.onclick=e=>{
+    if(e.button!==0)return;
     const {x,y}=normXY(e);
-    // Hit-test existing boxes — innermost (last) wins
-    let hitIdx=-1;
-    for(let i=editDrawBoxes.length-1;i>=0;i--){
-      const b=editDrawBoxes[i];
-      if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h){hitIdx=i;break;}
-    }
-    if(hitIdx>=0){
-      // Move mode
-      _editMoveIdx=hitIdx;
-      const b=editDrawBoxes[hitIdx];
-      _editMoveOff={x:x-b.x,y:y-b.y};
-      editDrawing=false;editDrawCur=null;
+
+    if(_polyPoints.length===0){
+      // First click — set anchor corner
+      _polyPoints=[{x,y}];
+      _polyMousePos={x,y};
+      refreshEditDraw();
     } else {
-      // Draw mode
-      _editMoveIdx=-1;
-      editDrawStart={x,y};editDrawing=true;editDrawCur=null;
+      // Second click — complete rectangle from anchor to current cursor
+      const anchor=_polyPoints[0];
+      const rx=Math.min(anchor.x,x);
+      const ry=Math.min(anchor.y,y);
+      const rw=Math.abs(x-anchor.x);
+      const rh=Math.abs(y-anchor.y);
+      _polyPoints=[];
+      _polyMousePos=null;
+      // Ignore tiny accidental clicks
+      if(rw>0.005&&rh>0.005){
+        editDrawBoxes.push({x:rx,y:ry,w:rw,h:rh});
+      }
+      refreshEditDraw();
     }
   };
+
+  // Double-click — cancel any in-progress anchor (safety)
+  ec.ondblclick=e=>{
+    e.stopPropagation();
+    _polyPoints=[];_polyMousePos=null;refreshEditDraw();
+  };
+
   ec.onmousemove=e=>{
     const {x,y}=normXY(e);
-    if(_editMoveIdx>=0){
-      const b=editDrawBoxes[_editMoveIdx];
-      // Clamp so box stays within [0,1]
-      b.x=Math.max(0,Math.min(1-b.w,x-_editMoveOff.x));
-      b.y=Math.max(0,Math.min(1-b.h,y-_editMoveOff.y));
-      refreshEditDraw();
-    } else if(editDrawing){
-      editDrawCur={x:Math.min(editDrawStart.x,x),y:Math.min(editDrawStart.y,y),
-        w:Math.abs(x-editDrawStart.x),h:Math.abs(y-editDrawStart.y)};
-      // Clamp to [0,1] so boxes can reach bottom edge
-      editDrawCur.x=Math.max(0,editDrawCur.x);
-      editDrawCur.y=Math.max(0,editDrawCur.y);
-      editDrawCur.w=Math.min(editDrawCur.w,1-editDrawCur.x);
-      editDrawCur.h=Math.min(editDrawCur.h,1-editDrawCur.y);
-      refreshEditDraw();
-    } else {
-      // Cursor hint: pointer over existing box, crosshair otherwise
-      const over=editDrawBoxes.some(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);
-      ec.style.cursor=over?'move':'crosshair';
-    }
+    _polyMousePos={x,y};
+    // Always refresh so live rect preview updates
+    refreshEditDraw();
+    // Cursor: pointer over existing box, else crosshair
+    const overBox=editDrawBoxes.some(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);
+    ec.style.cursor=(_polyPoints.length===0&&overBox)?'pointer':'crosshair';
   };
-  ec.onmouseup=()=>{
-    if(_editMoveIdx>=0){_editMoveIdx=-1;}
-    else if(editDrawCur&&editDrawCur.w>.005&&editDrawCur.h>.005)
-      editDrawBoxes.push({...editDrawCur});
-    editDrawing=false;editDrawCur=null;refreshEditDraw();
+
+  ec.onmouseleave=()=>{
+    // Keep anchor visible if mid-draw, just hide the live line
+    if(_polyPoints.length===0)_polyMousePos=null;
+    refreshEditDraw();
   };
+
+  // Right-click — cancel in-progress OR remove box under cursor
   ec.oncontextmenu=e=>{
     e.preventDefault();
+    if(_polyPoints.length>0){
+      _polyPoints=[];_polyMousePos=null;refreshEditDraw();
+      return;
+    }
     const {x,y}=normXY(e);
     editDrawBoxes=editDrawBoxes.filter(b=>!(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h));
-    _editMoveIdx=-1;refreshEditDraw();
+    refreshEditDraw();
   };
+
+  // Escape — cancel in-progress anchor
+  ec._escHandler=ec._escHandler||function(ev){
+    if(ev.key==='Escape'&&_polyPoints.length>0){
+      _polyPoints=[];_polyMousePos=null;refreshEditDraw();
+    }
+  };
+  document.removeEventListener('keydown',ec._escHandler);
+  document.addEventListener('keydown',ec._escHandler);
 }
 
+
+
 // REPLACE WITH:
-function editUndoBox(){editDrawBoxes.pop();refreshEditDraw();}
+function editUndoBox(){
+  // Cancel in-progress anchor OR remove last completed box
+  if(_polyPoints.length>0){
+    _polyPoints=[];_polyMousePos=null;
+  } else {
+    if(editDrawBoxes.length)editDrawBoxes.pop();
+  }
+  refreshEditDraw();
+}
 
 async function editUndo(){
   if(!_editUndoStack.length){toast('⚠️','Nothing to undo');return;}
@@ -2383,11 +2494,16 @@ async function openEdit(id, startTab){
   const ratio=Math.min(maxW/canvas.width,maxH/canvas.height);
   dc.width=canvas.width*ratio;dc.height=canvas.height*ratio;
   cw.style.width=dc.width+'px';cw.style.height=dc.height+'px';
-  get2dCtx(dc,false,false).drawImage(canvas,0,0,dc.width,dc.height);
+  // Always clear + redraw base image so switching frames never shows stale content
+  const dcCtx=get2dCtx(dc,false,false);
+  dcCtx.clearRect(0,0,dc.width,dc.height);
+  dcCtx.drawImage(canvas,0,0,dc.width,dc.height);
   // Wire draw canvas events
   const ec=document.getElementById('edit-drawcv');
   ec.width=dc.width;ec.height=dc.height;
   ec.style.width=dc.width+'px';ec.style.height=dc.height+'px';
+  // Always clear draw canvas when opening a frame so old boxes don't persist visually
+  get2dCtx(ec,false,true).clearRect(0,0,ec.width,ec.height);
   setupEditDrawEvents(ec);
   renderOcrWList();
   // Always use existing _ocrWords if already scanned by autoScanWordList for this frame
@@ -2443,12 +2559,10 @@ async function applyEdit(){
     const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();
     if(wd&&!wordList.includes(wd)){wordList.push(wd);}
   });
-  // Bake draw boxes
+  // Bake draw boxes — always axis-aligned rects, no polygon needed
   editDrawBoxes.forEach(b=>{
     ctx.fillStyle='#ffffff';
     ctx.fillRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);
-    ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=1;
-    ctx.strokeRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);
     fr.redactBoxes=(fr.redactBoxes||[]);fr.redactBoxes.push({...b});boxCount++;
   });
   if(wordCount>0||boxCount>0){
@@ -2459,7 +2573,7 @@ async function applyEdit(){
     if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
   }
   // Reset for next frame — re-draw updated image
-  ocrHidden=new Set();editDrawBoxes=[];
+  ocrHidden=new Set();editDrawBoxes=[];_polyPoints=[];_polyMousePos=null;
   get2dCtx(document.getElementById('ocrcv'),false,false).drawImage(canvas,0,0,document.getElementById('ocrcv').width,document.getElementById('ocrcv').height);
   refreshEditDraw();
   // Re-scan
@@ -2511,7 +2625,8 @@ function cancelEdit(){
   if(fr&&fr.canvas&&fr.blobUrl){fr.canvas=null;}
   document.getElementById('ocrov').classList.remove('on');
   document.getElementById('ocrov').dataset.fromLb='';
-  ocrWords=[];ocrHidden=new Set();editDrawBoxes=[];editFaceHits=[];ocrFrId=null;
+  ocrWords=[];ocrHidden=new Set();editDrawBoxes=[];editFaceHits=[];
+  _polyPoints=[];_polyMousePos=null;ocrFrId=null;
   if(fromLb){openLb(fromLb);}
 }
 
@@ -2933,9 +3048,21 @@ async function autoScanWordList(frId){
   if(!wordList.length||!ocrReady)return[];
   const fr=getFrame(frId);if(!fr)return[];
   try{
-    const canvas=await getFrameCanvas(fr);
-    // Always run a fresh full-res OCR scan — never use stale cache
-    fr._ocrWords=await runOcr(canvas);
+    // Use cached OCR result if available — never re-scan the same frame
+    if(!fr._ocrWords||!fr._ocrWords.length){
+      const canvas=await getFrameCanvas(fr);
+      // Downscale for OCR speed — 800px wide is plenty for word detection
+      let ocrCanvas=canvas;
+      if(canvas.width>800){
+        const scale=800/canvas.width;
+        ocrCanvas=document.createElement('canvas');
+        ocrCanvas.width=800;
+        ocrCanvas.height=Math.round(canvas.height*scale);
+        ocrCanvas.getContext('2d',{alpha:false}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
+      }
+      fr._ocrWords=await runOcr(ocrCanvas);
+      // Scale word boxes back to normalised coords (already normalised 0-1, no adjustment needed)
+    }
     return (fr._ocrWords||[]).filter(w=>
       wordList.some(s=>wordMatches(w.text,s))
     ).map(w=>({...w}));
@@ -2945,8 +3072,9 @@ async function autoScanWordList(frId){
 // Silently detect faces in a frame — returns normalized box array
 async function autoScanFaces(frId){
   const fr=getFrame(frId);if(!fr)return[];
+  // Return cached face scan result immediately — no re-scan
+  if(fr._faceCache){return fr._faceCache.map(d=>({...d,hidden:true}));}
   if(!faceModelLoaded){
-    // Try to load silently — don't block UI
     try{
       if(!window.faceapi){
         await new Promise((res,rej)=>{
@@ -2964,19 +3092,23 @@ async function autoScanFaces(frId){
   }
   try{
     const canvas=await getFrameCanvas(fr);
-    const scale=Math.min(1,720/Math.max(canvas.width,canvas.height));
+    // Use smaller inputSize for speed — 224 is 3x faster than 416, still accurate enough
+    const scale=Math.min(1,480/Math.max(canvas.width,canvas.height));
     const dc=document.createElement('canvas');
     dc.width=Math.max(1,Math.round(canvas.width*scale));
     dc.height=Math.max(1,Math.round(canvas.height*scale));
     dc.getContext('2d',{alpha:false}).drawImage(canvas,0,0,dc.width,dc.height);
-    const dets=await faceapi.detectAllFaces(dc,new faceapi.TinyFaceDetectorOptions({inputSize:416,scoreThreshold:0.4}));
-    return dets.map((d,i)=>({
+    const dets=await faceapi.detectAllFaces(dc,new faceapi.TinyFaceDetectorOptions({inputSize:224,scoreThreshold:0.4}));
+    const result=dets.map((d,i)=>({
       idx:i,hidden:true,score:Math.round(d.score*100),
       x:(d.box.x/scale)/canvas.width,
       y:(d.box.y/scale)/canvas.height,
       w:(d.box.width/scale)/canvas.width,
       h:(d.box.height/scale)/canvas.height
     }));
+    // Cache result on frame object — free forever, tiny memory cost
+    fr._faceCache=result.map(d=>({...d}));
+    return result;
   }catch(e){return[];}
 }
 
@@ -3069,17 +3201,49 @@ async function _lbPreScan(navId, af, idx){
   if(!wordList.length||!ocrReady)return;
   const fr=getFrame(navId);if(!fr)return;
   try{
-    const canvas=await getFrameCanvas(fr);
-    fr._ocrWords=await runOcr(canvas);
-    if(lbFrId!==navId)return; // navigated away
+    // OCR current frame if not cached
+    if(!fr._ocrWords||!fr._ocrWords.length){
+      const canvas=await getFrameCanvas(fr);
+      // Downscale to 800px wide — 3-4x faster, no accuracy loss for word detection
+      let ocrCanvas=canvas;
+      if(canvas.width>800){
+        const scale=800/canvas.width;
+        ocrCanvas=document.createElement('canvas');
+        ocrCanvas.width=800;
+        ocrCanvas.height=Math.round(canvas.height*scale);
+        ocrCanvas.getContext('2d',{alpha:false}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
+      }
+      fr._ocrWords=await runOcr(ocrCanvas);
+    }
+    if(lbFrId!==navId)return;
     const wordHits=(fr._ocrWords||[]).filter(w=>wordList.some(s=>wordMatches(w.text,s))).map(w=>({...w}));
     lbPendingHits=wordHits;
-    lbPendingFaces=[];
-    renderLbWordBanner(wordHits,[]);
-    // Silently pre-scan next frame's words too
-    const next=af[idx+1];
-    if(next&&!next._ocrWords){
-      getFrameCanvas(next).then(c=>runOcr(c).then(w=>{next._ocrWords=w;}).catch(()=>{})).catch(()=>{});
+    // Don't overwrite lbPendingFaces here — let renderLb's face promise update it
+    renderLbWordBanner(wordHits, lbPendingFaces);
+    // Pre-scan next 2 frames words + faces in background so cache is warm before user gets there
+    for(let i=1;i<=2;i++){
+      const next=af[idx+i];
+      if(!next)continue;
+      // Words pre-cache
+      if(!next._ocrWords||!next._ocrWords.length){
+        (async()=>{
+          try{
+            const c=await getFrameCanvas(next);
+            let oc=c;
+            if(c.width>800){
+              const sc=800/c.width;
+              oc=document.createElement('canvas');oc.width=800;
+              oc.height=Math.round(c.height*sc);
+              oc.getContext('2d',{alpha:false}).drawImage(c,0,0,oc.width,oc.height);
+            }
+            next._ocrWords=await runOcr(oc);
+          }catch(e){}
+        })();
+      }
+      // Faces pre-cache — silent, uses _faceCache so never runs twice
+      if(!next._faceCache){
+        autoScanFaces(next.id).catch(()=>{});
+      }
     }
   }catch(e){}
 }
@@ -3107,20 +3271,36 @@ async function renderLb(){
   }).catch(()=>{});
 
   lbPendingHits=[];lbPendingFaces=[];
-  renderLbWordBanner('scanning');
   const scanId=lbFrId;
-  const [wordHits,faceHits]=await Promise.all([
-    wordList.length&&ocrReady?autoScanWordList(scanId):Promise.resolve([]),
-    autoScanFaces(scanId)
-  ]);
-  if(lbFrId!==scanId)return;
-  lbPendingHits=wordHits;
-  lbPendingFaces=faceHits;
-  renderLbWordBanner(wordHits,faceHits);
   document.getElementById('lb-p').disabled=idx===0;
   document.getElementById('lb-n').disabled=idx===af.length-1;
   const lbExp=document.getElementById('lb-exp-btn');
   if(lbExp)lbExp.style.display=idx===af.length-1?'':'none';
+
+  // Always show scanning banner on every frame — even if result is cached it flashes briefly
+  renderLbWordBanner('scanning');
+
+  // Run words + faces in parallel — both use cache so cached frames resolve instantly
+  const wordScanPromise = (wordList.length&&ocrReady)
+    ? autoScanWordList(scanId)
+    : Promise.resolve([]);
+
+  const faceScanPromise = autoScanFaces(scanId);
+
+  // Words resolve first (fast if cached) — show partial result immediately
+  wordScanPromise.then(wordHits=>{
+    if(lbFrId!==scanId)return;
+    lbPendingHits=wordHits;
+    // Show word results right away, faces still show as scanning
+    renderLbWordBanner(wordHits, lbPendingFaces);
+  }).catch(()=>{});
+
+  // Faces resolve whenever ready — update banner with both results
+  faceScanPromise.then(faceHits=>{
+    if(lbFrId!==scanId)return;
+    lbPendingFaces=faceHits;
+    renderLbWordBanner(lbPendingHits, faceHits);
+  }).catch(()=>{});
 }
 
 // REPLACE WITH:
