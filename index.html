@@ -1070,6 +1070,13 @@ let renderedFrameCount=0;
 let faceApiLoaded=false, faceModelLoaded=false;
 let faceFrId=null, faceDetections=[], faceStyle='blur';
 
+// ─── BACKGROUND WORD-HIDE QUEUE ──────────────────────────────────────────────
+let _bgQueue=[];          // frame ids waiting to be processed
+let _bgRunning=false;     // is the worker loop active
+let _bgDone=0;            // frames processed this session
+let _bgTotal=0;           // total frames queued this session
+let _bgPaused=false;      // pause while user is actively editing
+
 const THUMB_MAX_EDGE=320;
 const GRID_RENDER_BATCH=60;
 const GRID_RENDER_STEP=40;
@@ -1083,6 +1090,141 @@ const PRESET_FLOWS = ["Achievements","Activity","Activity Calendar","Activity Ti
 // ADD immediately after the PRESET_FLOWS closing bracket+semicolon:
 
 const PRESET_WORDS = ["temitope6878gmailcom","instantapply343gmailcom","miracle","stunner","heywhy","charles","oluwabusayo","0947","fiyinfoluwa","temitope","ajepe","4787","ccaslecreusot","zhonglena","epicerie","traore","temi","place","de","la","molette","le","creusot","71200","banque","miracleibifuba","societe","oluwatobi","tresor","tresorp","oluwatobial67","montceau","0043","8511","fivinfoluwa","dawood","komal","succursalellr","1084","bifubara","agbani","miracleibifubaraa","theodore","petrick","reimmer","theodorepetrickr","2010","3848","09470","fiyinfoluwatemitopea","60-84-64","49044692","26680","38078","44692","fiyinfoluwatemitop","wisecompaymefiyinfoluwatemitopea","be47","9056","3602","6680","gb23","trwi","6084","6449","0446","92","trwigb2lxxx","2347068788511","032029","8833","3941","092028","p94424315","2001","7068788511","2035177955","33745724370","4370","7132","fr76","2823","3000","0198","1886","4448","672","revofrp2","chasdefx","808","490","8211","bro2","fr7626233000019818864448672","ayomide","07102012","abimbola","jinadu","2349022975379","anita","alina","526563497974","2347088579996","revofrp2xxx","ayo","337","4953","33","623636073","umar","44","84","85","qadeem","senior","613","36","09","terryl","58","wale","jrordan","httpsshareweropayeup1crb032uilqj","fiyinfoluwaajepegmailcom","33744822010","33749538442","25000","23-01-20","71726589","chasgb2l","745724379"];
+// ─── BACKGROUND WORD-HIDE WORKER ─────────────────────────────────────────────
+
+// Call this whenever new frames arrive (after extract, after image upload)
+function bgQueueFrames(frames){
+  if(!frames||!frames.length)return;
+  // Only queue frames that haven't been redacted yet
+  const toAdd=frames.filter(fr=>!fr._bgDone&&!fr.redacted);
+  if(!toAdd.length)return;
+  // Add to front so newest frames process first (most recently uploaded = most relevant)
+  const ids=toAdd.map(fr=>fr.id);
+  // Deduplicate
+  _bgQueue=[...new Set([...ids,..._bgQueue.filter(id=>!ids.includes(id))])];
+  _bgTotal+=toAdd.length;
+  bgUpdateIndicator();
+  if(!_bgRunning)bgRunLoop();
+}
+
+async function bgRunLoop(){
+  if(_bgRunning)return;
+  _bgRunning=true;
+  while(_bgQueue.length>0){
+    // Pause if user is in an edit overlay — avoid competing for canvas/OCR
+    if(_bgPaused||document.getElementById('ocrov').classList.contains('on')||
+       document.getElementById('fov').classList.contains('on')){
+      await yieldUI(500);continue;
+    }
+    const id=_bgQueue.shift();
+    const fr=getFrame(id);
+    if(!fr||fr._bgDone||fr.redacted){_bgDone++;bgUpdateIndicator();continue;}
+    if(!wordList.length||!ocrReady){
+      // OCR not ready yet — push back and wait
+      _bgQueue.push(id);await yieldUI(1000);continue;
+    }
+    try{
+      await bgProcessFrame(fr);
+    }catch(e){console.warn('bg worker error',e);}
+    _bgDone++;
+    bgUpdateIndicator();
+    // Yield between frames so UI stays responsive
+    await yieldUI(30);
+  }
+  _bgRunning=false;
+  bgUpdateIndicator();
+}
+
+async function bgProcessFrame(fr){
+  if(!wordList.length||!ocrReady)return;
+  // Use cached OCR if available
+  if(!fr._ocrWords||!fr._ocrWords.length){
+    const canvas=await getFrameCanvas(fr);
+    // Downscale to 800px for speed
+    let ocrCanvas=canvas;
+    if(canvas.width>800){
+      const sc=800/canvas.width;
+      ocrCanvas=document.createElement('canvas');
+      ocrCanvas.width=800;
+      ocrCanvas.height=Math.round(canvas.height*sc);
+      ocrCanvas.getContext('2d',{alpha:false}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
+    }
+    fr._ocrWords=await runOcr(ocrCanvas);
+  }
+  fr._bgDone=true; // mark as processed regardless of hits
+  const hits=fr._ocrWords.filter(w=>wordList.some(s=>wordMatches(w.text,s)));
+  if(!hits.length)return; // nothing to hide — done
+  // Bake hits into the frame
+  const col=document.getElementById('hc').value;
+  const pad=parseInt(document.getElementById('hp').value)||0;
+  const canvas=await getFrameCanvas(fr);
+  const ctx=get2dCtx(canvas,true,false);
+  hits.forEach(w=>{
+    applyHide(ctx,globalHideStyle,col,'#ff3366',
+      w.x*canvas.width-pad,w.y*canvas.height-pad,
+      w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);
+    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});
+  });
+  fr.redacted=true;
+  delete fr._ocrWords; // clear cache — canvas is now baked
+  releaseFrameBlobs(fr);
+  await storeFrameAsBlob(fr,canvas);
+  // Update grid thumb silently
+  const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+  if(card){
+    const img=card.querySelector('img');
+    if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}
+    const wb=card.querySelector('.wbadge');
+    if(!wb){
+      const iw=card.querySelector('.img-w');
+      if(iw){const b=document.createElement('div');b.className='wbadge';b.textContent=`🔤${fr.wordBoxes.length}`;iw.appendChild(b);}
+    }
+  }
+}
+
+function bgUpdateIndicator(){
+  let ind=document.getElementById('bg-ind');
+  if(!ind){
+    ind=document.createElement('div');
+    ind.id='bg-ind';
+    ind.style.cssText='display:none;align-items:center;gap:5px;font-size:10px;font-family:"DM Mono",monospace;color:var(--m);cursor:pointer;padding:2px 6px;border-radius:4px;border:1px solid var(--b);background:var(--s2)';
+    ind.title='Background word hiding — click to pause/resume';
+    ind.onclick=()=>{
+      _bgPaused=!_bgPaused;
+      bgUpdateIndicator();
+      if(!_bgPaused&&!_bgRunning&&_bgQueue.length)bgRunLoop();
+      toast(_bgPaused?'⏸':'▶',_bgPaused?'Background scan paused':'Background scan resumed');
+    };
+    // Insert into topbar after the pills
+    const topMid=document.querySelector('.top-mid');
+    if(topMid)topMid.appendChild(ind);
+  }
+  const remaining=_bgQueue.length;
+  if(remaining===0&&!_bgRunning){
+    // Done — show briefly then hide
+    if(_bgDone>0){
+      ind.style.display='flex';
+      ind.innerHTML=`✓ <span style="color:var(--a3)">words hidden</span>`;
+      clearTimeout(ind._hideT);
+      ind._hideT=setTimeout(()=>{ind.style.display='none';_bgDone=0;_bgTotal=0;},4000);
+    } else {
+      ind.style.display='none';
+    }
+    return;
+  }
+  ind.style.display='flex';
+  const pct=_bgTotal>0?Math.round((_bgDone/_bgTotal)*100):0;
+  ind.innerHTML=_bgPaused
+    ?`⏸ <span style="color:var(--a2)">paused · ${remaining} left</span>`
+    :`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--a3);animation:lp 1.2s ease-in-out infinite"></span> <span style="color:var(--t)">${pct}%</span> <span style="color:var(--m)">${remaining} left</span>`;
+}
+
+// Reset bg queue — call when frames are cleared
+function bgReset(){
+  _bgQueue=[];_bgRunning=false;_bgDone=0;_bgTotal=0;_bgPaused=false;
+  bgUpdateIndicator();
+}
+
 function get2dCtx(canvas,willRead=false,alpha=false){
   return canvas.getContext('2d',willRead?{willReadFrequently:true,alpha}:{alpha})||canvas.getContext('2d');
 }
@@ -1331,6 +1473,12 @@ function addWordG(w){
   const raw=w!==undefined?w:(inp?inp.value:'');
   const word=raw.trim().toLowerCase().replace(/[^a-z0-9\s'\-\.@#]/gi,'');
   if(!word)return;
+  // When a new word is added, re-queue all frames that haven't been manually redacted
+  // so the new word gets applied to everything automatically
+  const toReQueue=allFrames().filter(fr=>!fr.redacted);
+  toReQueue.forEach(fr=>{fr._bgDone=false;delete fr._ocrWords;}); // force re-scan
+  setTimeout(()=>bgQueueFrames(toReQueue),200); // slight delay so word saves first
+
   // Check local saved list
   if(wordList.includes(word)){
     toast('⚠️',`"${word}" is already in your word list`);
@@ -1455,6 +1603,7 @@ const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,
   await dbDeleteFrameBlobs(oldIds);
   clearSession();
   dismissSessionBanner();
+  bgReset();
 
   const vid={
     id:'img_'+Date.now(),name:folderName+` (${unique.length})`,
@@ -1507,6 +1656,8 @@ const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,
   renderVideoList();updateStats();renderFlows();toggleExpBtns();
   saveSession();
   toast('✓',`${loaded} screenshot${loaded!==1?'s':''} loaded`);
+  // Start background word hiding on all uploaded images
+  bgQueueFrames(vid.frames);
 }
 
 async function addFiles(files){
@@ -1631,6 +1782,8 @@ async function extractVideo(v){
   renderFrames();updateStats();renderFlows();renderVideoList();toggleExpBtns();
   if(!cancelFlag)toast('✓',`${v.frames.length} frames from "${v.name}"`);
   else toast('⚠️',`Stopped · ${v.frames.length} frames kept`);
+  // Start background word hiding immediately after extraction
+  bgQueueFrames(v.frames);
 }
 
 // ULTRA-FAST extraction:
@@ -4028,6 +4181,8 @@ restoreSession._fn=async function(){
   renderVideoList();updateVDD();renderFrames();updateStats();
   renderFlows();renderQFlows();toggleExpBtns();
   toast('✓',`Session restored · ${total} frames`);
+  // Re-queue any frames that weren't processed before session was saved
+  bgQueueFrames(allFrames());
   return true;
 };
 
