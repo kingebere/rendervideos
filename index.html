@@ -1052,7 +1052,9 @@ let activeVideoId=null;
 let currentView='g', cancelFlag=false;
 let globalHideStyle='fill', vexFormat='webm';
 let darkMode=true;
-let ocrWorker=null, ocrReady=false;
+let ocrWorker=null, ocrReady=false; // ocrWorker kept for legacy compat; pool is primary
+let _ocrPool=[];        // array of {worker, busy}
+let _ocrQueue=[];       // pending {canvas, resolve, reject}
 let ocrFrId=null, ocrWords=[], ocrHidden=new Set(), ocrLocalStyle='fill';
 let lbFrId=null;
 let lbStickyFlow=null;
@@ -1090,6 +1092,43 @@ const PRESET_FLOWS = ["Achievements","Activity","Activity Calendar","Activity Ti
 // ADD immediately after the PRESET_FLOWS closing bracket+semicolon:
 
 const PRESET_WORDS = ["temitope6878@gmailcom","temitope6878gmailcom","instantapply343@gmailcom","miracle","stunner","heywhy","charles","oluwabusayo","0947","fiyinfoluwa","temitope","ajepe","4787","ccaslecreusot","zhonglena","epicerie","traore","temi","place","de","la","molette","le","creusot","71200","banque","miracleibifuba","societe","oluwatobi","tresor","tresorp","oluwatobial67","montceau","0043","8511","fivinfoluwa","dawood","komal","succursalellr","1084","bifubara","agbani","miracleibifubaraa","theodore","petrick","reimmer","theodorepetrickr","2010","3848","09470","fiyinfoluwatemitopea","60-84-64","49044692","26680","38078","44692","fiyinfoluwatemitop","wisecompaymefiyinfoluwatemitopea","be47","9056","3602","6680","gb23","trwi","6084","6449","0446","92","trwigb2lxxx","2347068788511","032029","8833","3941","092028","p94424315","2001","7068788511","2035177955","33745724370","4370","7132","fr76","2823","3000","0198","1886","4448","672","revofrp2","chasdefx","808","490","8211","bro2","fr7626233000019818864448672","ayomide","07102012","abimbola","jinadu","2349022975379","anita","alina","526563497974","2347088579996","revofrp2xxx","ayo","337","4953","33","623636073","umar","44","84","85","qadeem","senior","613","36","09","terryl","58","wale","jrordan","httpsshareweropayeup1crb032uilqj","fiyinfoluwaajepegmailcom","33744822010","33749538442","25000","23-01-20","71726589","chasgb2l","745724379"];
+// ─── SENSITIVE DATA PATTERNS ─────────────────────────────────────────────────
+// Matches numbers, IBANs, credit cards, CVV, phone, email, DOB, postcodes, names
+const SENSITIVE_PATTERNS = [
+  // Email addresses
+  /\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b/i,
+  // IBAN (15–34 alphanumeric, starts with 2 letters + 2 digits)
+  /\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b/,
+  // Credit / debit card numbers (13–19 digits, optional spaces/dashes)
+  /\b(?:\d[\s\-]?){13,19}\b/,
+  // CVV / CVC (3–4 digit standalone)
+  /\b\d{3,4}\b/,
+  // Phone numbers (international or local, 7–15 digits with optional +, spaces, dashes)
+  /\b\+?[\d][\d\s\-().]{6,18}\d\b/,
+  // Date of birth patterns: DD/MM/YYYY, MM-DD-YYYY, YYYY-MM-DD, DD.MM.YYYY
+  /\b(?:\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})\b/,
+  // Standalone year that looks like a birth year (1900–2009)
+  /\b(?:19[0-9]{2}|200[0-9])\b/,
+  // Postcodes — UK, French (5-digit), Dutch, German, US ZIP
+  /\b(?:[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}|\d{4,5}(?:[\s\-]\d{3,4})?)\b/i,
+  // Any standalone number ≥ 4 digits (account numbers, sort codes, etc.)
+  /\b\d{4,}\b/,
+  // Capitalised name-like tokens: two or more consecutive Title-Case words
+  /\b(?:[A-Z][a-z]{1,20}\s){1,3}[A-Z][a-z]{1,20}\b/,
+  // BIC / SWIFT codes (8 or 11 chars: 4 letters + 2 letters + 2 alphanum + optional 3)
+  /\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/,
+  // URLs and partial URLs
+  /https?:\/\/\S+/i,
+  /\bwww\.\S+/i,
+];
+
+// Returns true if the OCR-detected text looks like sensitive data
+function isSensitiveWord(text){
+  if(!text||text.length<2)return false;
+  const t=text.trim();
+  return SENSITIVE_PATTERNS.some(re=>re.test(t));
+}
+
 // ─── BACKGROUND WORD-HIDE WORKER ─────────────────────────────────────────────
 
 // Call this whenever new frames arrive (after extract, after image upload)
@@ -1117,7 +1156,7 @@ async function bgRunLoop(){
     return;
   }
   _bgRunning=true;
-  const BATCH=5; // process up to 3 frames concurrently
+  const BATCH=Math.max(5,_ocrPool.length||1)*2; // fill the whole pool each wave
   while(_bgQueue.length>0){
     // Pause if user is in an edit overlay
     if(_bgPaused||document.getElementById('ocrov').classList.contains('on')||
@@ -1162,7 +1201,7 @@ async function bgProcessFrame(fr){
     fr._ocrWords=await runOcr(ocrCanvas);
   }
   fr._bgDone=true; // mark as processed regardless of hits
-  const hits=fr._ocrWords.filter(w=>wordList.some(s=>wordMatches(w.text,s)));
+  const hits=fr._ocrWords.filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text));
   if(!hits.length)return; // nothing to hide — done
   // Bake hits into the frame
   const col=document.getElementById('hc').value;
@@ -1208,28 +1247,9 @@ function bgUpdateIndicator(){
     const topMid=document.querySelector('.top-mid');
     if(topMid)topMid.appendChild(ind);
   }
-function bgUpdateIndicator(){
-  let ind=document.getElementById('bg-ind');
-  if(!ind){
-    ind=document.createElement('div');
-    ind.id='bg-ind';
-    ind.style.cssText='display:none;align-items:center;gap:5px;font-size:10px;font-family:"DM Mono",monospace;color:var(--m);cursor:pointer;padding:2px 8px;border-radius:20px;border:1px solid var(--b);background:var(--s2)';
-    ind.title='Background word scan — click to pause/resume';
-    ind.onclick=()=>{
-      _bgPaused=!_bgPaused;
-      bgUpdateIndicator();
-      if(!_bgPaused&&!_bgRunning&&_bgQueue.length)bgRunLoop();
-      toast(_bgPaused?'⏸':'▶',_bgPaused?'Word scan paused':'Word scan resumed');
-    };
-    const topMid=document.querySelector('.top-mid');
-    if(topMid)topMid.appendChild(ind);
-  }
   const remaining=_bgQueue.length;
-  // Derive total from actual frame count — immune to queue accounting drift
   const total=allFrames().length;
-  // Scanned = everything not still waiting in queue
-  const scanned=Math.max(0, total - remaining);
-
+  const scanned=Math.max(0,total-remaining);
   if(remaining===0&&!_bgRunning){
     if(total>0){
       ind.style.display='flex';
@@ -1241,18 +1261,6 @@ function bgUpdateIndicator(){
     }
     return;
   }
-
-  ind.style.display='flex';
-  if(_bgPaused){
-    ind.innerHTML=`<span style="color:var(--a2)">⏸ ${scanned}/${total} scanned</span>`;
-  } else {
-    ind.innerHTML=
-      `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--a3);animation:lp 1.2s ease-in-out infinite;flex-shrink:0"></span>`+
-      `<span style="color:var(--t)">${scanned}<span style="color:var(--m)">/${total}</span></span>`+
-      `<span style="color:var(--m);font-size:9px">scanned</span>`;
-  }
-}
-
   ind.style.display='flex';
   if(_bgPaused){
     ind.innerHTML=`<span style="color:var(--a2)">⏸ ${scanned}/${total} scanned</span>`;
@@ -2246,14 +2254,56 @@ function rdNavFrame(dir){
 
 // ─── OCR (FASTER: pre-warm worker, parallel where possible) ─────────────────
 async function initOcr(){
-  try{ocrWorker=await Tesseract.createWorker('eng',1,{logger:()=>{}});ocrReady=true;toast('✓','OCR ready');}
-  catch(e){console.warn('OCR init failed',e);}
+  const N=Math.min(4,Math.max(1,(navigator.hardwareConcurrency||2)-1));
+  try{
+    const workers=await Promise.all(
+      Array.from({length:N},()=>Tesseract.createWorker('eng',1,{logger:()=>{}}))
+    );
+    _ocrPool=workers.map(w=>({worker:w,busy:false}));
+    ocrWorker=_ocrPool[0].worker; // legacy compat
+    ocrReady=true;
+    toast('✓',`OCR ready · ${N} worker${N>1?'s':''}`);
+  }catch(e){
+    console.warn('OCR init failed',e);
+  }
 }
+// Acquire a free worker from the pool, or wait until one is released
+function _ocrAcquire(){
+  return new Promise((resolve,reject)=>{
+    const slot=_ocrPool.find(s=>!s.busy);
+    if(slot){slot.busy=true;resolve(slot);return;}
+    _ocrQueue.push({resolve,reject});
+  });
+}
+function _ocrRelease(slot){
+  slot.busy=false;
+  if(_ocrQueue.length){
+    const next=_ocrQueue.shift();
+    slot.busy=true;
+    next.resolve(slot);
+  }
+}
+
 async function runOcr(canvas){
-  if(!ocrWorker)return[];
-  const{data}=await ocrWorker.recognize(canvas);
+  if(!_ocrPool.length){
+    // Pool not ready — fall back to legacy single worker if available
+    if(!ocrWorker)return[];
+    const{data}=await ocrWorker.recognize(canvas);
+    return _parseOcrData(data,canvas);
+  }
+  const slot=await _ocrAcquire();
+  try{
+    const{data}=await slot.worker.recognize(canvas);
+    return _parseOcrData(data,canvas);
+  }finally{
+    _ocrRelease(slot);
+  }
+}
+
+function _parseOcrData(data,canvas){
   return(data.words||[]).filter(w=>w.text.trim().length>1&&w.confidence>50).map(w=>({
-    text:w.text.trim(),x:w.bbox.x0/canvas.width,y:w.bbox.y0/canvas.height,
+    text:w.text.trim(),
+    x:w.bbox.x0/canvas.width,y:w.bbox.y0/canvas.height,
     w:(w.bbox.x1-w.bbox.x0)/canvas.width,h:(w.bbox.y1-w.bbox.y0)/canvas.height,
     conf:Math.round(w.confidence)
   }));
@@ -2845,7 +2895,7 @@ function renderOcrPills(){
   if(!ocrWords.length){c.innerHTML='<span style="font-size:10px;color:var(--m)">None detected</span>';return;}
   ocrWords.forEach((w,i)=>{
     const hi=ocrHidden.has(i);
-    const isWL=wordList.some(s=>wordMatches(w.text,s));
+    const isWL=wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text);
     const p=document.createElement('span');p.className='wpill'+(hi?' hi':'');
     const cc=w.conf>75?'#6af7c2':w.conf>50?'#f7c26a':'#f76a6a';
     const wlBadge=isWL?`<span style="font-size:7px;background:#2563eb;color:#fff;border-radius:3px;padding:0 3px;margin-left:2px;font-family:'DM Mono',monospace" title="In word list">WL</span>`:'';
@@ -2993,39 +3043,40 @@ async function batchApply(targets){
   prog.classList.add('on');
   // Build matcher regex once for speed
   const matchers=wordList.map(s=>s.toLowerCase());
-  for(let i=0;i<targets.length;i++){
-    const fr=targets[i];
-    st.textContent=`Scanning ${i+1}/${targets.length}…`;
+  const POOL_W=Math.max(1,_ocrPool.length||1);
+  for(let i=0;i<targets.length;i+=POOL_W){
+    const chunk=targets.slice(i,i+POOL_W);
+    st.textContent=`Scanning ${Math.min(i+POOL_W,targets.length)}/${targets.length}…`;
     fill.style.width=Math.round((i/targets.length)*100)+'%';
     lbl.textContent=`Frame ${i+1} of ${targets.length} · ${total} hidden so far`;
-    try{
-      // Use smaller canvas for OCR if large (speed optimization)
-      // FIX: always reconstruct from blob — fr.canvas may be null
-      const srcCanvas=await getFrameCanvas(fr);
-      const maxOcrW=1200;
-      let ocrCanvas=srcCanvas;
-      if(srcCanvas.width>maxOcrW){
-        const scale=maxOcrW/srcCanvas.width;
-        ocrCanvas=document.createElement('canvas');
-        ocrCanvas.width=Math.round(srcCanvas.width*scale);
-        ocrCanvas.height=Math.round(srcCanvas.height*scale);
-        ocrCanvas.getContext('2d').drawImage(srcCanvas,0,0,ocrCanvas.width,ocrCanvas.height);
-      }
-      const words=await runOcr(ocrCanvas);
-      const scaleX=srcCanvas.width/ocrCanvas.width;
-      const scaleY=srcCanvas.height/ocrCanvas.height;
-      const ctx=get2dCtx(srcCanvas,true,false);let n=0;
-      words.forEach(w=>{
-        if(matchers.some(s=>wordMatches(w.text,s))){
-          applyHide(ctx,globalHideStyle,col,bc2,
-            (w.x*ocrCanvas.width*scaleX)-pad,(w.y*ocrCanvas.height*scaleY)-pad,
-            (w.w*ocrCanvas.width*scaleX)+pad*2,(w.h*ocrCanvas.height*scaleY)+pad*2);
-          fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});n++;
+    await Promise.all(chunk.map(async fr=>{
+      try{
+        const srcCanvas=await getFrameCanvas(fr);
+        const maxOcrW=1200;
+        let ocrCanvas=srcCanvas;
+        if(srcCanvas.width>maxOcrW){
+          const scale=maxOcrW/srcCanvas.width;
+          ocrCanvas=document.createElement('canvas');
+          ocrCanvas.width=Math.round(srcCanvas.width*scale);
+          ocrCanvas.height=Math.round(srcCanvas.height*scale);
+          ocrCanvas.getContext('2d').drawImage(srcCanvas,0,0,ocrCanvas.width,ocrCanvas.height);
         }
-      });
-      if(n>0){fr.redacted=true;releaseFrameBlobs(fr);await storeFrameAsBlob(fr,srcCanvas);total+=n;}
-    }catch(e){console.warn(fr.name,e);}
-    if(i%5===0)await yieldUI();
+        const words=await runOcr(ocrCanvas);
+        const scaleX=srcCanvas.width/ocrCanvas.width;
+        const scaleY=srcCanvas.height/ocrCanvas.height;
+        const ctx=get2dCtx(srcCanvas,true,false);let n=0;
+        words.forEach(w=>{
+          if(matchers.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text)){
+            applyHide(ctx,globalHideStyle,col,bc2,
+              (w.x*ocrCanvas.width*scaleX)-pad,(w.y*ocrCanvas.height*scaleY)-pad,
+              (w.w*ocrCanvas.width*scaleX)+pad*2,(w.h*ocrCanvas.height*scaleY)+pad*2);
+            fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});n++;
+          }
+        });
+        if(n>0){fr.redacted=true;releaseFrameBlobs(fr);await storeFrameAsBlob(fr,srcCanvas);total+=n;}
+      }catch(e){console.warn(fr.name,e);}
+    }));
+    await yieldUI();
   }
   fill.style.width='100%';lbl.textContent=`Done — ${total} instances hidden`;
   setTimeout(()=>prog.classList.remove('on'),2500);
@@ -3263,7 +3314,7 @@ async function autoScanWordList(frId){
       // Scale word boxes back to normalised coords (already normalised 0-1, no adjustment needed)
     }
     return (fr._ocrWords||[]).filter(w=>
-      wordList.some(s=>wordMatches(w.text,s))
+      wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text)
     ).map(w=>({...w}));
   }catch(e){return[];}
 }
@@ -3415,7 +3466,7 @@ async function _lbPreScan(navId, af, idx){
       fr._ocrWords=await runOcr(ocrCanvas);
     }
     if(lbFrId!==navId)return;
-    const wordHits=(fr._ocrWords||[]).filter(w=>wordList.some(s=>wordMatches(w.text,s))).map(w=>({...w}));
+    const wordHits=(fr._ocrWords||[]).filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text)).map(w=>({...w}));
     lbPendingHits=wordHits;
     // Don't overwrite lbPendingFaces here — let renderLb's face promise update it
     renderLbWordBanner(wordHits, lbPendingFaces);
