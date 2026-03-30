@@ -1095,41 +1095,51 @@ const PRESET_WORDS = ["temitope6878gmailcom","instantapply343gmailcom","miracle"
 // Call this whenever new frames arrive (after extract, after image upload)
 function bgQueueFrames(frames){
   if(!frames||!frames.length)return;
-  // Only queue frames that haven't been redacted yet
   const toAdd=frames.filter(fr=>!fr._bgDone&&!fr.redacted);
   if(!toAdd.length)return;
-  // Add to front so newest frames process first (most recently uploaded = most relevant)
   const ids=toAdd.map(fr=>fr.id);
-  // Deduplicate
   _bgQueue=[...new Set([...ids,..._bgQueue.filter(id=>!ids.includes(id))])];
   _bgTotal+=toAdd.length;
   bgUpdateIndicator();
+  // Always attempt to start — bgRunLoop handles OCR-not-ready deferral internally
   if(!_bgRunning)bgRunLoop();
 }
 
 async function bgRunLoop(){
   if(_bgRunning)return;
+  // If OCR not ready yet, defer start until it is — no spin-wait
+  if(!ocrReady||!wordList.length){
+    const poll=setInterval(()=>{
+      if(ocrReady&&wordList.length&&_bgQueue.length&&!_bgRunning){
+        clearInterval(poll);bgRunLoop();
+      }
+    },400);
+    return;
+  }
   _bgRunning=true;
+  const BATCH=3; // process up to 3 frames concurrently
   while(_bgQueue.length>0){
-    // Pause if user is in an edit overlay — avoid competing for canvas/OCR
+    // Pause if user is in an edit overlay
     if(_bgPaused||document.getElementById('ocrov').classList.contains('on')||
        document.getElementById('fov').classList.contains('on')){
       await yieldUI(500);continue;
     }
-    const id=_bgQueue.shift();
-    const fr=getFrame(id);
-    if(!fr||fr._bgDone||fr.redacted){_bgDone++;bgUpdateIndicator();continue;}
-    if(!wordList.length||!ocrReady){
-      // OCR not ready yet — push back and wait
-      _bgQueue.push(id);await yieldUI(1000);continue;
+    // Pull a batch of up to BATCH frames
+    const batch=[];
+    while(batch.length<BATCH&&_bgQueue.length>0){
+      const id=_bgQueue.shift();
+      const fr=getFrame(id);
+      if(fr&&!fr._bgDone&&!fr.redacted)batch.push(fr);
+      else _bgDone++;
     }
-    try{
-      await bgProcessFrame(fr);
-    }catch(e){console.warn('bg worker error',e);}
-    _bgDone++;
+    if(!batch.length){bgUpdateIndicator();continue;}
+    // Process batch concurrently
+    await Promise.all(batch.map(fr=>
+      bgProcessFrame(fr).then(()=>{_bgDone++;}).catch(e=>{console.warn('bg worker error',e);_bgDone++;})
+    ));
     bgUpdateIndicator();
-    // Yield between frames so UI stays responsive
-    await yieldUI(30);
+    // Single yield per batch — not per frame
+    await yieldUI(0);
   }
   _bgRunning=false;
   bgUpdateIndicator();
@@ -1140,12 +1150,12 @@ async function bgProcessFrame(fr){
   // Use cached OCR if available
   if(!fr._ocrWords||!fr._ocrWords.length){
     const canvas=await getFrameCanvas(fr);
-    // Downscale to 800px for speed
+    // Downscale to 640px for background speed — sufficient for word detection
     let ocrCanvas=canvas;
-    if(canvas.width>800){
-      const sc=800/canvas.width;
+    if(canvas.width>640){
+      const sc=640/canvas.width;
       ocrCanvas=document.createElement('canvas');
-      ocrCanvas.width=800;
+      ocrCanvas.width=640;
       ocrCanvas.height=Math.round(canvas.height*sc);
       ocrCanvas.getContext('2d',{alpha:false}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
     }
@@ -1187,36 +1197,42 @@ function bgUpdateIndicator(){
   if(!ind){
     ind=document.createElement('div');
     ind.id='bg-ind';
-    ind.style.cssText='display:none;align-items:center;gap:5px;font-size:10px;font-family:"DM Mono",monospace;color:var(--m);cursor:pointer;padding:2px 6px;border-radius:4px;border:1px solid var(--b);background:var(--s2)';
-    ind.title='Background word hiding — click to pause/resume';
+    ind.style.cssText='display:none;align-items:center;gap:5px;font-size:10px;font-family:"DM Mono",monospace;color:var(--m);cursor:pointer;padding:2px 8px;border-radius:20px;border:1px solid var(--b);background:var(--s2)';
+    ind.title='Background word scan — click to pause/resume';
     ind.onclick=()=>{
       _bgPaused=!_bgPaused;
       bgUpdateIndicator();
       if(!_bgPaused&&!_bgRunning&&_bgQueue.length)bgRunLoop();
-      toast(_bgPaused?'⏸':'▶',_bgPaused?'Background scan paused':'Background scan resumed');
+      toast(_bgPaused?'⏸':'▶',_bgPaused?'Word scan paused':'Word scan resumed');
     };
-    // Insert into topbar after the pills
     const topMid=document.querySelector('.top-mid');
     if(topMid)topMid.appendChild(ind);
   }
   const remaining=_bgQueue.length;
+  const scanned=_bgDone;
+  const total=_bgTotal;
+
   if(remaining===0&&!_bgRunning){
-    // Done — show briefly then hide
-    if(_bgDone>0){
+    if(scanned>0){
       ind.style.display='flex';
-      ind.innerHTML=`✓ <span style="color:var(--a3)">words hidden</span>`;
+      ind.innerHTML=`<span style="color:var(--a3)">🔤 ${scanned}/${total} scanned</span>`;
       clearTimeout(ind._hideT);
-      ind._hideT=setTimeout(()=>{ind.style.display='none';_bgDone=0;_bgTotal=0;},4000);
+      ind._hideT=setTimeout(()=>{ind.style.display='none';_bgDone=0;_bgTotal=0;},5000);
     } else {
       ind.style.display='none';
     }
     return;
   }
+
   ind.style.display='flex';
-  const pct=_bgTotal>0?Math.round((_bgDone/_bgTotal)*100):0;
-  ind.innerHTML=_bgPaused
-    ?`⏸ <span style="color:var(--a2)">paused · ${remaining} left</span>`
-    :`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--a3);animation:lp 1.2s ease-in-out infinite"></span> <span style="color:var(--t)">${pct}%</span> <span style="color:var(--m)">${remaining} left</span>`;
+  if(_bgPaused){
+    ind.innerHTML=`<span style="color:var(--a2)">⏸ ${scanned}/${total} scanned</span>`;
+  } else {
+    ind.innerHTML=
+      `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--a3);animation:lp 1.2s ease-in-out infinite;flex-shrink:0"></span>`+
+      `<span style="color:var(--t)">${scanned}<span style="color:var(--m)">/${total}</span></span>`+
+      `<span style="color:var(--m);font-size:9px">scanned</span>`;
+  }
 }
 
 // Reset bg queue — call when frames are cleared
@@ -1644,6 +1660,8 @@ const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,
         updateStatsQuick();
         document.getElementById('live-ct').textContent=loaded;
         document.getElementById('live-txt').textContent=`Loading · ${loaded}/${unique.length} · ${esc(f.name)}`;
+        // Start hiding words on each frame as it arrives — don't wait for all images
+        bgQueueFrames([fr]);
         res();
       };
       
@@ -1656,8 +1674,7 @@ const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,
   renderVideoList();updateStats();renderFlows();toggleExpBtns();
   saveSession();
   toast('✓',`${loaded} screenshot${loaded!==1?'s':''} loaded`);
-  // Start background word hiding on all uploaded images
-  bgQueueFrames(vid.frames);
+  // bgQueueFrames called per-frame above — nothing to do here
 }
 
 async function addFiles(files){
