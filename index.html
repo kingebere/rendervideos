@@ -391,7 +391,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <button class="btn bg sm" onclick="editNavFrame(-1)">‹ Prev</button>
       <button class="btn bg sm" id="edit-all-btn" onclick="ocrAll()">Hide All</button>
       <button class="btn bg sm" id="edit-none-btn" onclick="ocrNone()">Unhide All</button>
-      <button class="btn bg sm" id="edit-undo-btn" onclick="undoRd()" style="display:none">↩ Undo</button>
+      <button class="btn bg sm" id="edit-undo-btn" onclick="editUndoBox()" style="display:none">↩ Box</button>
+      <button class="btn bg sm" id="edit-hist-undo" onclick="editUndo()" title="Undo last Apply (Ctrl+Z)">↩</button>
+      <button class="btn bg sm" id="edit-hist-redo" onclick="editRedo()" title="Redo (Ctrl+Y)">↪</button>
       <button class="btn bp" onclick="applyEdit()">✓ Apply</button>
       <button class="btn bg sm" onclick="editNavFrame(1)">Next ›</button>
       <button class="btn bg" onclick="cancelEdit()">✕ Close</button>
@@ -521,6 +523,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
   <div><div style="font-family:'DM Mono',monospace;font-size:10px" id="lb-name"></div><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--m)" id="lb-ct"></div></div>
   <div class="lb-bgs" id="lb-bgs"></div>
   <div class="lb-acts">
+    <button class="btn bgo sm" id="lb-exp-btn" onclick="closeLb();openExpModal()" title="Export ZIP" style="display:none">⬇ Export</button>
     <button class="btn bg sm" onclick="openEdit(lbFrId,'words')" title="Hide words">🔤 Words</button>
     <button class="btn bg sm" onclick="openFace(lbFrId)">👤</button>
     <button class="btn bg sm" onclick="openEdit(lbFrId,'draw')" title="Draw redact boxes">✏️ Draw</button>
@@ -868,7 +871,7 @@ const LS_WORDS   = 'uiland_words_v2';
 const LS_PREFS   = 'uiland_prefs_v2';
 const LS_THEME   = 'uiland_theme';
 const LS_SESSION = 'uiland_session_v1'; // metadata only
-const DB_NAME='uiland_db', DB_VER=2, STORE='frames', STORE_BLOBS='frame_blobs';
+const DB_NAME='uiland_db', DB_VER=3, STORE='frames', STORE_BLOBS='frame_blobs';
 let db=null;
 
 async function openDB(){
@@ -1410,7 +1413,8 @@ async function addImages(files){
   const seen=new Set();
   const unique=imgs.filter(f=>{const key=f.name+'|'+f.size;if(seen.has(key))return false;seen.add(key);return true;});
   unique.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
-  const folderName=unique[0].webkitRelativePath?unique[0].webkitRelativePath.split('/')[0]:'Screenshots';
+  const rawFolder=unique[0].webkitRelativePath?unique[0].webkitRelativePath.split('/')[0]:'Screenshots';
+const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,'').replace(/_/g,' ').trim()||'Screenshots';
 
   // Replace ALL existing frames + clear session when a new folder is uploaded
   const oldIds=allFrames().map(f=>f.id);
@@ -2038,11 +2042,15 @@ function wordMatches(detectedText, savedWord){
 }
 
 // ─── UNIFIED EDIT MODE ────────────────────────────────────────────────────────
+// REPLACE WITH:
 let editTab='words'; // 'words' | 'draw' | 'faces'
 let editDrawBoxes=[];
 let editDrawing=false,editDrawStart=null,editDrawCur=null;
 let editWLHits=[];
 let editFaceHits=[]; // detected faces in edit overlay
+// Undo/redo stack — each entry is {blobUrl, thumbBlobUrl} snapshot before a bake
+let _editUndoStack=[];
+let _editRedoStack=[];
 
 function setEditTab(tab){
   editTab=tab;
@@ -2110,36 +2118,116 @@ function editRemoveBox(i){
   editDrawBoxes.splice(i,1);refreshEditDraw();
 }
 
+// REPLACE WITH:
+let _editMoveIdx=-1,_editMoveOff={x:0,y:0};
+
 function setupEditDrawEvents(ec){
+  function normXY(e){
+    const r=ec.getBoundingClientRect();
+    return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
+  }
   ec.onmousedown=e=>{
     if(e.button===2)return;
-    const r=ec.getBoundingClientRect();
-    editDrawStart={x:(e.clientX-r.left)/ec.width,y:(e.clientY-r.top)/ec.height};
-    editDrawing=true;editDrawCur=null;
+    const {x,y}=normXY(e);
+    // Hit-test existing boxes — innermost (last) wins
+    let hitIdx=-1;
+    for(let i=editDrawBoxes.length-1;i>=0;i--){
+      const b=editDrawBoxes[i];
+      if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h){hitIdx=i;break;}
+    }
+    if(hitIdx>=0){
+      // Move mode
+      _editMoveIdx=hitIdx;
+      const b=editDrawBoxes[hitIdx];
+      _editMoveOff={x:x-b.x,y:y-b.y};
+      editDrawing=false;editDrawCur=null;
+    } else {
+      // Draw mode
+      _editMoveIdx=-1;
+      editDrawStart={x,y};editDrawing=true;editDrawCur=null;
+    }
   };
   ec.onmousemove=e=>{
-    if(!editDrawing)return;
-    const r=ec.getBoundingClientRect();
-    const x=(e.clientX-r.left)/ec.width,y=(e.clientY-r.top)/ec.height;
-    editDrawCur={x:Math.min(editDrawStart.x,x),y:Math.min(editDrawStart.y,y),
-      w:Math.abs(x-editDrawStart.x),h:Math.abs(y-editDrawStart.y)};
-    refreshEditDraw();
+    const {x,y}=normXY(e);
+    if(_editMoveIdx>=0){
+      const b=editDrawBoxes[_editMoveIdx];
+      // Clamp so box stays within [0,1]
+      b.x=Math.max(0,Math.min(1-b.w,x-_editMoveOff.x));
+      b.y=Math.max(0,Math.min(1-b.h,y-_editMoveOff.y));
+      refreshEditDraw();
+    } else if(editDrawing){
+      editDrawCur={x:Math.min(editDrawStart.x,x),y:Math.min(editDrawStart.y,y),
+        w:Math.abs(x-editDrawStart.x),h:Math.abs(y-editDrawStart.y)};
+      // Clamp to [0,1] so boxes can reach bottom edge
+      editDrawCur.x=Math.max(0,editDrawCur.x);
+      editDrawCur.y=Math.max(0,editDrawCur.y);
+      editDrawCur.w=Math.min(editDrawCur.w,1-editDrawCur.x);
+      editDrawCur.h=Math.min(editDrawCur.h,1-editDrawCur.y);
+      refreshEditDraw();
+    } else {
+      // Cursor hint: pointer over existing box, crosshair otherwise
+      const over=editDrawBoxes.some(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);
+      ec.style.cursor=over?'move':'crosshair';
+    }
   };
   ec.onmouseup=()=>{
-    if(editDrawCur&&editDrawCur.w>.005&&editDrawCur.h>.005)
+    if(_editMoveIdx>=0){_editMoveIdx=-1;}
+    else if(editDrawCur&&editDrawCur.w>.005&&editDrawCur.h>.005)
       editDrawBoxes.push({...editDrawCur});
     editDrawing=false;editDrawCur=null;refreshEditDraw();
   };
   ec.oncontextmenu=e=>{
     e.preventDefault();
-    const r=ec.getBoundingClientRect();
-    const x=(e.clientX-r.left)/ec.width,y=(e.clientY-r.top)/ec.height;
+    const {x,y}=normXY(e);
     editDrawBoxes=editDrawBoxes.filter(b=>!(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h));
-    refreshEditDraw();
+    _editMoveIdx=-1;refreshEditDraw();
   };
 }
 
+// REPLACE WITH:
 function editUndoBox(){editDrawBoxes.pop();refreshEditDraw();}
+
+async function editUndo(){
+  if(!_editUndoStack.length){toast('⚠️','Nothing to undo');return;}
+  const fr=getFrame(ocrFrId);if(!fr)return;
+  // Push current state to redo stack
+  _editRedoStack.push({blobUrl:fr.blobUrl,thumbBlobUrl:fr._thumbBlobUrl});
+  // Restore previous state
+  const snap=_editUndoStack.pop();
+  // Release current blobs
+  if(fr.blobUrl)URL.revokeObjectURL(fr.blobUrl);
+  if(fr._thumbBlobUrl)URL.revokeObjectURL(fr._thumbBlobUrl);
+  fr.blobUrl=snap.blobUrl;fr._thumbBlobUrl=snap.thumbBlobUrl;
+  fr.canvas=null;delete fr._ocrWords;
+  // Reload canvas from restored blob
+  const canvas=await getFrameCanvas(fr);fr.canvas=canvas;
+  get2dCtx(document.getElementById('ocrcv'),false,false).drawImage(canvas,0,0,document.getElementById('ocrcv').width,document.getElementById('ocrcv').height);
+  ocrHidden=new Set();editDrawBoxes=[];
+  runOcr(canvas).then(w=>{ocrWords=w;ocrWords.forEach((wd,i)=>{if(wordList.some(s=>wordMatches(wd.text,s)))ocrHidden.add(i);});refreshOcr();}).catch(()=>{});
+  refreshEditDraw();
+  const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+  if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
+  toast('↩','Undone');
+}
+
+async function editRedo(){
+  if(!_editRedoStack.length){toast('⚠️','Nothing to redo');return;}
+  const fr=getFrame(ocrFrId);if(!fr)return;
+  _editUndoStack.push({blobUrl:fr.blobUrl,thumbBlobUrl:fr._thumbBlobUrl});
+  const snap=_editRedoStack.pop();
+  if(fr.blobUrl)URL.revokeObjectURL(fr.blobUrl);
+  if(fr._thumbBlobUrl)URL.revokeObjectURL(fr._thumbBlobUrl);
+  fr.blobUrl=snap.blobUrl;fr._thumbBlobUrl=snap.thumbBlobUrl;
+  fr.canvas=null;delete fr._ocrWords;
+  const canvas=await getFrameCanvas(fr);fr.canvas=canvas;
+  get2dCtx(document.getElementById('ocrcv'),false,false).drawImage(canvas,0,0,document.getElementById('ocrcv').width,document.getElementById('ocrcv').height);
+  ocrHidden=new Set();editDrawBoxes=[];
+  runOcr(canvas).then(w=>{ocrWords=w;ocrWords.forEach((wd,i)=>{if(wordList.some(s=>wordMatches(wd.text,s)))ocrHidden.add(i);});refreshOcr();}).catch(()=>{});
+  refreshEditDraw();
+  const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+  if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
+  toast('↪','Redone');
+}
 
 async function showEditWLBanner(frId){
   editWLHits=[];
@@ -2268,9 +2356,14 @@ async function openEdit(id, startTab){
   const fr=getFrame(id);if(!fr)return;
   const _fromLb=document.getElementById('lb').classList.contains('on');
   const _lbOrigin=lbFrId;
+  // REPLACE WITH:
   const sameFrame=(ocrFrId===id);
   ocrFrId=id;
-  if(!sameFrame){ocrHidden=new Set();editDrawBoxes=(fr.redactBoxes||[]).map(b=>({...b}));}
+  if(!sameFrame){
+    ocrHidden=new Set();
+    editDrawBoxes=(fr.redactBoxes||[]).map(b=>({...b}));
+    _editUndoStack=[];_editRedoStack=[];
+  }
   ocrLocalStyle=globalHideStyle;
   document.querySelectorAll('#osr .osb').forEach(b=>b.classList.toggle('on',b.dataset.v===ocrLocalStyle));
   document.getElementById('ocr-col').value=document.getElementById('hc').value;
@@ -2294,9 +2387,12 @@ async function openEdit(id, startTab){
   // Wire draw canvas events
   const ec=document.getElementById('edit-drawcv');
   ec.width=dc.width;ec.height=dc.height;
+  ec.style.width=dc.width+'px';ec.style.height=dc.height+'px';
   setupEditDrawEvents(ec);
   renderOcrWList();
-  if(!sameFrame||!fr._ocrWords){
+  // Always use existing _ocrWords if already scanned by autoScanWordList for this frame
+  // Only re-scan if missing
+  if(!fr._ocrWords||!fr._ocrWords.length){
     try{fr._ocrWords=await runOcr(fr.canvas);}catch(e){fr._ocrWords=[];}
   }
   ocrWords=fr._ocrWords||[];
@@ -2324,8 +2420,15 @@ async function openEdit(id, startTab){
 }
 
 // Unified apply — bakes both word hides AND draw boxes in one pass
+// REPLACE WITH:
 async function applyEdit(){
   const fr=getFrame(ocrFrId);if(!fr)return;
+  // Snapshot current blob URLs for undo before any baking
+  if(fr.blobUrl){
+    _editUndoStack.push({blobUrl:fr.blobUrl,thumbBlobUrl:fr._thumbBlobUrl});
+    _editRedoStack=[];// clear redo on new action
+    if(_editUndoStack.length>20)_editUndoStack.shift();// cap stack
+  }
   const col=document.getElementById('ocr-col').value,pad=parseInt(document.getElementById('ocr-pad').value)||0;
   const canvas=fr.canvas||(await getFrameCanvas(fr));
   const ctx=get2dCtx(canvas,true,false);
@@ -2831,11 +2934,10 @@ async function autoScanWordList(frId){
   const fr=getFrame(frId);if(!fr)return[];
   try{
     const canvas=await getFrameCanvas(fr);
-    if(!fr._ocrWords){
-      fr._ocrWords=await runOcr(canvas);
-    }
-    return (fr._ocrWords||[]).filter((_,i)=>
-      wordList.some(s=>wordMatches(fr._ocrWords[i].text,s))
+    // Always run a fresh full-res OCR scan — never use stale cache
+    fr._ocrWords=await runOcr(canvas);
+    return (fr._ocrWords||[]).filter(w=>
+      wordList.some(s=>wordMatches(w.text,s))
     ).map(w=>({...w}));
   }catch(e){return[];}
 }
@@ -2899,34 +3001,46 @@ function lbAddFlow(){
   renderLbFlows();renderFlows();updateFDD();
   toast('✓',`Flow "${name}" created`);
 }
+// REPLACE WITH:
 function openLb(id){
+  if(!id)return;
+  const _fr=getFrame(id);
+  if(!_fr)return;
   lbFrId=id;
-  document.getElementById('lb').classList.add('on');
-  renderLb();
-  // Restore sidebar to visible on open
+  const lbEl=document.getElementById('lb');if(!lbEl)return;
+  lbEl.classList.add('on');
+  if(_fr._thumbBlobUrl||_fr.blobUrl){
+    const lbImg=document.getElementById('lb-img');
+    if(lbImg)lbImg.src=_fr._thumbBlobUrl||_fr.blobUrl;
+  }
   lbFspVisible=true;
-  document.getElementById('lb-fsp').classList.remove('hidden');
-  document.getElementById('lb-ft').classList.remove('fsp-hidden');
+  const fsp=document.getElementById('lb-fsp');if(fsp)fsp.classList.remove('hidden');
+  const ft=document.getElementById('lb-ft');if(ft)ft.classList.remove('fsp-hidden');
+  // Defer sidebar + async render one tick so DOM is fully visible before reads
+  setTimeout(()=>{
+    if(lbFrId!==id)return; // navigated away before tick fired
+    renderLbFlows();
+    renderLb();
+  },0);
 }
 
 async function renderLb(){
   const fr=getFrame(lbFrId);if(!fr)return;
+  const lbEl=document.getElementById('lb');if(!lbEl||!lbEl.classList.contains('on'))return;
   const af=allFrames();const idx=af.indexOf(fr);const src=fr.source||'unknown';
   document.getElementById('lb-img').src=fr.blobUrl||'';
-  // Swap to full-res once loaded
+  document.getElementById('lb-p').disabled=true;
+  document.getElementById('lb-n').disabled=true;
   getFrameCanvas(fr).then(c=>{
     if(lbFrId===fr.id)document.getElementById('lb-img').src=c.toDataURL('image/png');
   }).catch(()=>{});
   document.getElementById('lb-name').textContent=fr.name;
   document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
-  document.getElementById('lb-p').disabled=idx===0;document.getElementById('lb-n').disabled=idx===af.length-1;
   document.getElementById('lb-bgs').innerHTML=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Remove flow">${esc(fl.name)} ✕</span>`:''}).join('');
   const si=document.getElementById('lb-fsp-search');if(si&&si._lastFrId!==lbFrId){si.value='';si._lastFrId=lbFrId;}
   renderLbFlows();
- 
- // Auto-scan word list and faces — show unified banner
- lbPendingHits=[];
-  renderLbWordBanner(null);
+  lbPendingHits=[];lbPendingFaces=[];
+  renderLbWordBanner('scanning');
   const scanId=lbFrId;
   const [wordHits,faceHits]=await Promise.all([
     wordList.length&&ocrReady?autoScanWordList(scanId):Promise.resolve([]),
@@ -2937,8 +3051,16 @@ async function renderLb(){
     lbPendingFaces=faceHits;
     renderLbWordBanner(wordHits,faceHits);
   }
+  if(lbFrId===scanId){
+    document.getElementById('lb-p').disabled=idx===0;
+  document.getElementById('lb-n').disabled=idx===af.length-1;
+  // Show export button only on last image
+  const lbExp=document.getElementById('lb-exp-btn');
+  if(lbExp)lbExp.style.display=idx===af.length-1?'':'none';
+  }
 }
 
+// REPLACE WITH:
 function renderLbWordBanner(wordHits, faceHits){
   let bar=document.getElementById('lb-word-bar');
   if(!bar){
@@ -2946,6 +3068,12 @@ function renderLbWordBanner(wordHits, faceHits){
     bar.id='lb-word-bar';
     bar.style.cssText='position:fixed;top:48px;left:0;right:320px;z-index:375;display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(13,13,15,0.82);border-bottom:1px solid var(--b);font-size:11px;backdrop-filter:blur(8px);flex-wrap:wrap;transition:opacity .2s';
     document.getElementById('lb').appendChild(bar);
+  }
+  // Scanning sentinel
+  if(wordHits==='scanning'){
+    bar.style.display='flex';
+    bar.innerHTML='<span style="color:var(--m);font-size:10px;font-family:\'DM Mono\',monospace;animation:lp 1.2s ease-in-out infinite">⏳ Scanning for words &amp; faces…</span>';
+    return;
   }
   const hasWords=wordHits&&wordHits.length;
   const hasFaces=faceHits&&faceHits.length;
@@ -3017,8 +3145,12 @@ async function lbAcceptFaceHits(){await lbApplyHits([],lbPendingFaces);lbPending
 function lbRejectWordHits(){lbPendingHits=[];renderLbWordBanner([],lbPendingFaces);}
 function lbRejectAll(){lbPendingHits=[];lbPendingFaces=[];renderLbWordBanner([],[]);}
 function renderLbFlows(){
-  const fr=getFrame(lbFrId);if(!fr)return;
   const c=document.getElementById('lb-fsp-body');if(!c)return;
+  const fr=getFrame(lbFrId);
+  if(!fr){
+    c.innerHTML='<div style="font-size:10px;color:var(--m);text-align:center;padding:16px 0">No image selected</div>';
+    return;
+  }
   const srch=(document.getElementById('lb-fsp-search')?.value||'').toLowerCase().trim();
   const sorted=[...flows].sort((a,b)=>a.name.localeCompare(b.name));
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
@@ -3106,19 +3238,28 @@ function lbNav(d){
   const af=allFrames();const i=af.findIndex(f=>f.id===lbFrId);const n=af[i+d];
   if(!n)return;
   lbFrId=n.id;
-  // Forward only: auto-tag new frame with sticky flow (replace existing, one flow per frame)
   if(d>0&&lbStickyFlow){
     n.flows=[lbStickyFlow];
     const card=document.querySelector(`.card[data-id="${n.id}"]`);
     if(card)updateCardBadges(card,n);
   }
+  renderLbFlows();
   renderLb();updateFSum();renderFlows();
   scheduleSaveSession();
 }
 function lbDel(){
   const af=allFrames();const i=af.findIndex(f=>f.id===lbFrId);
-  videos.forEach(v=>{v.frames=v.frames.filter(f=>f.id!==lbFrId);});
-  if(!allFrames().length)closeLb();else{const n=allFrames()[Math.min(i,allFrames().length-1)];if(n)lbFrId=n.id;renderLb();}
+  const deletedId=lbFrId;
+  const fr=getFrame(deletedId);if(fr)releaseFrameBlobs(fr);
+  videos.forEach(v=>{v.frames=v.frames.filter(f=>f.id!==deletedId);});
+  const remaining=allFrames();
+  if(!remaining.length){closeLb();}
+  else{
+    const nextIdx=Math.min(i,remaining.length-1);
+    lbFrId=remaining[nextIdx].id;
+    renderLbFlows();
+    renderLb();
+  }
   scheduleRenderFrames();renderFlows();toggleExpBtns();toast('🗑','Deleted');
 }
 function closeLb(){
@@ -3446,12 +3587,28 @@ document.addEventListener('keydown',e=>{
     if(e.key==='Tab'){e.preventDefault();toggleLbFsp();}
     return;
   }
+  // REPLACE WITH:
   if(document.getElementById('ocrov').classList.contains('on')){
     if(e.key==='Escape')cancelEdit();
     if(e.key==='Enter')applyEdit();
     if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();editNavFrame(1);}
     if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();editNavFrame(-1);}
-    if((e.key==='z'||e.key==='Z')&&editTab==='draw')editUndoBox();
+    // REPLACE WITH:
+    if((e.key==='z'||e.key==='Z')&&editTab==='draw'&&!e.metaKey&&!e.ctrlKey)editUndoBox();
+    if((e.key==='z'||e.key==='Z')&&(e.metaKey||e.ctrlKey)){e.preventDefault();editUndo();}
+    if((e.key==='y'||e.key==='Y')&&(e.metaKey||e.ctrlKey)){e.preventDefault();editRedo();}
+    if((e.key==='Delete'||e.key==='Backspace')&&editTab==='draw'){
+      // Delete the box currently under cursor (tracked by _editMoveIdx) or the last one
+      if(_editMoveIdx>=0){editDrawBoxes.splice(_editMoveIdx,1);_editMoveIdx=-1;}
+      else editDrawBoxes.pop();
+      refreshEditDraw();
+    }
+    if((e.key==='Delete'||e.key==='Backspace')&&editTab==='faces'){
+      // Remove last hidden face toggle
+      const last=editFaceHits.filter(d=>d.hidden).pop();
+      if(last)last.hidden=false;
+      refreshEditFaces();
+    }
     return;
   }
 
