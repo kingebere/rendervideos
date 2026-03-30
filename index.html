@@ -3024,21 +3024,88 @@ function openLb(id){
   },0);
 }
 
+// Fast nav render — instant UI update, no scanning, no awaits
+function renderLbFast(){
+  const fr=getFrame(lbFrId);if(!fr)return;
+  const lbEl=document.getElementById('lb');if(!lbEl||!lbEl.classList.contains('on'))return;
+  const af=allFrames();const idx=af.indexOf(fr);const src=fr.source||'unknown';
+
+  // Show thumb instantly
+  const lbImg=document.getElementById('lb-img');
+  if(lbImg)lbImg.src=fr._thumbBlobUrl||fr.blobUrl||'';
+
+  document.getElementById('lb-p').disabled=idx===0;
+  document.getElementById('lb-n').disabled=idx===af.length-1;
+  document.getElementById('lb-name').textContent=fr.name;
+  document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
+  document.getElementById('lb-bgs').innerHTML=fr.flows.map(fid=>{
+    const fl=flows.find(f=>f.id===fid);
+    return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Remove flow">${esc(fl.name)} ✕</span>`:'';
+  }).join('');
+  const si=document.getElementById('lb-fsp-search');
+  if(si&&si._lastFrId!==lbFrId){si.value='';si._lastFrId=lbFrId;}
+  renderLbFlows();
+
+  const lbExp=document.getElementById('lb-exp-btn');
+  if(lbExp)lbExp.style.display=idx===af.length-1?'':'none';
+
+  // Hide stale scan banner immediately on nav
+  const bar=document.getElementById('lb-word-bar');
+  if(bar)bar.style.display='none';
+  lbPendingHits=[];lbPendingFaces=[];
+
+  // Upgrade to full-res + run word scan in background — does NOT block nav
+  const navId=lbFrId;
+  getFrameCanvas(fr).then(c=>{
+    if(lbFrId===navId&&lbImg)lbImg.src=c.toDataURL('image/png');
+  }).catch(()=>{});
+
+  // Pre-scan next frame silently while user views current
+  _lbPreScan(navId, af, idx);
+}
+
+// Background pre-scan: words only (no face detection on nav — too slow)
+async function _lbPreScan(navId, af, idx){
+  if(!wordList.length||!ocrReady)return;
+  const fr=getFrame(navId);if(!fr)return;
+  try{
+    const canvas=await getFrameCanvas(fr);
+    fr._ocrWords=await runOcr(canvas);
+    if(lbFrId!==navId)return; // navigated away
+    const wordHits=(fr._ocrWords||[]).filter(w=>wordList.some(s=>wordMatches(w.text,s))).map(w=>({...w}));
+    lbPendingHits=wordHits;
+    lbPendingFaces=[];
+    renderLbWordBanner(wordHits,[]);
+    // Silently pre-scan next frame's words too
+    const next=af[idx+1];
+    if(next&&!next._ocrWords){
+      getFrameCanvas(next).then(c=>runOcr(c).then(w=>{next._ocrWords=w;}).catch(()=>{})).catch(()=>{});
+    }
+  }catch(e){}
+}
+
 async function renderLb(){
   const fr=getFrame(lbFrId);if(!fr)return;
   const lbEl=document.getElementById('lb');if(!lbEl||!lbEl.classList.contains('on'))return;
   const af=allFrames();const idx=af.indexOf(fr);const src=fr.source||'unknown';
+
   document.getElementById('lb-img').src=fr.blobUrl||'';
   document.getElementById('lb-p').disabled=true;
   document.getElementById('lb-n').disabled=true;
+  document.getElementById('lb-name').textContent=fr.name;
+  document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
+  document.getElementById('lb-bgs').innerHTML=fr.flows.map(fid=>{
+    const fl=flows.find(f=>f.id===fid);
+    return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Remove flow">${esc(fl.name)} ✕</span>`:'';
+  }).join('');
+  const si=document.getElementById('lb-fsp-search');
+  if(si&&si._lastFrId!==lbFrId){si.value='';si._lastFrId=lbFrId;}
+  renderLbFlows();
+
   getFrameCanvas(fr).then(c=>{
     if(lbFrId===fr.id)document.getElementById('lb-img').src=c.toDataURL('image/png');
   }).catch(()=>{});
-  document.getElementById('lb-name').textContent=fr.name;
-  document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
-  document.getElementById('lb-bgs').innerHTML=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Remove flow">${esc(fl.name)} ✕</span>`:''}).join('');
-  const si=document.getElementById('lb-fsp-search');if(si&&si._lastFrId!==lbFrId){si.value='';si._lastFrId=lbFrId;}
-  renderLbFlows();
+
   lbPendingHits=[];lbPendingFaces=[];
   renderLbWordBanner('scanning');
   const scanId=lbFrId;
@@ -3046,18 +3113,14 @@ async function renderLb(){
     wordList.length&&ocrReady?autoScanWordList(scanId):Promise.resolve([]),
     autoScanFaces(scanId)
   ]);
-  if(lbFrId===scanId){
-    lbPendingHits=wordHits;
-    lbPendingFaces=faceHits;
-    renderLbWordBanner(wordHits,faceHits);
-  }
-  if(lbFrId===scanId){
-    document.getElementById('lb-p').disabled=idx===0;
+  if(lbFrId!==scanId)return;
+  lbPendingHits=wordHits;
+  lbPendingFaces=faceHits;
+  renderLbWordBanner(wordHits,faceHits);
+  document.getElementById('lb-p').disabled=idx===0;
   document.getElementById('lb-n').disabled=idx===af.length-1;
-  // Show export button only on last image
   const lbExp=document.getElementById('lb-exp-btn');
   if(lbExp)lbExp.style.display=idx===af.length-1?'':'none';
-  }
 }
 
 // REPLACE WITH:
@@ -3244,7 +3307,8 @@ function lbNav(d){
     if(card)updateCardBadges(card,n);
   }
   renderLbFlows();
-  renderLb();updateFSum();renderFlows();
+  renderLbFast();
+  updateFSum();renderFlows();
   scheduleSaveSession();
 }
 function lbDel(){
