@@ -1208,14 +1208,32 @@ function bgUpdateIndicator(){
     const topMid=document.querySelector('.top-mid');
     if(topMid)topMid.appendChild(ind);
   }
+function bgUpdateIndicator(){
+  let ind=document.getElementById('bg-ind');
+  if(!ind){
+    ind=document.createElement('div');
+    ind.id='bg-ind';
+    ind.style.cssText='display:none;align-items:center;gap:5px;font-size:10px;font-family:"DM Mono",monospace;color:var(--m);cursor:pointer;padding:2px 8px;border-radius:20px;border:1px solid var(--b);background:var(--s2)';
+    ind.title='Background word scan — click to pause/resume';
+    ind.onclick=()=>{
+      _bgPaused=!_bgPaused;
+      bgUpdateIndicator();
+      if(!_bgPaused&&!_bgRunning&&_bgQueue.length)bgRunLoop();
+      toast(_bgPaused?'⏸':'▶',_bgPaused?'Word scan paused':'Word scan resumed');
+    };
+    const topMid=document.querySelector('.top-mid');
+    if(topMid)topMid.appendChild(ind);
+  }
   const remaining=_bgQueue.length;
-  const scanned=_bgDone;
-  const total=_bgTotal;
+  // Derive total from actual frame count — immune to queue accounting drift
+  const total=allFrames().length;
+  // Scanned = everything not still waiting in queue
+  const scanned=Math.max(0, total - remaining);
 
   if(remaining===0&&!_bgRunning){
-    if(scanned>0){
+    if(total>0){
       ind.style.display='flex';
-      ind.innerHTML=`<span style="color:var(--a3)">🔤 ${scanned}/${total} scanned</span>`;
+      ind.innerHTML=`<span style="color:var(--a3)">🔤 ${total}/${total} scanned</span>`;
       clearTimeout(ind._hideT);
       ind._hideT=setTimeout(()=>{ind.style.display='none';_bgDone=0;_bgTotal=0;},5000);
     } else {
@@ -1223,6 +1241,17 @@ function bgUpdateIndicator(){
     }
     return;
   }
+
+  ind.style.display='flex';
+  if(_bgPaused){
+    ind.innerHTML=`<span style="color:var(--a2)">⏸ ${scanned}/${total} scanned</span>`;
+  } else {
+    ind.innerHTML=
+      `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--a3);animation:lp 1.2s ease-in-out infinite;flex-shrink:0"></span>`+
+      `<span style="color:var(--t)">${scanned}<span style="color:var(--m)">/${total}</span></span>`+
+      `<span style="color:var(--m);font-size:9px">scanned</span>`;
+  }
+}
 
   ind.style.display='flex';
   if(_bgPaused){
