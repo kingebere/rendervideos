@@ -1097,11 +1097,11 @@ function bgQueueFrames(frames){
   if(!frames||!frames.length)return;
   const toAdd=frames.filter(fr=>!fr._bgDone&&!fr.redacted);
   if(!toAdd.length)return;
-  const ids=toAdd.map(fr=>fr.id);
-  _bgQueue=[...new Set([...ids,..._bgQueue.filter(id=>!ids.includes(id))])];
+  // Append to back — preserves 1→N order, batches of 3 still process in waves
+  const existingSet=new Set(_bgQueue);
+  toAdd.forEach(fr=>{if(!existingSet.has(fr.id))_bgQueue.push(fr.id);});
   _bgTotal+=toAdd.length;
   bgUpdateIndicator();
-  // Always attempt to start — bgRunLoop handles OCR-not-ready deferral internally
   if(!_bgRunning)bgRunLoop();
 }
 
@@ -1117,7 +1117,7 @@ async function bgRunLoop(){
     return;
   }
   _bgRunning=true;
-  const BATCH=3; // process up to 3 frames concurrently
+  const BATCH=5; // process up to 3 frames concurrently
   while(_bgQueue.length>0){
     // Pause if user is in an edit overlay
     if(_bgPaused||document.getElementById('ocrov').classList.contains('on')||
