@@ -1094,39 +1094,176 @@ const PRESET_FLOWS = ["Achievements","Activity","Activity Calendar","Activity Ti
 const PRESET_WORDS = ["temitope6878@gmailcom","temitope6878gmailcom","instantapply343@gmailcom","miracle","stunner","heywhy","charles","oluwabusayo","0947","fiyinfoluwa","temitope","ajepe","4787","ccaslecreusot","zhonglena","epicerie","traore","temi","place","de","la","molette","le","creusot","71200","banque","miracleibifuba","societe","oluwatobi","tresor","tresorp","oluwatobial67","montceau","0043","8511","fivinfoluwa","dawood","komal","succursalellr","1084","bifubara","agbani","miracleibifubaraa","theodore","petrick","reimmer","theodorepetrickr","2010","3848","09470","fiyinfoluwatemitopea","60-84-64","49044692","26680","38078","44692","fiyinfoluwatemitop","wisecompaymefiyinfoluwatemitopea","be47","9056","3602","6680","gb23","trwi","6084","6449","0446","92","trwigb2lxxx","2347068788511","032029","8833","3941","092028","p94424315","2001","7068788511","2035177955","33745724370","4370","7132","fr76","2823","3000","0198","1886","4448","672","revofrp2","chasdefx","808","490","8211","bro2","fr7626233000019818864448672","ayomide","07102012","abimbola","jinadu","2349022975379","anita","alina","526563497974","2347088579996","revofrp2xxx","ayo","337","4953","33","623636073","umar","44","84","85","qadeem","senior","613","36","09","terryl","58","wale","jrordan","httpsshareweropayeup1crb032uilqj","fiyinfoluwaajepegmailcom","33744822010","33749538442","25000","23-01-20","71726589","chasgb2l","745724379"];
 // ─── SENSITIVE DATA PATTERNS ─────────────────────────────────────────────────
 // Matches numbers, IBANs, credit cards, CVV, phone, email, DOB, postcodes, names
+// ─── SENSITIVE DATA PATTERNS ──────────────────────────────────────────────────
+// Each entry: {re, label} — label used for future UI tagging / debugging
 const SENSITIVE_PATTERNS = [
-  // Email addresses
-  /\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b/i,
-  // IBAN (15–34 alphanumeric, starts with 2 letters + 2 digits)
-  /\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b/,
-  // Credit / debit card numbers (13–19 digits, optional spaces/dashes)
-  /\b(?:\d[\s\-]?){13,19}\b/,
-  // CVV / CVC (3–4 digit standalone)
-  /\b\d{3,4}\b/,
-  // Phone numbers (international or local, 7–15 digits with optional +, spaces, dashes)
-  /\b\+?[\d][\d\s\-().]{6,18}\d\b/,
-  // Date of birth patterns: DD/MM/YYYY, MM-DD-YYYY, YYYY-MM-DD, DD.MM.YYYY
-  /\b(?:\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})\b/,
-  // Standalone year that looks like a birth year (1900–2009)
-  /\b(?:19[0-9]{2}|200[0-9])\b/,
-  // Postcodes — UK, French (5-digit), Dutch, German, US ZIP
-  /\b(?:[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}|\d{4,5}(?:[\s\-]\d{3,4})?)\b/i,
-  // Any standalone number ≥ 4 digits (account numbers, sort codes, etc.)
-  /\b\d{4,}\b/,
-  // Capitalised name-like tokens: two or more consecutive Title-Case words
-  /\b(?:[A-Z][a-z]{1,20}\s){1,3}[A-Z][a-z]{1,20}\b/,
-  // BIC / SWIFT codes (8 or 11 chars: 4 letters + 2 letters + 2 alphanum + optional 3)
-  /\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/,
-  // URLs and partial URLs
-  /https?:\/\/\S+/i,
-  /\bwww\.\S+/i,
+
+  // ── URLs & domains ────────────────────────────────────────────────────────
+  // Full URLs (http/https/ftp)
+  {re:/https?:\/\/[^\s]{4,}/i,                                         label:'url'},
+  // www. links
+  {re:/\bwww\.[a-z0-9\-]{2,}\.[a-z]{2,}/i,                            label:'url'},
+  // Bare domains with common TLDs (e.g. example.com, pay.me/handle)
+  {re:/\b[a-z0-9\-]{2,}\.(com|io|co|org|net|app|me|uk|fr|de|ng|za|in|ly|link|page|site|online|store|shop|ai|xyz)\b/i, label:'domain'},
+
+  // ── Email addresses ───────────────────────────────────────────────────────
+  {re:/\b[a-z0-9._%+\-]{2,}@[a-z0-9.\-]+\.[a-z]{2,}\b/i,             label:'email'},
+  // Munged emails where @ replaced by "at" or [at] or spaces
+  {re:/\b[a-z0-9._%+\-]{2,}\s*(\[at\]|at|\(at\))\s*[a-z0-9.\-]+\.[a-z]{2,}\b/i, label:'email'},
+  // Email-like with missing @ (OCR often drops @): word followed by gmailcom / yahoocom etc.
+  {re:/\b[a-z0-9._%+\-]{3,}(gmail|yahoo|hotmail|outlook|icloud|proton|zoho|aol)(com|co\.uk|fr|de)?\b/i, label:'email-ocr'},
+
+  // ── Phone numbers ─────────────────────────────────────────────────────────
+  // International +XX ... format (7–15 digits)
+  {re:/\+\d{1,3}[\s\-.]?\(?\d{1,4}\)?[\s\-.]?\d{2,5}[\s\-.]?\d{2,9}/,label:'phone'},
+  // Nigerian / African 11-digit (080, 070, 090, 081 etc.)
+  {re:/\b0[789]\d{9}\b/,                                               label:'phone'},
+  // UK landline / mobile (07xxx, 01xxx, 02xxx)
+  {re:/\b0[1-9]\d{8,9}\b/,                                             label:'phone'},
+  // French (06, 07, 01–05)
+  {re:/\b0[1-7]\d{8}\b/,                                               label:'phone'},
+  // US/Canada (10 digits, optional country code 1)
+  {re:/\b(?:1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b/,     label:'phone'},
+  // Generic: digit groups separated by spaces/dashes totalling 7–15 digits
+  {re:/\b\d{2,5}[\s\-]\d{2,5}[\s\-]\d{2,5}(?:[\s\-]\d{2,5})?\b/,    label:'phone'},
+
+  // ── IBAN ──────────────────────────────────────────────────────────────────
+  // Standard IBAN: 2 letters + 2 digits + 4–30 alphanum (15–34 chars total)
+  {re:/\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b/,                              label:'iban'},
+  // Space-grouped IBAN (e.g. GB29 NWBK 6016 1331 9268 19)
+  {re:/\b[A-Z]{2}\d{2}(?:\s[A-Z0-9]{4}){2,7}\b/,                     label:'iban'},
+
+  // ── BIC / SWIFT ───────────────────────────────────────────────────────────
+  // 8 or 11 chars: 4 alpha (bank) + 2 alpha (country) + 2 alphanum (location) + optional 3
+  {re:/\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/,             label:'swift'},
+
+  // ── Credit / debit card numbers ───────────────────────────────────────────
+  // 13–19 contiguous digits (Visa, MC, Amex, etc.)
+  {re:/\b(?:\d{13,19})\b/,                                             label:'card'},
+  // Space or dash grouped: 4-4-4-4, 4-4-4-4-3, 4-6-5 (Amex), 4-4-4-3 (MC old)
+  {re:/\b\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{1,4}\b/,                label:'card'},
+  // Masked card (•••• 4242 or **** 1234)
+  {re:/[•*]{4}[\s\-]?\d{4}/,                                           label:'card-masked'},
+
+  // ── CVV / CVC / PIN ───────────────────────────────────────────────────────
+  // Only flag 3–4 digit codes when preceded by a label — avoids over-matching bare numbers
+  {re:/\b(?:cvv|cvc|csc|pin|code)[:\s#]*\d{3,4}\b/i,                  label:'cvv'},
+  // Standalone 4-digit PIN (only if context word nearby — handled in isSensitiveWord logic)
+
+  // ── Sort codes ────────────────────────────────────────────────────────────
+  // UK sort code: 12-34-56 or 123456
+  {re:/\b\d{2}[\s\-]\d{2}[\s\-]\d{2}\b/,                              label:'sort-code'},
+
+  // ── Dates of birth ────────────────────────────────────────────────────────
+  // DD/MM/YYYY, MM-DD-YYYY, YYYY-MM-DD, DD.MM.YY etc.
+  {re:/\b\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}\b/,                   label:'dob'},
+  // ISO date YYYY-MM-DD
+  {re:/\b\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}\b/,                     label:'dob'},
+  // Birth year range (1900–2015 — covers anyone 9+ years old)
+  {re:/\b(?:19[0-9]{2}|200[0-9]|201[0-5])\b/,                        label:'birth-year'},
+
+  // ── National / government IDs ─────────────────────────────────────────────
+  // UK NI number: AB 12 34 56 C
+  {re:/\b[A-Z]{2}[\s]?\d{2}[\s]?\d{2}[\s]?\d{2}[\s]?[A-Z]\b/,       label:'ni'},
+  // US SSN: 123-45-6789 or 123456789
+  {re:/\b\d{3}[\s\-]?\d{2}[\s\-]?\d{4}\b/,                           label:'ssn'},
+  // Passport-like: 1–2 letters + 6–9 digits
+  {re:/\b[A-Z]{1,2}\d{6,9}\b/,                                        label:'passport'},
+  // Driving licence (UK): 5 letters + encoded DOB + 2 chars + 3 chars
+  {re:/\b[A-Z]{5}\d{6}[A-Z]{2}\d[A-Z]{2}\b/,                         label:'dl'},
+
+  // ── Account / reference / tracking numbers ────────────────────────────────
+  // Any 4+ digit standalone number (account nos, ref nos, postcodes)
+  {re:/\b\d{4,}\b/,                                                    label:'number'},
+  // Hyphenated numeric codes: 1234-5678, 2344-4556-566
+  {re:/\b\d{2,}(?:[\-]\d{2,}){1,5}\b/,                               label:'ref-numeric'},
+  // Hyphenated alphanumeric codes: ytgg-fgg-bhjj, ABC-123-XYZ, order/tracking IDs
+  {re:/\b[a-z0-9]{2,}(?:[\-][a-z0-9]{2,}){1,6}\b/i,                 label:'ref-alpha'},
+  // Mixed codes with dots or underscores: abc.def.123, ref_123_xyz
+  {re:/\b[a-z0-9]{2,}(?:[._][a-z0-9]{2,}){1,5}\b/i,                 label:'ref-mixed'},
+
+  // ── Postcodes / ZIP codes ─────────────────────────────────────────────────
+  // UK: SW1A 2AA, EC2V 7JJ
+  {re:/\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/i,                  label:'postcode'},
+  // US ZIP: 12345 or 12345-6789
+  {re:/\b\d{5}(?:[\-]\d{4})?\b/,                                      label:'zip'},
+  // French / German / generic 4–5 digit postal codes
+  {re:/\b\d{4,5}\b/,                                                   label:'postcode-num'},
+  // Dutch: 1234 AB
+  {re:/\b\d{4}\s?[A-Z]{2}\b/,                                         label:'postcode-nl'},
+
+  // ── IP addresses ──────────────────────────────────────────────────────────
+  // IPv4
+  {re:/\b(?:\d{1,3}\.){3}\d{1,3}\b/,                                  label:'ip'},
+  // IPv6 (simplified — any colon-hex group)
+  {re:/\b(?:[0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}\b/,             label:'ip'},
+
+  // ── MAC addresses ─────────────────────────────────────────────────────────
+  {re:/\b(?:[0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}\b/,               label:'mac'},
+
+  // ── Financial amounts with currency ──────────────────────────────────────
+  // £1,234.56 / $99.99 / €1.234,56 / NGN 5000
+  {re:/(?:£|\$|€|NGN|USD|GBP|EUR|CHF|JPY|CAD|AUD)\s*[\d,.]{2,}/i,   label:'amount'},
+
+  // ── Names (heuristic) ─────────────────────────────────────────────────────
+  // Two or more consecutive Title-Case words (First Last, First Middle Last)
+  {re:/\b(?:[A-Z][a-z]{1,20}\s){1,3}[A-Z][a-z]{1,20}\b/,            label:'name'},
+  // Hyphenated surnames: Smith-Jones, O'Brien (OCR often gives as one token)
+  {re:/\b[A-Z][a-z]{1,15}[\-'][A-Z][a-z]{1,15}\b/,                   label:'name'},
+
+  // ── Addresses (heuristic) ─────────────────────────────────────────────────
+  // Number followed by street-like word: 12 High Street, 4B Baker
+  {re:/\b\d{1,5}[a-z]?\s+[A-Z][a-z]{2,}\s+(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Drive|Dr|Close|Cl|Way|Place|Pl|Court|Ct|Crescent|Boulevard|Blvd|Rue|Strasse|Via)\b/i, label:'address'},
+
 ];
 
-// Returns true if the OCR-detected text looks like sensitive data
+// Tokens that are almost always safe — skip sensitive check to reduce false positives
+const _SAFE_TOKENS=new Set([
+  'the','and','for','with','from','that','this','have','will','been','were',
+  'they','their','them','then','than','when','where','what','which','your',
+  'you','our','can','may','all','any','more','one','two','but','not','are',
+  'jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec',
+  'monday','tuesday','wednesday','thursday','friday','saturday','sunday',
+  'loading','settings','profile','search','continue','cancel','confirm',
+  'back','next','done','save','edit','sign','login','logout','signup',
+  'home','menu','help','about','terms','privacy',
+]);
+
+// Context words that RAISE sensitivity of nearby short numbers
+const _SENSITIVE_CONTEXT=/\b(?:cvv|cvc|csc|pin|dob|born|birth|expir|card|account|acct|iban|sort|ref|id|no|number|#|passport|licence|license|ssn|nin|nino|postcode|zip|code|swift|bic|routing|transit|aba|balance|amount|total|credit|debit|payment|transfer|send|receive|wallet|fund)\b/i;
+
 function isSensitiveWord(text){
-  if(!text||text.length<2)return false;
+  if(!text)return false;
   const t=text.trim();
-  return SENSITIVE_PATTERNS.some(re=>re.test(t));
+  if(t.length<2)return false;
+
+  // Never flag single common words
+  if(_SAFE_TOKENS.has(t.toLowerCase()))return false;
+
+  // Fast path: if it contains @ it's almost certainly an email
+  if(t.includes('@'))return true;
+
+  // Fast path: if it's purely alphabetic and short (≤3 chars) — skip
+  if(/^[a-z]{1,3}$/i.test(t))return false;
+
+  // Check all patterns
+  if(SENSITIVE_PATTERNS.some(({re})=>re.test(t)))return true;
+
+  // Context-boosted short numbers: bare 3-4 digit number is sensitive
+  // only when a context label appears in the same OCR word list
+  // (handled at call site by passing context — see isSensitiveInContext)
+  return false;
+}
+
+// Call this when you also have the surrounding word list (used in bgProcessFrame)
+function isSensitiveInContext(word, allWords){
+  if(isSensitiveWord(word.text))return true;
+  // Bare 3–4 digit number — only flag if a sensitive label is nearby
+  if(/^\d{3,4}$/.test(word.text.trim())){
+    const nearby=allWords.map(w=>w.text).join(' ');
+    if(_SENSITIVE_CONTEXT.test(nearby))return true;
+  }
+  return false;
 }
 
 // ─── BACKGROUND WORD-HIDE WORKER ─────────────────────────────────────────────
@@ -1201,7 +1338,7 @@ async function bgProcessFrame(fr){
     fr._ocrWords=await runOcr(ocrCanvas);
   }
   fr._bgDone=true; // mark as processed regardless of hits
-  const hits=fr._ocrWords.filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text));
+  const hits=fr._ocrWords.filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,fr._ocrWords));
   if(!hits.length)return; // nothing to hide — done
   // Bake hits into the frame
   const col=document.getElementById('hc').value;
@@ -3066,7 +3203,7 @@ async function batchApply(targets){
         const scaleY=srcCanvas.height/ocrCanvas.height;
         const ctx=get2dCtx(srcCanvas,true,false);let n=0;
         words.forEach(w=>{
-          if(matchers.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text)){
+          if(matchers.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,words)){
             applyHide(ctx,globalHideStyle,col,bc2,
               (w.x*ocrCanvas.width*scaleX)-pad,(w.y*ocrCanvas.height*scaleY)-pad,
               (w.w*ocrCanvas.width*scaleX)+pad*2,(w.h*ocrCanvas.height*scaleY)+pad*2);
@@ -3313,8 +3450,9 @@ async function autoScanWordList(frId){
       fr._ocrWords=await runOcr(ocrCanvas);
       // Scale word boxes back to normalised coords (already normalised 0-1, no adjustment needed)
     }
-    return (fr._ocrWords||[]).filter(w=>
-      wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text)
+    const words=fr._ocrWords||[];
+    return words.filter(w=>
+      wordList.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,words)
     ).map(w=>({...w}));
   }catch(e){return[];}
 }
@@ -3466,7 +3604,8 @@ async function _lbPreScan(navId, af, idx){
       fr._ocrWords=await runOcr(ocrCanvas);
     }
     if(lbFrId!==navId)return;
-    const wordHits=(fr._ocrWords||[]).filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text)).map(w=>({...w}));
+    const _words=fr._ocrWords||[];
+    const wordHits=_words.filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,_words)).map(w=>({...w}));
     lbPendingHits=wordHits;
     // Don't overwrite lbPendingFaces here — let renderLb's face promise update it
     renderLbWordBanner(wordHits, lbPendingFaces);
