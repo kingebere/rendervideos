@@ -322,6 +322,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 .fad-chk{width:14px;height:14px;border-radius:3px;border:2px solid var(--b);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px}
 .fad-item.assigned .fad-chk{background:var(--a);border-color:var(--a);color:#fff}
 .fad-foot{padding:7px 9px;border-top:1px solid var(--b);flex-shrink:0;display:flex;gap:5px}
+/* recycle bin */
+.rb-card{border-radius:7px;border:1.5px solid var(--b);background:var(--s2);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.rb-card img{width:100%;aspect-ratio:9/19.5;object-fit:contain;background:var(--s3);display:block}
+.rb-card-foot{padding:3px 5px;display:flex;align-items:center;gap:3px;flex-wrap:wrap;font-size:8px;color:var(--m);font-family:'DM Mono',monospace}
+.rb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;padding:7px 9px}
 </style>
 </head>
 <body>
@@ -330,7 +335,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 <canvas id="rc"></canvas>
 <div class="toast" id="toast"><span id="ti">✓</span><span id="tm"></span></div>
 <!-- REPLACE WITH: -->
-<div class="ldov" id="ldov"><div class="ldb"><div class="ldt" id="ldt">Working…</div><div style="display:flex;align-items:center;gap:8px;width:100%"><div class="ldpw" style="flex:1"><div class="ldp" id="ldp"></div></div><span id="ld-pct" style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:var(--a);min-width:32px;text-align:right">0%</span></div><div class="lds" id="lds"></div><span class="ldc" onclick="cancelExtraction()">✕ Cancel</span></div></div>
+<div class="ldov" id="ldov"><div class="ldb"><div class="ldt" id="ldt">Working…</div><div style="display:flex;align-items:center;gap:8px;width:100%"><div class="ldpw" style="flex:1"><div class="ldp" id="ldp"></div></div><span id="ld-pct" style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:var(--a);min-width:32px;text-align:right">0%</span></div><div class="lds" id="lds"></div><span class="ldc" onclick="cancelExtraction();zipCancelFlag=true;">✕ Cancel</span></div></div>
 <div class="rb" id="rb"><span style="font-size:16px">💾</span><div style="flex:1"><div style="font-weight:600;margin-bottom:1px">Session found</div><div style="font-size:10px;color:var(--m)" id="rm"></div></div><button class="btn bp sm" onclick="restoreSession()">Restore</button><button class="btn bg sm" onclick="dismissRestore()">Dismiss</button></div>
 <div class="batch-prog" id="batch-prog"><div class="bp-title" id="bp-title">Processing…</div><div class="bp-bar"><div class="bp-fill" id="bp-fill"></div></div><div class="bp-lbl" id="bp-lbl"></div></div>
 <!-- Redact overlay -->
@@ -550,8 +555,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     </div>
   </div>
   <div class="lb-fsp-body" id="lb-fsp-body"></div>
-  <div style="padding:7px 9px;border-top:1px solid var(--b);flex-shrink:0;font-size:9px;color:var(--m);font-family:'DM Mono',monospace">
-    Tab — toggle panel · ← → navigate · Esc close
+  <div style="padding:7px 9px;border-top:1px solid var(--b);flex-shrink:0;font-size:9px;color:var(--m);font-family:'DM Mono',monospace;line-height:1.8">
+    <b style="color:var(--t)">1×</b> assign · <b style="color:var(--t)">2×</b> auto-tag 📌 · <b style="color:var(--t)">3×</b> end flow<br>
+    Right-click = switch to this flow only<br>
+    Tab — panel · ← → nav · Esc close
   </div>
 </div>
 </div>
@@ -631,6 +638,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <button class="tab" id="lt-flows" onclick="ltab('flows')">Flows</button>
     <button class="tab" id="lt-trim" onclick="ltab('trim')">Trim</button>
     <button class="tab" id="lt-words" onclick="ltab('words')">Words</button>
+    <button class="tab" id="lt-bin" onclick="ltab('bin')">🗑</button>
   </div>
   <!-- VIDEOS TAB -->
   <div class="tp on" id="tp-videos">
@@ -737,6 +745,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <button class="btn bp sm" style="width:100%;margin-bottom:2px" onclick="batchFaceAll()">👤 Faces: All Frames</button>
       <button class="btn bg sm" style="width:100%;margin-bottom:2px" onclick="batchFaceSel()">👤 Faces: Selected</button>
       <div class="bst" id="bst"></div>
+    </div>
+  </div>
+  <!-- BIN TAB -->
+  <div class="tp" id="tp-bin">
+    <div style="padding:6px 9px 4px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace" id="bin-count">0 deleted</div>
+      <button class="btn bd sm" onclick="emptyBin()">Empty Bin</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;min-height:0">
+      <div class="rb-grid" id="bin-grid"></div>
+      <div id="bin-empty" style="font-size:11px;color:var(--m);text-align:center;padding:24px 0">No deleted frames</div>
     </div>
   </div>
 </div>
@@ -1057,7 +1076,7 @@ let _ocrPool=[];        // array of {worker, busy}
 let _ocrQueue=[];       // pending {canvas, resolve, reject}
 let ocrFrId=null, ocrWords=[], ocrHidden=new Set(), ocrLocalStyle='fill';
 let lbFrId=null;
-let lbStickyFlow=null;
+let lbStickyFlows=[]; // array of flow ids — all auto-applied on nav
 let lbPendingHits=[];
 let lbPendingFaces=[]; // word-list hits pending accept/reject in lightbox // auto-tag flow when navigating in lightbox
 let rdFrId=null, rdBoxes=[], rdDrawing=false, rdStart=null, rdCur=null;
@@ -1071,6 +1090,81 @@ let filteredFrameIds=[];
 let renderedFrameCount=0;
 let faceApiLoaded=false, faceModelLoaded=false;
 let faceFrId=null, faceDetections=[], faceStyle='blur';
+
+// ─── RECYCLE BIN ─────────────────────────────────────────────────────────────
+let recyclebin=[]; // {fr, videoId, videoName, deletedAt}
+
+function sendToBin(fr){
+  const vid=getVideo(fr.videoId);
+  recyclebin.unshift({fr,videoId:fr.videoId,videoName:vid?vid.name:'',deletedAt:Date.now()});
+  // cap bin at 200
+  if(recyclebin.length>200){const old=recyclebin.pop();releaseFrameBlobs(old.fr);}
+}
+
+function restoreFromBin(idx){
+  const entry=recyclebin.splice(idx,1)[0];if(!entry)return;
+  const fr=entry.fr;
+  let vid=getVideo(entry.videoId);
+  if(!vid){
+    vid={id:entry.videoId,name:entry.videoName||'Restored',sizeMB:0,duration:0,
+      source:'screenshot',objectURL:null,frames:[],extracted:true,
+      mimeType:'image',file:null,codec:'image',needsTranscode:false};
+    videos.push(vid);updateVDD();renderVideoList();
+  }
+  fr.selected=false;
+  vid.frames.push(fr);
+  renderBin();renderFrames();updateStats();renderFlows();toggleExpBtns();
+  toast('↩',`"${fr.name}" restored`);
+}
+
+function emptyBin(){
+  if(!recyclebin.length){toast('ℹ️','Bin is already empty');return;}
+  recyclebin.forEach(e=>releaseFrameBlobs(e.fr));
+  recyclebin=[];
+  renderBin();
+  toast('🗑','Bin emptied');
+}
+
+function renderBin(){
+  const grid=document.getElementById('bin-grid');
+  const empty=document.getElementById('bin-empty');
+  const cnt=document.getElementById('bin-count');
+  if(!grid)return;
+  if(cnt)cnt.textContent=`${recyclebin.length} deleted`;
+  if(!recyclebin.length){
+    grid.innerHTML='';
+    if(empty)empty.style.display='block';
+    return;
+  }
+  if(empty)empty.style.display='none';
+  grid.innerHTML='';
+  recyclebin.forEach((entry,idx)=>{
+    const {fr}=entry;
+    const card=document.createElement('div');card.className='rb-card';
+    const ago=Math.round((Date.now()-entry.deletedAt)/1000);
+    const agoStr=ago<60?`${ago}s ago`:ago<3600?`${Math.round(ago/60)}m ago`:`${Math.round(ago/3600)}h ago`;
+    const flowNames=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?fl.name:'';}).filter(Boolean);
+    card.innerHTML=`
+      <img src="${fr._thumbBlobUrl||fr.blobUrl||''}" alt="${esc(fr.name)}" loading="lazy"/>
+      <div class="rb-card-foot">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fr.name)}</span>
+        <span style="color:var(--m);flex-shrink:0">${agoStr}</span>
+      </div>
+      ${flowNames.length?`<div style="padding:0 5px 3px;display:flex;flex-wrap:wrap;gap:2px">${flowNames.map(n=>`<span style="font-size:7px;padding:1px 4px;border-radius:10px;background:#2563eb20;color:var(--a);border:1px solid #2563eb40">${esc(n)}</span>`).join('')}</div>`:''}
+      <div style="display:flex;gap:3px;padding:3px 5px 5px">
+        <button class="btn bg sm" style="flex:1;font-size:9px" onclick="restoreFromBin(${idx})">↩ Restore</button>
+        <button class="btn bd sm" style="font-size:9px" onclick="permDeleteFromBin(${idx})" title="Permanently delete">✕</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function permDeleteFromBin(idx){
+  const entry=recyclebin.splice(idx,1)[0];
+  if(entry)releaseFrameBlobs(entry.fr);
+  renderBin();
+  toast('🗑','Permanently deleted');
+}
 
 // ─── BACKGROUND WORD-HIDE QUEUE ──────────────────────────────────────────────
 let _bgQueue=[];          // frame ids waiting to be processed
@@ -1522,10 +1616,13 @@ function addFlow(name,re=true){
   const t=name.trim();
   if(!t)return false;
   if(flows.find(f=>f.name.toLowerCase()===t.toLowerCase()))return'dup';
-  flows.push({id:'fl_'+Date.now()+'_'+Math.random().toString(36).slice(2),name:t,color:COLS[flows.length%COLS.length]});
+  const newFlow={id:'fl_'+Date.now()+'_'+Math.random().toString(36).slice(2),name:t,color:COLS[flows.length%COLS.length],_isNew:true};
+  flows.unshift(newFlow);
   savePersistentFlows();
   if(re){renderFlows();renderQFlows();updateFDD();}
-  return true;
+  // Clear _isNew after 8 seconds so it stops pinning
+  setTimeout(()=>{newFlow._isNew=false;},8000);
+  return newFlow.id;
 }
 function delFlow(id){
   flows=flows.filter(f=>f.id!==id);
@@ -1563,11 +1660,14 @@ function renderFlows(){
   c.innerHTML='';
   const af=allFrames();
   const srch=(document.getElementById('flow-search')?.value||'').toLowerCase().trim();
-  const sorted=[...flows].sort((a,b)=>a.name.localeCompare(b.name));
+  // New flows (just created) pin to top; rest alpha-sorted
+  const newFlows=flows.filter(f=>f._isNew);
+  const oldFlows=[...flows.filter(f=>!f._isNew)].sort((a,b)=>a.name.localeCompare(b.name));
+  const sorted=[...newFlows,...oldFlows];
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
   let lastLetter='';
   filtered.forEach(fl=>{
-    if(!srch&&flows.length>8){
+    if(!srch&&flows.length>8&&!fl._isNew){
       const letter=fl.name[0].toUpperCase();
       if(letter!==lastLetter){
         lastLetter=letter;
@@ -1956,6 +2056,8 @@ async function extractVideo(v){
           v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
           document.getElementById('live-ct').textContent=total;
           document.getElementById('live-txt').textContent=`${esc(v.name)} · ${fmt(ts)} / ${fmtDur(dur)}`;
+          // Queue BG redaction per frame as it arrives — same as image upload
+          bgQueueFrames([fr]);
         },
         onProgress:(pct,msg)=>{
           updateChunkLabel(ci,msg);updateChunkPb(ci,pct);
@@ -1973,8 +2075,7 @@ async function extractVideo(v){
   renderFrames();updateStats();renderFlows();renderVideoList();toggleExpBtns();
   if(!cancelFlag)toast('✓',`${v.frames.length} frames from "${v.name}"`);
   else toast('⚠️',`Stopped · ${v.frames.length} frames kept`);
-  // Start background word hiding immediately after extraction
-  bgQueueFrames(v.frames);
+  // bgQueueFrames called per-frame above during extraction
 }
 
 // ULTRA-FAST extraction:
@@ -2222,14 +2323,17 @@ function selAll(){allFrames().forEach(f=>f.selected=true);scheduleRenderFrames()
 function selNone(){allFrames().forEach(f=>f.selected=false);scheduleRenderFrames();}
 function selInvert(){allFrames().forEach(f=>f.selected=!f.selected);scheduleRenderFrames();}
 function delSel(){
-  const n=allFrames().filter(f=>f.selected).length;
+  const sel=allFrames().filter(f=>f.selected);
+  const n=sel.length;
   if(!n){toast('⚠️','Nothing selected');return;}
-  allFrames().filter(f=>f.selected).forEach(releaseFrameBlobs);
+  sel.forEach(fr=>sendToBin(fr));
   videos.forEach(v=>{v.frames=v.frames.filter(f=>!f.selected);});
-  scheduleRenderFrames();renderFlows();toggleExpBtns();toast('🗑',`Deleted ${n} frame${n>1?'s':''}`);
+  scheduleRenderFrames();renderFlows();toggleExpBtns();
+  toast('🗑',`${n} frame${n>1?'s':''} moved to bin · 🗑 tab to restore`);
 }
 function delFrame(id){
-  const _df=getFrame(id);if(_df)releaseFrameBlobs(_df);
+  const _df=getFrame(id);
+  if(_df)sendToBin(_df);
   videos.forEach(v=>{v.frames=v.frames.filter(f=>f.id!==id);});
   scheduleRenderFrames();renderFlows();toggleExpBtns();
 }
@@ -2313,10 +2417,11 @@ function setMode(m){
   document.getElementById('ex-btn-row').style.display=m==='video'?'':'none';
 }
 function ltab(n){
-  ['videos','flows','trim','words'].forEach(t=>{
+  ['videos','flows','trim','words','bin'].forEach(t=>{
     document.getElementById('lt-'+t).classList.toggle('on',t===n);
     document.getElementById('tp-'+t).classList.toggle('on',t===n);
   });
+  if(n==='bin')renderBin();
 }
 
 // ─── REDACT ──────────────────────────────────────────────────────────────────
@@ -2865,7 +2970,7 @@ async function openEdit(id, startTab){
   document.querySelectorAll('#osr .osb').forEach(b=>b.classList.toggle('on',b.dataset.v===ocrLocalStyle));
   document.getElementById('ocr-col').value=document.getElementById('hc').value;
   document.getElementById('ocr-pad').value=document.getElementById('hp').value;
-  closeLb();
+  closeLb(true); // preserve sticky flow for return trip
   document.getElementById('ocrov').classList.add('on');
   document.getElementById('ocrov').dataset.fromLb=_fromLb?_lbOrigin:'';
   document.getElementById('ocr-hint').textContent='Scanning…';
@@ -3501,6 +3606,57 @@ async function autoScanFaces(frId){
 }
 
 let lbFspVisible=true;
+
+// Instantly sync the footer flow badges + sidebar checkmarks for current frame
+function _lbUpdateBadges(){
+  const fr=getFrame(lbFrId);if(!fr)return;
+  // Footer badges
+  const bgs=document.getElementById('lb-bgs');
+  if(bgs){
+    bgs.innerHTML=fr.flows.map(fid=>{
+      const fl=flows.find(f=>f.id===fid);
+      const isSticky=lbStickyFlows.includes(fid);
+      return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Click to remove · ${isSticky?'AUTO':'manual'}" style="${isSticky?'border-color:var(--a3);color:var(--a3)':''}">${esc(fl.name)}${isSticky?' 📌':' ✕'}</span>`:'';
+    }).join('');
+  }
+  // Update sidebar checkmarks without full re-render
+  document.querySelectorAll('#lb-fsp-body .lb-fsp-item').forEach(item=>{
+    const fid=item.dataset.fid;if(!fid)return;
+    const assigned=fr.flows.includes(fid);
+    const isSticky=lbStickyFlows.includes(fid);
+    item.classList.toggle('assigned',assigned);
+    const chk=item.querySelector('.lb-fsp-chk');
+    if(chk)chk.textContent=assigned?'✓':'';
+    const autoTag=item.querySelector('.lb-auto-tag');
+    if(autoTag){autoTag.style.display=isSticky?'':'none';}
+    if(isSticky)item.style.outline='2px solid var(--a3)';
+    else item.style.outline='';
+  });
+  // Sync sticky banner
+  _lbRenderStickyBanner();
+}
+
+function _lbRenderStickyBanner(){
+  const banner=document.getElementById('lb-sticky-banner');if(!banner)return;
+  if(!lbStickyFlows.length){
+    banner.innerHTML='<span style="font-size:9px;color:var(--m)">Click flow to assign · click again to auto-tag 📌 · click pinned to end it</span>';
+    banner.style.background='var(--s2)';banner.style.borderColor='var(--b)';
+    return;
+  }
+  const chips=lbStickyFlows.map(fid=>{
+    const fl=flows.find(f=>f.id===fid);if(!fl)return'';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;background:${fl.color}28;border:1px solid ${fl.color}70;border-radius:10px;padding:2px 7px;font-size:9px;color:var(--t);cursor:pointer" onclick="lbEndStickyFlow('${fid}')" title="Click to end auto-tag for this flow"><span style="width:6px;height:6px;border-radius:50%;background:${fl.color};flex-shrink:0"></span>${esc(fl.name)} <span style="font-size:8px;opacity:.7">end ✕</span></span>`;
+  }).join('');
+  banner.innerHTML=`<span style="font-size:9px;color:var(--a3);font-weight:700;flex-shrink:0">📌 Auto:</span>${chips}<button onclick="lbStickyFlows=[];_lbUpdateBadges();" style="background:none;border:1px solid var(--b);color:var(--m);border-radius:8px;padding:1px 6px;font-size:9px;cursor:pointer;flex-shrink:0;margin-left:auto">End all</button>`;
+  banner.style.background='#22d3ee0a';banner.style.borderColor='#22d3ee40';
+}
+
+function lbEndStickyFlow(fid){
+  lbStickyFlows=lbStickyFlows.filter(x=>x!==fid);
+  _lbUpdateBadges();
+  const fl=flows.find(f=>f.id===fid);
+  toast('✓',`"${fl?.name}" flow ended — assignment kept`);
+}
 function toggleLbFsp(){
   lbFspVisible=!lbFspVisible;
   document.getElementById('lb-fsp').classList.toggle('hidden',!lbFspVisible);
@@ -3518,8 +3674,18 @@ function lbAddFlow(){
   const res=addFlow(name);
   if(res==='dup'){toast('⚠️',`"${name}" already exists`);return;}
   inp.value='';
+  // Auto-assign to current frame + set as sticky (state 2 immediately)
+  const fid=typeof res==='string'?res:flows[0]?.id;
+  if(fid){
+    const cur=getFrame(lbFrId);
+    if(cur&&!cur.flows.includes(fid))cur.flows.push(fid);
+    if(!lbStickyFlows.includes(fid))lbStickyFlows.push(fid);
+    const card=document.querySelector(`.card[data-id="${cur?.id}"]`);
+    if(card&&cur)updateCardBadges(card,cur);
+  }
+  _lbUpdateBadges();
   renderLbFlows();renderFlows();updateFDD();
-  toast('✓',`Flow "${name}" created`);
+  toast('📌',`"${name}" created · auto-tagging on`);
 }
 // REPLACE WITH:
 function openLb(id){
@@ -3560,7 +3726,8 @@ function renderLbFast(){
   document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
   document.getElementById('lb-bgs').innerHTML=fr.flows.map(fid=>{
     const fl=flows.find(f=>f.id===fid);
-    return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Remove flow">${esc(fl.name)} ✕</span>`:'';
+    const isSticky=lbStickyFlows.includes(fid);
+    return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="${isSticky?'Auto-tagging (click to remove)':'Click to remove'}" style="${isSticky?'border-color:var(--a3);color:var(--a3)':''}">${esc(fl.name)}${isSticky?' 📌':' ✕'}</span>`:'';
   }).join('');
   const si=document.getElementById('lb-fsp-search');
   if(si&&si._lastFrId!==lbFrId){si.value='';si._lastFrId=lbFrId;}
@@ -3649,7 +3816,8 @@ async function renderLb(){
   document.getElementById('lb-ct').textContent=`Frame ${idx+1} of ${af.length} · ${SRC_LABELS[src]||'?'}`;
   document.getElementById('lb-bgs').innerHTML=fr.flows.map(fid=>{
     const fl=flows.find(f=>f.id===fid);
-    return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="Remove flow">${esc(fl.name)} ✕</span>`:'';
+    const isSticky=lbStickyFlows.includes(fid);
+    return fl?`<span class="fbadge" onclick="lbRemoveFlow('${fid}')" title="${isSticky?'Auto-tagging (click to remove)':'Click to remove'}" style="${isSticky?'border-color:var(--a3);color:var(--a3)':''}">${esc(fl.name)}${isSticky?' 📌':' ✕'}</span>`:'';
   }).join('');
   const si=document.getElementById('lb-fsp-search');
   if(si&&si._lastFrId!==lbFrId){si.value='';si._lastFrId=lbFrId;}
@@ -3784,27 +3952,55 @@ function renderLbFlows(){
     return;
   }
   const srch=(document.getElementById('lb-fsp-search')?.value||'').toLowerCase().trim();
-  const sorted=[...flows].sort((a,b)=>a.name.localeCompare(b.name));
+  const newFlows=flows.filter(f=>f._isNew);
+  const oldFlows=[...flows.filter(f=>!f._isNew)].sort((a,b)=>a.name.localeCompare(b.name));
+  const sorted=[...newFlows,...oldFlows];
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
   c.innerHTML='';
 
-  // ── Sticky flow banner ──────────────────────────────────────────────────
-  const sfl=flows.find(f=>f.id===lbStickyFlow);
+  // ── Zone 1: Sticky banner (always visible, id for fast update) ───────────
   const banner=document.createElement('div');
-  if(sfl){
-    banner.style.cssText='display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:4px;border-radius:6px;background:#2563eb18;border:1.5px solid #2563eb50;flex-shrink:0';
-    banner.innerHTML=`<div style="width:8px;height:8px;border-radius:50%;background:${sfl.color};flex-shrink:0"></div>`+
-      `<span style="flex:1;font-size:10px;font-weight:600;color:var(--a)">Auto-tagging: ${esc(sfl.name)}</span>`+
-      `<button style="background:none;border:none;color:var(--m);cursor:pointer;font-size:10px;padding:0 2px" title="Stop auto-tag" onclick="lbStickyFlow=null;renderLbFlows()">✕</button>`;
-  } else {
-    banner.style.cssText='padding:4px 8px;margin-bottom:4px;font-size:9px;color:var(--m);font-family:"DM Mono",monospace;line-height:1.6;border-radius:6px;background:var(--s2);border:1px solid var(--b)';
-    banner.textContent='Click a flow to tag + auto-tag while navigating →';
-  }
+  banner.id='lb-sticky-banner';
+  banner.style.cssText='padding:5px 8px;margin-bottom:5px;border-radius:6px;border:1px solid var(--b);display:flex;flex-wrap:wrap;align-items:center;gap:4px;flex-shrink:0;transition:background .15s';
   c.appendChild(banner);
+  _lbRenderStickyBanner(); // fills banner content
 
+  // ── Zone 2: Current frame's assigned flows (quick remove strip) ──────────
+  if(fr.flows.length){
+    const strip=document.createElement('div');
+    strip.style.cssText='padding:4px 8px 6px;border-bottom:1px solid var(--b);flex-shrink:0;margin-bottom:4px';
+    const label=document.createElement('div');
+    label.style.cssText='font-size:8px;color:var(--m);font-family:"DM Mono",monospace;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px';
+    label.textContent='This frame';
+    strip.appendChild(label);
+    const chips=document.createElement('div');
+    chips.style.cssText='display:flex;flex-wrap:wrap;gap:3px';
+    fr.flows.forEach(fid=>{
+      const fl=flows.find(f=>f.id===fid);if(!fl)return;
+      const isSticky=lbStickyFlows.includes(fid);
+      const chip=document.createElement('span');
+      chip.style.cssText=`display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;font-size:9px;cursor:pointer;border:1px solid ${fl.color}60;background:${fl.color}20;color:var(--t);transition:all .1s`;
+      chip.title='Click to remove from this frame';
+      chip.innerHTML=`<span style="width:5px;height:5px;border-radius:50%;background:${fl.color};flex-shrink:0"></span>${esc(fl.name)}${isSticky?' 📌':''} <span style="opacity:.5;font-size:8px">✕</span>`;
+      chip.onclick=()=>{
+        fr.flows=fr.flows.filter(x=>x!==fid);
+        lbStickyFlows=lbStickyFlows.filter(x=>x!==fid);
+        const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+        if(card)updateCardBadges(card,fr);
+        renderLbFlows();_lbUpdateBadges();updateFSum();scheduleSaveSession();
+      };
+      chips.appendChild(chip);
+    });
+    strip.appendChild(chips);
+    c.appendChild(strip);
+  }
+
+  // ── Zone 3: Flow list ────────────────────────────────────────────────────
+  // 3-state per item: unassigned → assigned → assigned+sticky → unassigned
+  // Visual cue: unassigned=plain, assigned=blue border+✓, sticky=teal outline+📌
   let lastLetter='';
   filtered.forEach(fl=>{
-    if(!srch&&filtered.length>8){
+    if(!srch&&filtered.length>8&&!fl._isNew){
       const letter=fl.name[0].toUpperCase();
       if(letter!==lastLetter){
         lastLetter=letter;
@@ -3814,32 +4010,68 @@ function renderLbFlows(){
       }
     }
     const assigned=fr.flows.includes(fl.id);
-    const isSticky=fl.id===lbStickyFlow;
+    const isSticky=lbStickyFlows.includes(fl.id);
     const d=document.createElement('div');
     d.className='lb-fsp-item'+(assigned?' assigned':'');
-    if(isSticky)d.style.cssText='border-color:var(--a);box-shadow:0 0 0 2px #2563eb30';
+    d.dataset.fid=fl.id; // used by _lbUpdateBadges for fast sync
+    if(isSticky)d.style.outline='2px solid var(--a3)';
+
+    // Right side indicator: shows state clearly
+    const stateIcon = isSticky ? '📌' : assigned ? '✓' : '';
+    const stateColor = isSticky ? 'var(--a3)' : 'var(--a)';
+
     d.innerHTML=
       `<div class="lb-fsp-dot" style="background:${fl.color}"></div>`+
       `<span class="lb-fsp-name">${esc(fl.name)}</span>`+
-      (isSticky?`<span style="font-size:8px;font-family:'DM Mono',monospace;color:var(--a);margin-right:2px">AUTO</span>`:``) +
-      `<div class="lb-fsp-chk">${assigned?'✓':''}</div>`;
+      (isSticky?`<span class="lb-auto-tag" style="font-size:7px;color:var(--a3);background:#22d3ee15;border-radius:3px;padding:0 3px;border:1px solid #22d3ee40;flex-shrink:0">AUTO</span>`:
+       fl._isNew?`<span style="font-size:7px;color:var(--a2);background:#f7c26a15;border-radius:3px;padding:0 3px;border:1px solid #f7c26a40;flex-shrink:0">NEW</span>`:'')+
+      `<div class="lb-fsp-chk" style="color:${stateColor}">${stateIcon}</div>`;
+
+    // ── Click logic: 3-state cycle ─────────────────────────────────────────
+    // State 0 (unassigned)    → click → State 1: assign to this frame only
+    // State 1 (assigned)      → click → State 2: assign + auto-tag (sticky)
+    // State 2 (sticky)        → click → State 0: remove + end sticky
+    // Special: if frame already has OTHER sticky flows, clicking any new flow
+    //   goes straight to State 1 (assign only) so user controls sticky separately
     d.onclick=()=>{
-      if(isSticky&&assigned){
-        // Clicking the active sticky flow = clear sticky + remove from frame
-        lbStickyFlow=null;
-        lbRemoveFlow(fl.id);
+      const cur=getFrame(lbFrId);if(!cur)return;
+      if(isSticky){
+        // State 2 → 0: end this flow (remove assign + remove sticky)
+        cur.flows=cur.flows.filter(x=>x!==fl.id);
+        lbStickyFlows=lbStickyFlows.filter(x=>x!==fl.id);
+        const card=document.querySelector(`.card[data-id="${cur.id}"]`);
+        if(card)updateCardBadges(card,cur);
+        toast('✓',`"${esc(fl.name)}" flow ended`);
+      } else if(assigned){
+        // State 1 → 2: activate auto-tag (sticky)
+        if(!lbStickyFlows.includes(fl.id))lbStickyFlows.push(fl.id);
+        toast('📌',`"${esc(fl.name)}" will auto-tag on → nav`);
       } else {
-        // Replace current frame's flow with this one, set as new sticky
-        lbStickyFlow=fl.id;
-        const cur=getFrame(lbFrId);
-        if(cur){
-          cur.flows=[fl.id]; // one flow per frame — replace
-          const card=document.querySelector(`.card[data-id="${cur.id}"]`);
-          if(card)updateCardBadges(card,cur);
-        }
-        renderLb();updateFSum();renderFlows();
+        // State 0 → 1: assign to this frame only
+        cur.flows.push(fl.id);
+        const card=document.querySelector(`.card[data-id="${cur.id}"]`);
+        if(card)updateCardBadges(card,cur);
+        toast('✓',`"${esc(fl.name)}" assigned`);
       }
+      _lbUpdateBadges();
+      renderLbFlows();updateFSum();renderFlows();scheduleSaveSession();
     };
+
+    // Long-press / right-click: switch sticky — swap to this flow replacing others
+    d.oncontextmenu=(e)=>{
+      e.preventDefault();
+      const cur=getFrame(lbFrId);if(!cur)return;
+      // Switch: clear all stickies, set this one, assign to frame
+      lbStickyFlows=[];
+      if(!cur.flows.includes(fl.id))cur.flows.push(fl.id);
+      lbStickyFlows=[fl.id];
+      const card=document.querySelector(`.card[data-id="${cur.id}"]`);
+      if(card)updateCardBadges(card,cur);
+      _lbUpdateBadges();
+      renderLbFlows();updateFSum();renderFlows();scheduleSaveSession();
+      toast('🔀',`Switched to "${esc(fl.name)}" — previous flows kept on frames`);
+    };
+
     c.appendChild(d);
   });
 
@@ -3861,29 +4093,35 @@ function lbAssignFlow(fid){
 function lbRemoveFlow(fid){
   const fr=getFrame(lbFrId);if(!fr)return;
   fr.flows=fr.flows.filter(x=>x!==fid);
+  lbStickyFlows=lbStickyFlows.filter(x=>x!==fid);
   const card=document.querySelector(`.card[data-id="${fr.id}"]`);
   if(card)updateCardBadges(card,fr);
-  renderLb();updateFSum();renderFlows();
+  _lbUpdateBadges();
+  renderLbFlows();updateFSum();renderFlows();
   scheduleSaveSession();
 }
 function lbNav(d){
   const af=allFrames();const i=af.findIndex(f=>f.id===lbFrId);const n=af[i+d];
   if(!n)return;
   lbFrId=n.id;
-  if(d>0&&lbStickyFlow){
-    n.flows=[lbStickyFlow];
+  // Apply all active sticky flows to the new frame
+  if(lbStickyFlows.length){
+    lbStickyFlows.forEach(fid=>{if(!n.flows.includes(fid))n.flows.push(fid);});
     const card=document.querySelector(`.card[data-id="${n.id}"]`);
     if(card)updateCardBadges(card,n);
   }
-  renderLbFlows();
+  // Fast render first (shows thumb + nav state instantly)
   renderLbFast();
+  // Then sync badges + sidebar for new frame
+  _lbUpdateBadges();
+  renderLbFlows();
   updateFSum();renderFlows();
   scheduleSaveSession();
 }
 function lbDel(){
   const af=allFrames();const i=af.findIndex(f=>f.id===lbFrId);
   const deletedId=lbFrId;
-  const fr=getFrame(deletedId);if(fr)releaseFrameBlobs(fr);
+  const fr=getFrame(deletedId);if(fr)sendToBin(fr);
   videos.forEach(v=>{v.frames=v.frames.filter(f=>f.id!==deletedId);});
   const remaining=allFrames();
   if(!remaining.length){closeLb();}
@@ -3895,9 +4133,11 @@ function lbDel(){
   }
   scheduleRenderFrames();renderFlows();toggleExpBtns();toast('🗑','Deleted');
 }
-function closeLb(){
+function closeLb(keepSticky=false){
   document.getElementById('lb').classList.remove('on');
-  lbFrId=null;lbStickyFlow=null;lbPendingHits=[];lbPendingFaces=[];
+  lbFrId=null;
+  if(!keepSticky)lbStickyFlows=[];
+  lbPendingHits=[];lbPendingFaces=[];
   const bar=document.getElementById('lb-word-bar');if(bar)bar.style.display='none';
 }
 
@@ -4112,6 +4352,7 @@ function _triggerDownload(blob,label,ext){
 }
 
 // ─── ZIP EXPORT (FULL QUALITY - PNG) ─────────────────────────────────────────
+let zipCancelFlag=false;
 
 function openExpModal(){
   if(!allFrames().length){toast('⚠️','No frames to export');return;}
@@ -4139,6 +4380,7 @@ async function exportZip(vid){
   const appName=(nameInput?.value||'').trim();
   if(!appName){toast('⚠️','Enter an App Name before exporting');nameInput?.focus();return;}
   document.getElementById('exp-modal').classList.remove('on');
+  zipCancelFlag=false;
   const expAll=document.getElementById('e-all').checked;
   const expMan=document.getElementById('e-manifest').checked;
   const expCsv=document.getElementById('e-csv').checked;
@@ -4170,7 +4412,10 @@ async function exportZip(vid){
       else{unassignedFolder.file(fn,blob,{binary:true});}
       csvRows.push(`${globalSeq},"${esc(v.name)}","${fn}","${flowNames.join('|')}",${fr.timestamp?.toFixed(2)||''},${v.source||'unknown'}`);
       vManifest.frames.push({globalSeq,filename:fn,flows:flowNames,timestamp:fr.timestamp});
-      if(globalSeq%10===0){setLdPb(Math.round(globalSeq/totalFramesToExport*80),'Encoding…');await yieldUI();}
+      if(globalSeq%10===0){
+        if(zipCancelFlag){hideLd();toast('⚠️','Export cancelled');return;}
+        setLdPb(Math.round(globalSeq/totalFramesToExport*80),'Encoding…');await yieldUI();
+      }
     }
     manifestData.videos.push(vManifest);
   }
@@ -4305,7 +4550,7 @@ function fadAddFlow(){
   const i=document.getElementById('fad-new');
   const res=addFlow(i.value);
   if(res==='dup'){toast('⚠️',`"${i.value.trim()}" already exists`);return;}
-  if(res)i.value='';
+  if(res){i.value='';}
   renderFad();
 }
 function renderFad(){
@@ -4315,12 +4560,14 @@ function renderFad(){
   const lbl=document.getElementById('fad-sel-lbl');
   if(lbl)lbl.textContent=sel.length?`${sel.length} frame${sel.length>1?'s':''} selected`:'No frames selected';
   const af=allFrames();
-  const sorted=[...flows].sort((a,b)=>a.name.localeCompare(b.name));
+  const newFlows=flows.filter(f=>f._isNew);
+  const oldFlows=[...flows.filter(f=>!f._isNew)].sort((a,b)=>a.name.localeCompare(b.name));
+  const sorted=[...newFlows,...oldFlows];
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
   c.innerHTML='';
   let lastLetter='';
   filtered.forEach(fl=>{
-    if(!srch&&filtered.length>8){
+    if(!srch&&filtered.length>8&&!fl._isNew){
       const letter=fl.name[0].toUpperCase();
       if(letter!==lastLetter){
         lastLetter=letter;
