@@ -533,6 +533,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <button class="btn bg sm" onclick="openEdit(lbFrId,'words')" title="Hide words">🔤 Words</button>
     <button class="btn bg sm" onclick="openFace(lbFrId)">👤</button>
     <button class="btn bg sm" onclick="openEdit(lbFrId,'draw')" title="Draw redact boxes">✏️ Draw</button>
+    <button class="btn bg sm" onclick="revertFrame(lbFrId)" title="Revert all edits on this frame">↩ Revert</button>
     <button class="btn bd sm" onclick="lbDel()">🗑</button>
     <button class="btn bg sm" id="lb-fsp-tog" onclick="toggleLbFsp()" title="Toggle flow panel (Tab)">🏷</button>
     <button class="btn bg sm" onclick="closeLb()">✕</button>
@@ -1530,6 +1531,34 @@ function releaseFrameBlobs(fr) {
   if (fr._thumbBlobUrl) { URL.revokeObjectURL(fr._thumbBlobUrl); fr._thumbBlobUrl = null; }
 }
 
+// Revert a frame to its original unedited state
+async function revertFrame(id){
+  const fr=getFrame(id);if(!fr)return;
+  if(!fr._originalBlobUrl){toast('ℹ️','No original to revert to');return;}
+  if(!confirm('Revert this frame to its original state? All redactions, word hides and face hides will be removed.'))return;
+  // Release current edited blobs
+  if(fr.blobUrl&&fr.blobUrl!==fr._originalBlobUrl)URL.revokeObjectURL(fr.blobUrl);
+  if(fr._thumbBlobUrl&&fr._thumbBlobUrl!==fr._originalThumbBlobUrl)URL.revokeObjectURL(fr._thumbBlobUrl);
+  fr.blobUrl=fr._originalBlobUrl;
+  fr._thumbBlobUrl=fr._originalThumbBlobUrl;
+  fr.redacted=false;
+  fr.redactBoxes=[];
+  fr.wordBoxes=[];
+  fr._ocrWords=null;
+  fr._faceCache=null;
+  fr._bgDone=false;
+  // Re-persist the original to IndexedDB as current
+  await dbSaveFrameBlob(fr);
+  // Update grid thumb
+  const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+  if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
+  // Update lightbox image if open
+  const lbImg=document.getElementById('lb-img');
+  if(lbImg&&lbFrId===fr.id)lbImg.src=fr.blobUrl;
+  scheduleSaveSession();
+  toast('↩','Frame reverted to original');
+}
+
 // Store frame as a compressed WebP blob URL — releases the canvas immediately
 async function storeFrameAsBlob(fr,canvas){
   await new Promise(res=>{
@@ -1539,7 +1568,15 @@ async function storeFrameAsBlob(fr,canvas){
       const th2=Math.round(canvas.height*(tw/canvas.width));
       const tc=document.createElement('canvas');tc.width=tw;tc.height=th2;
       tc.getContext('2d',{alpha:false}).drawImage(canvas,0,0,tw,th2);
-      tc.toBlob(tb=>{fr._thumbBlobUrl=URL.createObjectURL(tb);res();},'image/webp',0.75);
+      tc.toBlob(tb=>{
+        fr._thumbBlobUrl=URL.createObjectURL(tb);
+        // Snapshot original on very first store — used for revert
+        if(!fr._originalBlobUrl){
+          fr._originalBlobUrl=fr.blobUrl;
+          fr._originalThumbBlobUrl=fr._thumbBlobUrl;
+        }
+        res();
+      },'image/webp',0.75);
     },'image/webp',0.82);
   });
   // Persist blob to IndexedDB immediately
@@ -1712,7 +1749,7 @@ function assignFlow(fid){
   if(!sel.length){toast('⚠️','Select frames first');return;}
   const fl=flows.find(f=>f.id===fid);
   sel.forEach(fr=>{if(!fr.flows.includes(fid))fr.flows.push(fid);});
-  scheduleSaveSession();
+  saveSession(); // immediate — tagging must never be lost on refresh
   document.querySelectorAll('#qflows .qfb').forEach(b=>{if(b._fid===fid){b.classList.remove('fl');void b.offsetWidth;b.classList.add('fl');}});
   // Update cards in place
   const ids=sel.map(f=>f.id);
@@ -4627,11 +4664,26 @@ async function init(){
   initTrimmer();
   initOcr();
 
-  // Check for saved session
+  // Auto-restore session if saved within last 4 hours, else show banner
   const meta=getSessionMeta();
   if(meta&&meta.videos?.length){
+    const ageMs=Date.now()-meta.savedAt;
     const total=meta.videos.reduce((s,v)=>s+v.frames.length,0);
-    showSessionBanner(meta.savedAt,total);
+    if(ageMs<4*60*60*1000){
+      // Recent session — restore automatically, no prompt needed
+      showLd('Restoring your session…');
+      restoreSession._fn().then(ok=>{
+        if(!ok){
+          hideLd();
+          toast('⚠️','Session data missing — please re-upload your images');
+        } else {
+          toast('✓',`Session restored · ${total} frames · ${allFrames().filter(f=>f.flows.length).length} tagged`);
+        }
+      });
+    } else {
+      // Older session — let user decide
+      showSessionBanner(meta.savedAt,total);
+    }
   }
 }
 
