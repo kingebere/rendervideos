@@ -1534,24 +1534,47 @@ function releaseFrameBlobs(fr) {
 // Revert a frame to its original unedited state
 async function revertFrame(id){
   const fr=getFrame(id);if(!fr)return;
-  if(!fr._originalBlobUrl){toast('ℹ️','No original to revert to');return;}
+  if(!fr._originalBuf){toast('ℹ️','No original to revert to — frame has not been edited yet');return;}
   if(!confirm('Revert this frame to its original state? All redactions, word hides and face hides will be removed.'))return;
-  // Release current edited blobs
-  if(fr.blobUrl&&fr.blobUrl!==fr._originalBlobUrl)URL.revokeObjectURL(fr.blobUrl);
-  if(fr._thumbBlobUrl&&fr._thumbBlobUrl!==fr._originalThumbBlobUrl)URL.revokeObjectURL(fr._thumbBlobUrl);
-  fr.blobUrl=fr._originalBlobUrl;
-  fr._thumbBlobUrl=fr._originalThumbBlobUrl;
+  // Release current edited blobs (safe — original is stored as ArrayBuffer, not these URLs)
+  if(fr.blobUrl)URL.revokeObjectURL(fr.blobUrl);
+  if(fr._thumbBlobUrl)URL.revokeObjectURL(fr._thumbBlobUrl);
+  // Reconstruct fresh blob URLs from the original ArrayBuffers
+  fr.blobUrl=URL.createObjectURL(new Blob([fr._originalBuf],{type:'image/webp'}));
+  fr._thumbBlobUrl=URL.createObjectURL(new Blob([fr._originalThumbBuf],{type:'image/webp'}));
+  // Clear all edit metadata
   fr.redacted=false;
   fr.redactBoxes=[];
   fr.wordBoxes=[];
   fr._ocrWords=null;
   fr._faceCache=null;
   fr._bgDone=false;
-  // Re-persist the original to IndexedDB as current
-  await dbSaveFrameBlob(fr);
+  fr.canvas=null;
+  // Re-persist the original to IndexedDB as current state
+  // Write directly using the ArrayBuffers — no fetch needed
+  if(db){
+    try{
+      await new Promise((res,rej)=>{
+        const tx=db.transaction(STORE_BLOBS,'readwrite');
+        tx.objectStore(STORE_BLOBS).put({
+          id:fr.id,
+          main:fr._originalBuf,
+          thumb:fr._originalThumbBuf
+        });
+        tx.oncomplete=res;tx.onerror=rej;
+      });
+    }catch(e){console.warn('revertFrame dbSave',e);}
+  }
   // Update grid thumb
   const card=document.querySelector(`.card[data-id="${fr.id}"]`);
-  if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
+  if(card){
+    const img=card.querySelector('img');
+    if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}
+    // Clear wbadge if present
+    const wb=card.querySelector('.wbadge');if(wb)wb.remove();
+    // Clear redacted indicator
+    const ab=card.querySelector('.ab-r');if(ab)ab.classList.remove('on');
+  }
   // Update lightbox image if open
   const lbImg=document.getElementById('lb-img');
   if(lbImg&&lbFrId===fr.id)lbImg.src=fr.blobUrl;
@@ -1568,12 +1591,12 @@ async function storeFrameAsBlob(fr,canvas){
       const th2=Math.round(canvas.height*(tw/canvas.width));
       const tc=document.createElement('canvas');tc.width=tw;tc.height=th2;
       tc.getContext('2d',{alpha:false}).drawImage(canvas,0,0,tw,th2);
-      tc.toBlob(tb=>{
+      tc.toBlob(async tb=>{
         fr._thumbBlobUrl=URL.createObjectURL(tb);
-        // Snapshot original on very first store — used for revert
-        if(!fr._originalBlobUrl){
-          fr._originalBlobUrl=fr.blobUrl;
-          fr._originalThumbBlobUrl=fr._thumbBlobUrl;
+        // Snapshot original as ArrayBuffers on very first store — immune to URL revocation
+        if(!fr._originalBuf){
+          fr._originalBuf=await blob.arrayBuffer();
+          fr._originalThumbBuf=await tb.arrayBuffer();
         }
         res();
       },'image/webp',0.75);
