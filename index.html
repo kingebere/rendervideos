@@ -1295,6 +1295,16 @@ function isSensitiveWord(text){
   // Never flag single common words
   if(_SAFE_TOKENS.has(t.toLowerCase()))return false;
 
+  // Never hide months (full + short forms, case-insensitive)
+const MONTHS_REGEX = /^(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t)?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)(\s+\d{1,2}(,\s*\d{4})?|\s+\d{4})?$/i;
+
+if (MONTHS_REGEX.test(t)) return false;
+
+// Also handle formats like: 11 April, 5 Jan 2024
+const DATE_WITH_MONTH_REGEX = /^\d{1,2}\s+(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t)?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)(\s+\d{4})?$/i;
+
+if (DATE_WITH_MONTH_REGEX.test(t)) return false;
+
   // Fast path: if it contains @ it's almost certainly an email
   if(t.includes('@'))return true;
 
