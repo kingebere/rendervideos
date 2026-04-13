@@ -857,6 +857,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 </div>
 </div>
 
+<!-- Outlier detection modal -->
+<div class="modal-bg" id="outlier-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="mt">🔍 Size Mismatch Detected</div>
+    <div style="font-size:11px;color:var(--m);line-height:1.7" id="outlier-desc"></div>
+    <div style="border:1px solid var(--b);border-radius:7px;overflow:hidden;margin-top:4px">
+      <div style="padding:6px 10px;background:var(--s2);font-size:9px;font-family:'DM Mono',monospace;color:var(--m);letter-spacing:1px;text-transform:uppercase">Outlier images — will be removed</div>
+      <div id="outlier-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px;padding:8px;max-height:260px;overflow-y:auto"></div>
+    </div>
+    <div class="mf">
+      <button class="btn bg" id="outlier-keep-btn">Keep All</button>
+      <button class="btn bd" id="outlier-remove-btn">🗑 Remove Outliers</button>
+    </div>
+  </div>
+</div>
+
 <!-- Flow assign drawer (sits between center and right panel) -->
 <div class="fad" id="fad">
 <div class="fad-h">
@@ -1409,7 +1425,7 @@ async function bgProcessFrame(fr){
       ocrCanvas=document.createElement('canvas');
       ocrCanvas.width=640;
       ocrCanvas.height=Math.round(canvas.height*sc);
-      ocrCanvas.getContext('2d',{alpha:false}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
+      ocrCanvas.getContext('2d',{alpha:true}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
     }
     fr._ocrWords=await runOcr(ocrCanvas);
   }
@@ -1420,7 +1436,7 @@ async function bgProcessFrame(fr){
   const col=document.getElementById('hc').value;
   const pad=parseInt(document.getElementById('hp').value)||0;
   const canvas=await getFrameCanvas(fr);
-  const ctx=get2dCtx(canvas,true,false);
+  const ctx=get2dCtx(canvas,true,true);
   hits.forEach(w=>{
     applyHide(ctx,globalHideStyle,col,'#ff3366',
       w.x*canvas.width-pad,w.y*canvas.height-pad,
@@ -1491,8 +1507,13 @@ function bgReset(){
   bgUpdateIndicator();
 }
 
-function get2dCtx(canvas,willRead=false,alpha=false){
-  return canvas.getContext('2d',willRead?{willReadFrequently:true,alpha}:{alpha})||canvas.getContext('2d');
+function get2dCtx(canvas, willRead = false, alpha = true) {
+  return canvas.getContext(
+    '2d',
+    willRead
+      ? { willReadFrequently: true, alpha }
+      : { alpha }
+  ) || canvas.getContext('2d');
 }
 function allFrames(){return videos.flatMap(v=>v.frames);}
 function getFrame(id){for(const v of videos){const f=v.frames.find(fr=>fr.id===id);if(f)return f;}return null;}
@@ -1571,7 +1592,9 @@ async function storeFrameAsBlob(fr,canvas){
       const tw=Math.min(THUMB_MAX_EDGE,canvas.width);
       const th2=Math.round(canvas.height*(tw/canvas.width));
       const tc=document.createElement('canvas');tc.width=tw;tc.height=th2;
-      tc.getContext('2d',{alpha:false}).drawImage(canvas,0,0,tw,th2);
+      const tctx = tc.getContext('2d', { alpha: true });
+tctx.clearRect(0, 0, tw, th2);
+tctx.drawImage(canvas, 0, 0, tw, th2);
       tc.toBlob(async tb=>{
         fr._thumbBlobUrl=URL.createObjectURL(tb);
         // Snapshot original as ArrayBuffers on very first store — immune to URL revocation
@@ -1597,18 +1620,35 @@ function scheduleSaveSession(){
 // Reconstruct a canvas from blobUrl on demand (for export/edit)
 function getFrameCanvas(fr) {
   if (fr.canvas) return Promise.resolve(fr.canvas);
+
   return new Promise((res, rej) => {
     const img = new Image();
+
     img.onload = () => {
       const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d', { alpha: false }).drawImage(img, 0, 0);
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+
+      const ctx = c.getContext('2d', { alpha: true });
+ctx.clearRect(0, 0, c.width, c.height);
+ctx.drawImage(img, 0, 0);
+      if (!ctx) {
+        rej(new Error('Could not get 2D canvas context'));
+        return;
+      }
+
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0);
+
+      fr.canvas = c;
       res(c);
     };
+
     img.onerror = rej;
     img.src = fr.blobUrl;
   });
 }
+
 
 function loadThumbIntoImg(img, fr) {
   if (img.dataset.loaded === '1') return;
@@ -1636,6 +1676,315 @@ function queueThumbLoad(img, fr) {
   img.dataset.frameId = fr.id;
   img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
   ensureThumbObserver().observe(img);
+}
+// ─── STATUS BAR REPLACEMENT (canvas-drawn, no external images) ───────────────
+// Detects bar background brightness, erases the original bar, then draws a
+// pixel-perfect replica: 9:41 time (left), signal+wifi+battery (right).
+// Dynamic Island safe zone is respected (center top ~37% width is left clear).
+
+
+const SB_SVG_RAW = {
+  time: `
+  <svg xmlns="http://www.w3.org/2000/svg" width="182" height="71" viewBox="0 0 182 71" fill="none">
+<path d="M54.8337 50.2186C63.8654 50.2186 69.2302 43.1557 69.2302 31.1955C69.2302 26.692 68.3689 22.9022 66.72 19.9737C64.3329 15.4209 60.2232 12.96 55.0306 12.96C47.3032 12.96 41.84 18.1526 41.84 25.437C41.84 32.2784 46.7618 37.2495 53.5294 37.2495C57.6884 37.2495 61.0599 35.3053 62.7333 31.9338H62.8072C62.8072 31.9338 62.9056 31.9338 62.9302 31.9338C62.9794 31.9338 63.1517 31.9338 63.1517 31.9338C63.1517 40.0549 60.0755 44.903 54.8829 44.903C51.8314 44.903 49.4689 43.2295 48.6568 40.5471H42.3322C43.3904 46.3795 48.3368 50.2186 54.8337 50.2186ZM55.0552 32.2045C50.97 32.2045 48.0661 29.3006 48.0661 25.2401C48.0661 21.278 51.1177 18.251 55.0798 18.251C59.0419 18.251 62.0935 21.3272 62.0935 25.3385C62.0935 29.3006 59.1157 32.2045 55.0552 32.2045Z" fill="black"/>
+<path d="M79.6163 49.8741C81.9542 49.8741 83.5538 48.2006 83.5538 45.9858C83.5538 43.7463 81.9542 42.0975 79.6163 42.0975C77.3031 42.0975 75.6788 43.7463 75.6788 45.9858C75.6788 48.2006 77.3031 49.8741 79.6163 49.8741ZM79.6163 31.417C81.9542 31.417 83.5538 29.7682 83.5538 27.5534C83.5538 25.3139 81.9542 23.6651 79.6163 23.6651C77.3031 23.6651 75.6788 25.3139 75.6788 27.5534C75.6788 29.7682 77.3031 31.417 79.6163 31.417Z" fill="black"/>
+<path d="M106.589 49.3573H112.668V42.7373H117.467V37.3725H112.668V13.8459H103.71C97.4345 23.2959 92.4388 31.1955 89.2396 37.0772V42.7373H106.589V49.3573ZM95.1212 37.151C99.2556 29.8666 102.947 24.0342 106.343 19.0139H106.688V37.5202H95.1212V37.151Z" fill="black"/>
+<path d="M131.003 49.3573H137.352V13.8459H131.027L121.75 20.3428V26.4459L130.584 20.2444H131.003V49.3573Z" fill="black"/>
+</svg>
+
+  `,
+  signal: `
+  <svg xmlns="http://www.w3.org/2000/svg" width="68" height="48" viewBox="0 0 68 48" fill="none">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M40.32 13.44H43.68C45.5356 13.44 47.04 14.9443 47.04 16.8V36.96C47.04 38.8157 45.5356 40.32 43.68 40.32H40.32C38.4643 40.32 36.96 38.8157 36.96 36.96V16.8C36.96 14.9443 38.4643 13.44 40.32 13.44Z" fill="#D1D1D6"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M25.2001 20.16H28.5601C30.4158 20.16 31.9201 21.6643 31.9201 23.52V36.96C31.9201 38.8157 30.4158 40.32 28.5601 40.32H25.2001C23.3444 40.32 21.8401 38.8157 21.8401 36.96V23.52C21.8401 21.6643 23.3444 20.16 25.2001 20.16Z" fill="#D1D1D6"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M10.08 25.2H13.44C15.2956 25.2 16.8 26.7043 16.8 28.56V36.96C16.8 38.8157 15.2956 40.32 13.44 40.32H10.08C8.22429 40.32 6.71997 38.8157 6.71997 36.96V28.56C6.71997 26.7043 8.22429 25.2 10.08 25.2Z" fill="#D1D1D6"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M55.4401 6.72H58.8001C60.6558 6.72 62.1601 8.22432 62.1601 10.08V36.96C62.1601 38.8157 60.6558 40.32 58.8001 40.32H55.4401C53.5844 40.32 52.0801 38.8157 52.0801 36.96V10.08C52.0801 8.22432 53.5844 6.72 55.4401 6.72Z" fill="#3C3C43" fill-opacity="0.18"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M40.32 13.44H43.68C45.5356 13.44 47.04 14.9443 47.04 16.8V36.96C47.04 38.8157 45.5356 40.32 43.68 40.32H40.32C38.4643 40.32 36.96 38.8157 36.96 36.96V16.8C36.96 14.9443 38.4643 13.44 40.32 13.44Z" fill="black"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M25.2001 20.16H28.5601C30.4158 20.16 31.9201 21.6643 31.9201 23.52V36.96C31.9201 38.8157 30.4158 40.32 28.5601 40.32H25.2001C23.3444 40.32 21.8401 38.8157 21.8401 36.96V23.52C21.8401 21.6643 23.3444 20.16 25.2001 20.16Z" fill="black"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M10.08 25.2H13.44C15.2956 25.2 16.8 26.7043 16.8 28.56V36.96C16.8 38.8157 15.2956 40.32 13.44 40.32H10.08C8.22429 40.32 6.71997 38.8157 6.71997 36.96V28.56C6.71997 26.7043 8.22429 25.2 10.08 25.2Z" fill="black"/>
+</svg>
+
+  `,
+  wifi: `
+  <svg xmlns="http://www.w3.org/2000/svg" width="54" height="48" viewBox="0 0 54 48" fill="none">
+<path d="M27.3258 30.037C29.4745 30.037 31.5624 30.6016 33.402 31.6782L34.1474 32.1144C34.7125 32.4452 34.8119 33.2191 34.3486 33.6812L27.9845 40.0276C27.5936 40.4174 26.9598 40.4174 26.5689 40.0276L20.2457 33.722C19.7844 33.262 19.8805 32.4919 20.4408 32.1588L21.1779 31.7205C23.0344 30.6167 25.1487 30.037 27.3258 30.037Z" fill="black"/>
+<path d="M27.3257 18.3787C32.6709 18.3787 37.8031 20.1519 41.9839 23.4357L42.5747 23.8998C43.0458 24.2698 43.0872 24.967 42.6632 25.3898L38.8638 29.1787C38.5123 29.5291 37.9563 29.5694 37.5578 29.2732L37.0947 28.929C34.2709 26.8304 30.8661 25.7047 27.3257 25.7047C23.7636 25.7047 20.3388 26.8444 17.5057 28.9671L17.0421 29.3144C16.6436 29.613 16.0855 29.5737 15.7331 29.2222L11.935 25.4348C11.5119 25.0128 11.5521 24.3174 12.021 23.9467L12.6085 23.4823C16.7993 20.1692 21.9547 18.3787 27.3257 18.3787Z" fill="black"/>
+<path d="M27.326 6.72C35.809 6.72 43.9211 9.71232 50.3422 15.1971L50.8903 15.6653C51.3332 16.0436 51.3593 16.7179 50.9469 17.1292L47.1598 20.9057C46.7929 21.2716 46.2065 21.2973 45.8089 20.9648L45.34 20.5727C40.2845 16.3455 33.948 14.046 27.326 14.046C20.6815 14.046 14.3247 16.3613 9.26165 20.615L8.79256 21.0091C8.39505 21.343 7.80736 21.318 7.43983 20.9515L3.65329 17.1755C3.24148 16.7648 3.26682 16.0916 3.70836 15.7129L4.25435 15.2446C10.6833 9.73019 18.818 6.72 27.326 6.72Z" fill="#3C3C43" fill-opacity="0.3"/>
+</svg>
+
+  `,
+  battery: `
+  <svg xmlns="http://www.w3.org/2000/svg" width="84" height="48" viewBox="0 0 84 48" fill="none">
+<path d="M28.352 27.1376H38.917L33.392 41.3951C32.5953 43.4513 34.7603 44.5218 36.1632 42.8735L53.2403 22.5324C53.5867 22.1246 53.7599 21.7168 53.7599 21.2749C53.7599 20.4932 53.1364 19.9155 52.2877 19.9155H41.7228L47.2304 5.64106C48.0271 3.60186 45.8622 2.51429 44.4766 4.16264L27.3822 24.5037C27.0358 24.9285 26.8799 25.3194 26.8799 25.7612C26.8799 26.5599 27.5034 27.1376 28.352 27.1376Z" fill="black"/>
+<path d="M37.9387 6.72H10.08C6.36865 6.72 3.36 9.72865 3.36 13.44V33.6C3.36 37.3114 6.36865 40.32 10.08 40.32H30.2074C29.8183 41.406 29.7573 42.5979 30.0706 43.68H10.08C4.51297 43.68 0 39.167 0 33.6V13.44C0 7.87297 4.51297 3.36 10.08 3.36H40.7624L37.9387 6.72Z" fill="#3C3C43" fill-opacity="0.6"/>
+<path d="M42.6943 40.32H67.2C70.9114 40.32 73.92 37.3114 73.92 33.6V13.44C73.92 9.72865 70.9114 6.72 67.2 6.72H50.4142C50.8069 5.63012 50.8654 4.43956 50.5514 3.36H67.2C72.767 3.36 77.28 7.87297 77.28 13.44V33.6C77.28 39.167 72.767 43.68 67.2 43.68H39.8734L42.6943 40.32Z" fill="#3C3C43" fill-opacity="0.6"/>
+<path d="M80.6399 16.8C82.4956 16.8 83.9999 18.3043 83.9999 20.16V26.88C83.9999 28.7357 82.4956 30.24 80.6399 30.24V16.8Z" fill="#3C3C43" fill-opacity="0.6"/>
+<path d="M35.1149 10.08L24.7939 22.3612L24.7781 22.3805C24.0626 23.2581 23.52 24.3754 23.52 25.7613C23.52 28.633 25.8728 30.4978 28.3521 30.4978H34.0116L31.5074 36.96H10.08C8.22429 36.96 6.71997 35.4557 6.71997 33.6V13.44C6.71997 11.5843 8.22429 10.08 10.08 10.08H35.1149Z" fill="#34C759"/>
+</svg>
+
+  `
+};
+
+function normalizeStatusSvg(svg, color) {
+  return String(svg || '')
+    .replace(/fill="black"/gi, 'fill="currentColor"')
+    .replace(/stroke="black"/gi, 'stroke="currentColor"')
+    .replace(/fill:#000000/gi, 'fill:currentColor')
+    .replace(/stroke:#000000/gi, 'stroke:currentColor')
+    .replace(/fill="#000"/gi, 'fill="currentColor"')
+    .replace(/stroke="#000"/gi, 'stroke="currentColor"')
+    .replace(/currentColor/g, color)
+    .trim();
+}
+
+function validateStatusSvg(name, svgText) {
+  const raw = String(svgText || '').trim();
+
+  if (!raw) {
+    throw new Error(`${name}: SVG string is empty`);
+  }
+
+  if (!raw.startsWith('<svg')) {
+    throw new Error(`${name}: SVG must start with <svg`);
+  }
+
+  if (!raw.includes('</svg>')) {
+    throw new Error(`${name}: SVG is missing </svg>`);
+  }
+
+  if (/PASTE/i.test(raw)) {
+    throw new Error(`${name}: placeholder text still present`);
+  }
+
+  return raw;
+}
+
+function loadSvgImage(name, svgText, color) {
+  return new Promise((resolve, reject) => {
+    try {
+      const valid = validateStatusSvg(name, svgText);
+      const normalized = normalizeStatusSvg(valid, color);
+
+      const blob = new Blob([normalized], {
+        type: 'image/svg+xml;charset=utf-8'
+      });
+
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+
+      img.onerror = () => {
+        console.error(`Failed SVG [${name}]`, normalized);
+        URL.revokeObjectURL(url);
+        reject(new Error(`${name}: Failed to load SVG image`));
+      };
+
+      img.src = url;
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+const SB_SVG = {
+  black: { time: null, signal: null, wifi: null, battery: null },
+  white: { time: null, signal: null, wifi: null, battery: null }
+};
+
+let sbSvgReadyPromise = null;
+
+function loadStatusBarSVGs() {
+  if (sbSvgReadyPromise) return sbSvgReadyPromise;
+
+  sbSvgReadyPromise = Promise.all([
+    loadSvgImage('black.time', SB_SVG_RAW.time, '#000000'),
+    loadSvgImage('black.signal', SB_SVG_RAW.signal, '#000000'),
+    loadSvgImage('black.wifi', SB_SVG_RAW.wifi, '#000000'),
+    loadSvgImage('black.battery', SB_SVG_RAW.battery, '#000000'),
+
+    loadSvgImage('white.time', SB_SVG_RAW.time, '#ffffff'),
+    loadSvgImage('white.signal', SB_SVG_RAW.signal, '#ffffff'),
+    loadSvgImage('white.wifi', SB_SVG_RAW.wifi, '#ffffff'),
+    loadSvgImage('white.battery', SB_SVG_RAW.battery, '#ffffff'),
+  ]).then(([
+    blackTime, blackSignal, blackWifi, blackBattery,
+    whiteTime, whiteSignal, whiteWifi, whiteBattery
+  ]) => {
+    SB_SVG.black.time = blackTime;
+    SB_SVG.black.signal = blackSignal;
+    SB_SVG.black.wifi = blackWifi;
+    SB_SVG.black.battery = blackBattery;
+
+    SB_SVG.white.time = whiteTime;
+    SB_SVG.white.signal = whiteSignal;
+    SB_SVG.white.wifi = whiteWifi;
+    SB_SVG.white.battery = whiteBattery;
+  });
+
+  return sbSvgReadyPromise;
+}
+
+async function replaceStatusBar(canvas) {
+  const W = canvas.width, H = canvas.height;
+  if (W / H > 0.75) return;
+
+  const barH = Math.round(H * 0.053);
+  if (barH < 8) return;
+
+  const ctx = get2dCtx(canvas, true, true);
+  if (!ctx) return;
+
+  try {
+    await loadStatusBarSVGs();
+  } catch (err) {
+    console.error('Status bar SVG load failed:', err);
+    return;
+  }
+
+  function avgRect(x, y, w, h) {
+    try {
+      const d = ctx.getImageData(x, y, w, h).data;
+      let sr = 0, sg = 0, sb = 0, sl = 0, n = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const a = d[i + 3];
+        if (a < 16) continue;
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        sr += r; sg += g; sb += b; sl += l; n++;
+      }
+      if (!n) return { r: 255, g: 255, b: 255, l: 255 };
+      return {
+        r: Math.round(sr / n),
+        g: Math.round(sg / n),
+        b: Math.round(sb / n),
+        l: sl / n
+      };
+    } catch {
+      return { r: 255, g: 255, b: 255, l: 255 };
+    }
+  }
+
+  const sc = W / 393;
+
+  // Sample original icon zones to infer whether icons were dark or light
+  const timeProbe = avgRect(
+    Math.max(0, Math.round(20 * sc)),
+    Math.max(0, Math.round(barH * 0.12)),
+    Math.max(16, Math.round(70 * sc)),
+    Math.max(8, Math.round(barH * 0.76))
+  );
+
+  const rightProbe = avgRect(
+    Math.max(0, W - Math.round(110 * sc)),
+    Math.max(0, Math.round(barH * 0.10)),
+    Math.max(20, Math.round(90 * sc)),
+    Math.max(8, Math.round(barH * 0.78))
+  );
+
+  // Sample just below the bar, left and right, to rebuild a believable bar background
+  const bgLeft = avgRect(
+    Math.max(0, Math.round(W * 0.05)),
+    Math.min(H - 2, barH + Math.round(H * 0.01)),
+    Math.max(8, Math.round(W * 0.16)),
+    Math.max(4, Math.round(H * 0.015))
+  );
+
+  const bgRight = avgRect(
+    Math.max(0, W - Math.round(W * 0.21)),
+    Math.min(H - 2, barH + Math.round(H * 0.01)),
+    Math.max(8, Math.round(W * 0.16)),
+    Math.max(4, Math.round(H * 0.015))
+  );
+
+  // Decide icon color from what was originally there
+  const useWhiteIcons = Math.min(timeProbe.l, rightProbe.l) < 140;
+  const icons = useWhiteIcons ? SB_SVG.white : SB_SVG.black;
+
+  if (!icons.time || !icons.signal || !icons.wifi || !icons.battery) return;
+
+  // Rebuild the status bar background from nearby screenshot colors
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0, `rgb(${bgLeft.r}, ${bgLeft.g}, ${bgLeft.b})`);
+  grad.addColorStop(1, `rgb(${bgRight.r}, ${bgRight.g}, ${bgRight.b})`);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, barH);
+  ctx.restore();
+
+  // Draw icons
+  const leftInset = Math.round(26 * sc);
+  const rightInset = Math.round(20 * sc);
+  const gap = Math.round(6 * sc);
+  const cy = Math.round(barH * 0.56);
+
+  function drawExact(img, x, centerY, targetW) {
+    const nw = img.naturalWidth || img.width;
+    const nh = img.naturalHeight || img.height;
+    if (!nw || !nh) return 0;
+
+    const w = targetW;
+    const h = Math.round((nh / nw) * w);
+    const y = Math.round(centerY - h / 2);
+
+    ctx.drawImage(img, x, y, w, h);
+    return w;
+  }
+
+  const timeW = Math.round(40 * sc);
+  const signalW = Math.round(18 * sc);
+  const wifiW = Math.round(18 * sc);
+  const batteryW = Math.round(27 * sc);
+
+  drawExact(icons.time, leftInset, cy, timeW);
+
+  let x = W - rightInset;
+
+  x -= batteryW;
+  drawExact(icons.battery, x, cy, batteryW);
+
+  x -= gap + wifiW;
+  drawExact(icons.wifi, x, cy, wifiW);
+
+  x -= gap + signalW;
+  drawExact(icons.signal, x, cy, signalW);
+}
+
+function _sbRR(ctx,x,y,w,h,r){
+  r=Math.min(r,w/2,h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y);
+  ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);
+  ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);
+  ctx.arcTo(x,y+h,x,y+h-r,r);  // was: ctx.arcTo(cx=x,cy=y+h,...) — BUG: overwrote outer vars
+  ctx.lineTo(x,y+r);
+  ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+
+// Helper: draw a rounded rectangle path (no fill/stroke — caller does that)
+function _roundRect(ctx,x,y,w,h,r){
+  r=Math.min(r,w/2,h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);
+  ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
 }
 // ─── FLOWS (PERSISTENT) ─────────────────────────────────────────────────────
 function initFlows(){
@@ -1918,14 +2267,93 @@ function updateFSum(){
 }
 
 // ─── IMAGE UPLOAD (FIX: no double-loading) ─────────────────────────────────
+// Probe dimensions of all files quickly — returns [{file, w, h, url}]
+async function _probeImageDims(files){
+  const results=[];
+  await Promise.all(files.map(f=>new Promise(res=>{
+    const url=URL.createObjectURL(f);
+    const img=new Image();
+    img.onload=()=>{results.push({file:f,w:img.naturalWidth,h:img.naturalHeight,url});res();};
+    img.onerror=()=>{URL.revokeObjectURL(url);res();};
+    img.src=url;
+  })));
+  return results;
+}
+
+// Show outlier modal — returns promise resolving to 'remove'|'keep'
+function _showOutlierModal(majorityDim, outliers){
+  return new Promise(resolve=>{
+    const desc=document.getElementById('outlier-desc');
+    const grid=document.getElementById('outlier-grid');
+    desc.innerHTML=
+      `Majority size: <b style="color:var(--t)">${majorityDim.w} × ${majorityDim.h}px</b> `+
+      `(${majorityDim.count} image${majorityDim.count!==1?'s':''})<br>`+
+      `<span style="color:var(--r)">${outliers.length} image${outliers.length!==1?'s':''}</span> `+
+      `have different dimensions and may be icons, banners, or assets — not screenshots.`;
+    grid.innerHTML='';
+    outliers.forEach(({file,w,h,url})=>{
+      const cell=document.createElement('div');
+      cell.style.cssText='display:flex;flex-direction:column;align-items:center;gap:3px;font-size:8px;color:var(--m);font-family:"DM Mono",monospace;text-align:center';
+      cell.innerHTML=
+        `<img src="${url}" style="width:72px;height:72px;object-fit:contain;border-radius:5px;border:1.5px solid var(--r);background:var(--s3)"/>`+
+        `<span style="word-break:break-all;max-width:72px">${esc(file.name)}</span>`+
+        `<span style="color:var(--a2)">${w}×${h}</span>`;
+      grid.appendChild(cell);
+    });
+    document.getElementById('outlier-modal').classList.add('on');
+    const cleanup=(choice)=>{
+      document.getElementById('outlier-modal').classList.remove('on');
+      // Revoke preview URLs
+      outliers.forEach(({url})=>URL.revokeObjectURL(url));
+      document.getElementById('outlier-keep-btn').onclick=null;
+      document.getElementById('outlier-remove-btn').onclick=null;
+      resolve(choice);
+    };
+    document.getElementById('outlier-keep-btn').onclick=()=>cleanup('keep');
+    document.getElementById('outlier-remove-btn').onclick=()=>cleanup('remove');
+  });
+}
+
 async function addImages(files){
   const imgs=files.filter(f=>f.type.match(/^image\//)&&f.name.match(/\.(png|jpg|jpeg|webp)$/i));
   if(!imgs.length){toast('⚠️','No image files found (PNG, JPG, WebP)');return;}
   const seen=new Set();
-  const unique=imgs.filter(f=>{const key=f.name+'|'+f.size;if(seen.has(key))return false;seen.add(key);return true;});
+  let unique=imgs.filter(f=>{const key=f.name+'|'+f.size;if(seen.has(key))return false;seen.add(key);return true;});
   unique.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
-  const rawFolder=unique[0].webkitRelativePath?unique[0].webkitRelativePath.split('/')[0]:'Screenshots';
-const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,'').replace(/_/g,' ').trim()||'Screenshots';
+
+  // ── Outlier detection (only when 4+ images from a folder-like set) ──────
+  if(unique.length>=4){
+    const probed=await _probeImageDims(unique);
+    // Count occurrences of each W×H pair
+    const dimCounts={};
+    probed.forEach(({w,h})=>{const k=`${w}x${h}`;dimCounts[k]=(dimCounts[k]||0)+1;});
+    // Majority = most common dimension pair
+    const majorityKey=Object.entries(dimCounts).sort((a,b)=>b[1]-a[1])[0][0];
+    const [mw,mh]=majorityKey.split('x').map(Number);
+    const majorityCount=dimCounts[majorityKey];
+    const outlierProbed=probed.filter(({w,h})=>w!==mw||h!==mh);
+    if(outlierProbed.length>0&&outlierProbed.length<unique.length){
+      // There are outliers but not ALL images are outliers
+      // Keep blob URLs open for the modal preview, revoke majority URLs
+      probed.filter(({w,h})=>w===mw&&h===mh).forEach(({url})=>URL.revokeObjectURL(url));
+      const choice=await _showOutlierModal(
+        {w:mw,h:mh,count:majorityCount},
+        outlierProbed
+      );
+      if(choice==='remove'){
+        const removeSet=new Set(outlierProbed.map(({file})=>file.name+'|'+file.size));
+        unique=unique.filter(f=>!removeSet.has(f.name+'|'+f.size));
+        toast('🗑',`${outlierProbed.length} outlier${outlierProbed.length!==1?'s':''} removed`);
+      }
+      // else keep all — outlier URLs already revoked in _showOutlierModal cleanup
+    } else {
+      // No outliers or all same size — revoke all probed URLs
+      probed.forEach(({url})=>URL.revokeObjectURL(url));
+    }
+  }
+
+  const rawFolder=unique[0]?.webkitRelativePath?unique[0].webkitRelativePath.split('/')[0]:'Screenshots';
+  const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,'').replace(/_/g,' ').trim()||'Screenshots';
 
   // Replace ALL existing frames + clear session when a new folder is uploaded
   const oldIds=allFrames().map(f=>f.id);
@@ -1969,17 +2397,17 @@ const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,
           vid._sourceSet=true;
         }
         fr._gridSrc=vid._gridSrc;
+        // Replace status bar for iphone-aspect frames
+        if(fr._gridSrc==='iphone')await replaceStatusBar(c);
         await storeFrameAsBlob(fr,c);
         vid.frames.push(fr);
         appendFrameCard(fr,'screenshot');
         updateStatsQuick();
         document.getElementById('live-ct').textContent=loaded;
         document.getElementById('live-txt').textContent=`Loading · ${loaded}/${unique.length} · ${esc(f.name)}`;
-        // Start hiding words on each frame as it arrives — don't wait for all images
         bgQueueFrames([fr]);
         res();
       };
-      
       img.onerror=()=>{URL.revokeObjectURL(url);res();};
       img.src=url;
     });
@@ -1989,7 +2417,6 @@ const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,
   renderVideoList();updateStats();renderFlows();toggleExpBtns();
   saveSession();
   toast('✓',`${loaded} screenshot${loaded!==1?'s':''} loaded`);
-  // bgQueueFrames called per-frame above — nothing to do here
 }
 
 async function addFiles(files){
@@ -2091,6 +2518,10 @@ async function extractVideo(v){
           prevData=pd;total++;
           if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
           const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,videoId:v.id,source:v.source};
+          // Replace status bar for iPhone frames before storing
+          if (v.source === 'iphone' || (total === 1 && detectSource(w, h, v.name, v.mimeType) === 'iphone')) {
+  await replaceStatusBar(fc);
+}
           // Convert to blob immediately, release the canvas
           await storeFrameAsBlob(fr, fc);
           // fc is now unreferenced — GC can collect it
@@ -2136,7 +2567,7 @@ async function extractChunk({url,fps,dedup,sens,start,end,prevData,onFrame,onPro
   // Shared offscreen canvas — reused per frame, never recreated
   const W=video.videoWidth||1920,H=video.videoHeight||1080;
   const offCanvas=document.createElement('canvas');offCanvas.width=W;offCanvas.height=H;
-  const offCtx=offCanvas.getContext('2d',{alpha:false,willReadFrequently:true});
+  const offCtx=offCanvas.getContext('2d',{alpha:true,willReadFrequently:true});
   let extracted=0;
 
   // Dedup sample zone: skip top 15% (recording indicator, notch, status bar) and bottom 8% (home indicator)
@@ -2192,7 +2623,7 @@ async function extractChunk({url,fps,dedup,sens,start,end,prevData,onFrame,onPro
 
     // Copy to dedicated frame canvas (don't reuse offCanvas — it will be overwritten next frame)
     const fc=document.createElement('canvas');fc.width=W;fc.height=H;
-    fc.getContext('2d',{alpha:false}).drawImage(offCanvas,0,0);
+    fc.getContext('2d',{alpha:true}).drawImage(offCanvas,0,0);
 
     extracted++;
     onFrame(fc,+t.toFixed(3),prevData,W,H);
@@ -3096,7 +3527,7 @@ async function applyEdit(){
   }
   const col=document.getElementById('ocr-col').value,pad=parseInt(document.getElementById('ocr-pad').value)||0;
   const canvas=fr.canvas||(await getFrameCanvas(fr));
-  const ctx=get2dCtx(canvas,true,false);
+  const ctx=get2dCtx(canvas,true,true);
   let wordCount=0,boxCount=0;
   // Bake word hides
   ocrHidden.forEach(i=>{
@@ -3247,7 +3678,7 @@ async function applyOcr(){
   if(hiddenCount>0){
     const col=document.getElementById('ocr-col').value,pad=parseInt(document.getElementById('ocr-pad').value)||0;
     const canvas=fr.canvas||(await getFrameCanvas(fr));
-    const ctx=get2dCtx(canvas,true,false);
+    const ctx=get2dCtx(canvas,true,true);
     ocrHidden.forEach(i=>{const w=ocrWords[i];if(!w)return;applyHide(ctx,ocrLocalStyle,col,'#ff3366',w.x*canvas.width-pad,w.y*canvas.height-pad,w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);});
     fr.wordBoxes=(fr.wordBoxes||[]).concat([...ocrHidden].map(i=>({...ocrWords[i]})));
     fr.redacted=true;delete fr._ocrWords;
@@ -3608,7 +4039,7 @@ async function autoScanWordList(frId){
         ocrCanvas=document.createElement('canvas');
         ocrCanvas.width=800;
         ocrCanvas.height=Math.round(canvas.height*scale);
-        ocrCanvas.getContext('2d',{alpha:false}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
+        ocrCanvas.getContext('2d',{alpha:true}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
       }
       fr._ocrWords=await runOcr(ocrCanvas);
       // Scale word boxes back to normalised coords (already normalised 0-1, no adjustment needed)
@@ -3648,7 +4079,7 @@ async function autoScanFaces(frId){
     const dc=document.createElement('canvas');
     dc.width=Math.max(1,Math.round(canvas.width*scale));
     dc.height=Math.max(1,Math.round(canvas.height*scale));
-    dc.getContext('2d',{alpha:false}).drawImage(canvas,0,0,dc.width,dc.height);
+    dc.getContext('2d',{alpha:true}).drawImage(canvas,0,0,dc.width,dc.height);
     const dets=await faceapi.detectAllFaces(dc,new faceapi.TinyFaceDetectorOptions({inputSize:224,scoreThreshold:0.4}));
     const result=dets.map((d,i)=>({
       idx:i,hidden:true,score:Math.round(d.score*100),
@@ -3824,7 +4255,7 @@ async function _lbPreScan(navId, af, idx){
         ocrCanvas=document.createElement('canvas');
         ocrCanvas.width=800;
         ocrCanvas.height=Math.round(canvas.height*scale);
-        ocrCanvas.getContext('2d',{alpha:false}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
+        ocrCanvas.getContext('2d',{alpha:true}).drawImage(canvas,0,0,ocrCanvas.width,ocrCanvas.height);
       }
       fr._ocrWords=await runOcr(ocrCanvas);
     }
@@ -3848,7 +4279,7 @@ async function _lbPreScan(navId, af, idx){
               const sc=800/c.width;
               oc=document.createElement('canvas');oc.width=800;
               oc.height=Math.round(c.height*sc);
-              oc.getContext('2d',{alpha:false}).drawImage(c,0,0,oc.width,oc.height);
+              oc.getContext('2d',{alpha:true}).drawImage(c,0,0,oc.width,oc.height);
             }
             next._ocrWords=await runOcr(oc);
           }catch(e){}
@@ -3965,7 +4396,7 @@ async function lbApplyHits(wordHits, faceHits){
   const col=document.getElementById('hc').value;
   const pad=parseInt(document.getElementById('hp').value)||0;
   const canvas=await getFrameCanvas(fr);
-  const ctx=get2dCtx(canvas,true,false);
+  const ctx=get2dCtx(canvas,true,true);
   let wc=0,fc=0;
   (wordHits||[]).forEach(w=>{
     applyHide(ctx,globalHideStyle,col,'#ff3366',
@@ -4246,7 +4677,7 @@ async function extractTrimRange(){
     const ctx=canvas.getContext('2d');ctx.drawImage(vid,0,0);
     if(dedup&&prevData){const curr=ctx.getImageData(0,0,Math.min(canvas.width,160),Math.min(canvas.height,90));if(similar(prevData,curr,sens))continue;prevData=curr;}
     else if(dedup)prevData=ctx.getImageData(0,0,Math.min(canvas.width,160),Math.min(canvas.height,90));
-    const fc=document.createElement('canvas');fc.width=canvas.width;fc.height=canvas.height;fc.getContext('2d',{alpha:false}).drawImage(canvas,0,0);
+    const fc=document.createElement('canvas');fc.width=canvas.width;fc.height=canvas.height;fc.getContext('2d',{alpha:true}).drawImage(canvas,0,0);
     n++;
     const fr={id:'fr_'+Date.now()+'_'+n,canvas:fc,name:`frame_${String(v.frames.length+1).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:times[i],videoId:v.id,source:v.source};
     v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
@@ -4353,7 +4784,7 @@ async function _encodeMediaRecorder(canvases,label,fps,W,H,prog,progT,progB){
   const mspf=Math.floor(1000/fps);
   const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
   const rc=document.getElementById('rc');rc.width=W;rc.height=H;
-  const rctx=rc.getContext('2d',{alpha:false});
+  const rctx=rc.getContext('2d',{alpha:true});
   rctx.drawImage(canvases[0],0,0,W,H);
   await new Promise(r=>setTimeout(r,80));
   const stream=rc.captureStream(fps);
