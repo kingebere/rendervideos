@@ -657,9 +657,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <div id="upload-img" style="display:none;padding:0 9px 6px;flex-shrink:0">
       <div class="dz" id="dz-img" onclick="document.getElementById('fi-img').click()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        <strong>Drop screenshots here</strong><p>PNG, JPG, WebP · or whole folder</p>
+        <strong>Drop screenshots here</strong><p>PNG, JPG, WebP · ZIP · or whole folder</p>
       </div>
-      <input type="file" id="fi-img" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" multiple/>
+      <input type="file" id="fi-img" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp,.zip,application/zip" multiple/>
       <input type="file" id="fi-folder" webkitdirectory multiple style="display:none"/>
       <button class="btn bg sm" style="width:100%;margin-top:5px" onclick="document.getElementById('fi-folder').click()">📁 Upload Folder</button>
     </div>
@@ -2315,7 +2315,42 @@ function _showOutlierModal(majorityDim, outliers){
   });
 }
 
-async function addImages(files){
+
+
+async function loadZip(file){
+  try{
+    showLd(`Extracting ${file.name}…`);setLdPb(5,'Reading ZIP…');
+    const zip=await JSZip.loadAsync(file);
+    const imgExts=/\.(png|jpg|jpeg|webp)$/i;
+    const entries=[];
+    zip.forEach((relPath,entry)=>{
+      if(!entry.dir&&imgExts.test(relPath))entries.push({relPath,entry});
+    });
+    if(!entries.length){hideLd();toast('⚠️','No images found in ZIP');return;}
+    entries.sort((a,b)=>a.relPath.localeCompare(b.relPath,undefined,{numeric:true}));
+    const imgFiles=[];
+    for(let i=0;i<entries.length;i++){
+      const {relPath,entry}=entries[i];
+      setLdPb(Math.round(5+i/entries.length*60),`Unpacking ${i+1}/${entries.length}…`);
+      const buf=await entry.async('arraybuffer');
+      const ext=(relPath.match(/\.([^.]+)$/)?.[1]||'png').toLowerCase();
+      const mime=ext==='jpg'||ext==='jpeg'?'image/jpeg':ext==='webp'?'image/webp':'image/png';
+      const blob=new Blob([buf],{type:mime});
+      imgFiles.push(new File([blob],relPath.split('/').pop(),{type:mime}));
+    }
+    hideLd();
+    await addImages(imgFiles);
+  }catch(e){hideLd();toast('❌',`ZIP error: ${e.message}`);}
+}
+
+async function addImages(filesInput){
+  let files=Array.from(filesInput);
+  const zips=files.filter(f=>f.name.match(/\.zip$/i)||f.type==='application/zip'||f.type==='application/x-zip-compressed');
+  if(zips.length){
+    for(const z of zips)await loadZip(z);
+    files=files.filter(f=>!f.name.match(/\.zip$/i)&&f.type!=='application/zip'&&f.type!=='application/x-zip-compressed');
+    if(!files.length)return;
+  }
   const imgs=files.filter(f=>f.type.match(/^image\//)&&f.name.match(/\.(png|jpg|jpeg|webp)$/i));
   if(!imgs.length){toast('⚠️','No image files found (PNG, JPG, WebP)');return;}
   const seen=new Set();
