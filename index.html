@@ -2523,7 +2523,7 @@ async function extractVideo(v){
           // if (v.source === 'iphone' || (total === 1 && detectSource(w, h, v.name, v.mimeType) === 'iphone')) {
           //   await replaceStatusBar(fc);
           // }
-          // Convert to blob immediately, release the canvas
+          // Convert to blob immediately, release the canvas 
           await storeFrameAsBlob(fr, fc);
           // fc is now unreferenced — GC can collect it
           v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
