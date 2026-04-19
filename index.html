@@ -1798,6 +1798,7 @@ const SB_SVG = {
 let sbSvgReadyPromise = null;
 
 function loadStatusBarSVGs() {
+  return Promise.resolve(); // DISABLED
   if (sbSvgReadyPromise) return sbSvgReadyPromise;
 
   sbSvgReadyPromise = Promise.all([
@@ -2398,7 +2399,7 @@ async function addImages(files){
         }
         fr._gridSrc=vid._gridSrc;
         // Replace status bar for iphone-aspect frames
-        if(fr._gridSrc==='iphone')await replaceStatusBar(c);
+        // if(fr._gridSrc==='iphone')await replaceStatusBar(c); // DISABLED
         await storeFrameAsBlob(fr,c);
         vid.frames.push(fr);
         appendFrameCard(fr,'screenshot');
@@ -2518,10 +2519,10 @@ async function extractVideo(v){
           prevData=pd;total++;
           if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
           const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,videoId:v.id,source:v.source};
-          // Replace status bar for iPhone frames before storing
-          if (v.source === 'iphone' || (total === 1 && detectSource(w, h, v.name, v.mimeType) === 'iphone')) {
-  await replaceStatusBar(fc);
-}
+          // Status bar replacement DISABLED
+          // if (v.source === 'iphone' || (total === 1 && detectSource(w, h, v.name, v.mimeType) === 'iphone')) {
+          //   await replaceStatusBar(fc);
+          // }
           // Convert to blob immediately, release the canvas
           await storeFrameAsBlob(fr, fc);
           // fc is now unreferenced — GC can collect it
