@@ -1667,34 +1667,48 @@ function loadThumbIntoImg(img, fr) {
   img.dataset.loaded = '1';
 }
 
+// Shared drain queue — filled by queueThumbLoad, drained by _drainThumbQueue
+const _thumbQueue=[];
+let _thumbDrainRaf=0;
+const _THUMB_DRAIN_PER_FRAME=12; // max img.src assignments per rAF tick
+
+function _drainThumbQueue(){
+  _thumbDrainRaf=0;
+  if(!_thumbQueue.length)return;
+  const batch=_thumbQueue.splice(0,_THUMB_DRAIN_PER_FRAME);
+  batch.forEach(img=>{
+    const fr=getFrame(img.dataset.frameId);
+    if(fr&&img.dataset.loaded!=='1')loadThumbIntoImg(img,fr);
+  });
+  if(_thumbQueue.length){
+    _thumbDrainRaf=requestAnimationFrame(_drainThumbQueue);
+  }
+}
+
 function ensureThumbObserver() {
   if (gridLazyObserver) return gridLazyObserver;
-  let _rafPending=false;
-  const _pending=[];
   gridLazyObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
-      _pending.push(entry.target);
-      gridLazyObserver.unobserve(entry.target);
+      const img = entry.target;
+      gridLazyObserver.unobserve(img);
+      // Only queue if not already loaded or queued
+      if(img.dataset.loaded==='1')return;
+      if(!_thumbQueue.includes(img))_thumbQueue.push(img);
     });
-    if(!_rafPending){
-      _rafPending=true;
-      requestAnimationFrame(()=>{
-        _rafPending=false;
-        // Process max 20 thumbs per frame to avoid reflow storm
-        const batch=_pending.splice(0,20);
-        batch.forEach(img=>{
-          const fr=getFrame(img.dataset.frameId);
-          if(fr)loadThumbIntoImg(img,fr);
-        });
-      });
+    if(!_thumbDrainRaf){
+      _thumbDrainRaf=requestAnimationFrame(_drainThumbQueue);
     }
-  }, { root: document.getElementById('frames-area'), rootMargin: '800px 0px' });
+  }, {
+    root: document.getElementById('frames-area'),
+    rootMargin: '200px 0px'   // tight — only near-viewport cards
+  });
   return gridLazyObserver;
 }
 
 function queueThumbLoad(img, fr) {
   img.dataset.frameId = fr.id;
+  // Transparent 1x1 placeholder — no decode cost
   img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
   ensureThumbObserver().observe(img);
 }
@@ -2605,6 +2619,17 @@ async function addImages(filesInput){
 
   if(_ip)_ip.style.display='none';
   document.getElementById('live-bar').classList.remove('on');
+
+  // Reset observer so it re-evaluates all cards from scratch with the tight rootMargin
+  // This prevents the flood of simultaneous intersections from the bulk append
+  if(gridLazyObserver){gridLazyObserver.disconnect();gridLazyObserver=null;}
+  _thumbQueue.length=0;
+  if(_thumbDrainRaf){cancelAnimationFrame(_thumbDrainRaf);_thumbDrainRaf=0;}
+  // Re-observe all unloaded imgs through the fresh observer
+  const allImgs=document.querySelectorAll('#fg img[data-frame-id]');
+  const obs=ensureThumbObserver();
+  allImgs.forEach(img=>{if(img.dataset.loaded!=='1')obs.observe(img);});
+
   renderVideoList();updateStats();renderFlows();toggleExpBtns();
   saveSession();
   toast('✓',`${loaded} screenshot${loaded!==1?'s':''} loaded`);
