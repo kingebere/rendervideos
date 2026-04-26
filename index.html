@@ -876,8 +876,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <div id="outlier-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px;padding:8px;max-height:260px;overflow-y:auto"></div>
     </div>
     <div class="mf">
-      <button class="btn bg" id="outlier-keep-btn">Keep All</button>
-      <button class="btn bd" id="outlier-remove-btn">🗑 Remove Outliers</button>
+      <button class="btn bp" id="outlier-keep-btn">✓ Accept selected</button>
+      <button class="btn bd" id="outlier-remove-btn">🗑 Remove All Outliers</button>
     </div>
   </div>
 </div>
@@ -2310,29 +2310,92 @@ function _showOutlierModal(majorityDim, outliers){
     desc.innerHTML=
       `Majority size: <b style="color:var(--t)">${majorityDim.w} × ${majorityDim.h}px</b> `+
       `(${majorityDim.count} image${majorityDim.count!==1?'s':''})<br>`+
-      `<span style="color:var(--r)">${outliers.length} image${outliers.length!==1?'s':''}</span> `+
-      `have different dimensions and may be icons, banners, or assets — not screenshots.`;
+      `<span style="color:var(--a2)">${outliers.length} image${outliers.length!==1?'s':''}</span> `+
+      `differ in size — rotate and/or select the ones you want to keep.`;
     grid.innerHTML='';
-    outliers.forEach(({file,w,h,url})=>{
-      const cell=document.createElement('div');
-      cell.style.cssText='display:flex;flex-direction:column;align-items:center;gap:3px;font-size:8px;color:var(--m);font-family:"DM Mono",monospace;text-align:center';
-      cell.innerHTML=
-        `<img src="${url}" style="width:72px;height:72px;object-fit:contain;border-radius:5px;border:1.5px solid var(--r);background:var(--s3)"/>`+
-        `<span style="word-break:break-all;max-width:72px">${esc(file.name)}</span>`+
-        `<span style="color:var(--a2)">${w}×${h}</span>`;
-      grid.appendChild(cell);
-    });
+
+    // Per-item state: rotation (0,90,180,270) and accepted (bool)
+    const state=outliers.map(()=>({rot:0,accepted:false}));
+
+    function renderCells(){
+      grid.innerHTML='';
+      outliers.forEach(({file,w,h,url},i)=>{
+        const s=state[i];
+        const isLandscape=w>h;
+        const cell=document.createElement('div');
+        cell.style.cssText='display:flex;flex-direction:column;align-items:center;gap:4px;font-size:8px;color:var(--m);font-family:"DM Mono",monospace;text-align:center;padding:6px;border-radius:7px;border:1.5px solid '+(s.accepted?'var(--a)':'var(--b)')+';background:'+(s.accepted?'#2563eb10':'var(--s2)')+';cursor:pointer;transition:all .15s;position:relative';
+        cell.title=s.accepted?'Click to deselect':'Click to select';
+
+        // Checkmark badge
+        const chk=s.accepted?`<div style="position:absolute;top:4px;right:4px;width:14px;height:14px;border-radius:50%;background:var(--a);display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff">✓</div>`:'';
+
+        // Rotate hint badge for landscape images
+        const rotateBadge=isLandscape&&s.rot===0?`<div style="position:absolute;top:4px;left:4px;font-size:8px;background:var(--a2);color:#1a1000;border-radius:3px;padding:0 3px;font-weight:700">↻</div>`:'';
+
+        cell.innerHTML=
+          `${chk}${rotateBadge}`+
+          `<div style="width:72px;height:72px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:4px;background:var(--s3)">`+
+            `<img src="${url}" style="max-width:68px;max-height:68px;object-fit:contain;transform:rotate(${s.rot}deg);transition:transform .2s"/>`+
+          `</div>`+
+          `<span style="word-break:break-all;max-width:80px;line-height:1.4">${esc(file.name)}</span>`+
+          `<span style="color:var(--a2)">${w}×${h}</span>`+
+          `<div style="display:flex;gap:4px;margin-top:2px">`+
+            `<button data-rot="${i}" style="background:var(--s3);border:1px solid var(--b);color:var(--t);border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer" title="Rotate 90°">↻ Rotate</button>`+
+          `</div>`;
+
+        // Toggle accept on cell click (not on rotate button)
+        cell.onclick=(e)=>{
+          if(e.target.closest('[data-rot]'))return;
+          state[i].accepted=!state[i].accepted;
+          renderCells();
+          updateAcceptBtn();
+        };
+
+        // Rotate button
+        cell.querySelector('[data-rot]').onclick=(e)=>{
+          e.stopPropagation();
+          state[i].rot=(state[i].rot+90)%360;
+          // Auto-accept on first rotate
+          if(!state[i].accepted){state[i].accepted=true;}
+          renderCells();
+          updateAcceptBtn();
+        };
+
+        grid.appendChild(cell);
+      });
+    }
+
+    function updateAcceptBtn(){
+      const n=state.filter(s=>s.accepted).length;
+      const btn=document.getElementById('outlier-keep-btn');
+      if(btn){
+        btn.textContent=n>0?`✓ Accept ${n} selected`:'Accept None';
+        btn.style.opacity=n>0?'1':'0.5';
+      }
+    }
+
+    renderCells();
+    updateAcceptBtn();
+
     document.getElementById('outlier-modal').classList.add('on');
+
     const cleanup=(choice)=>{
       document.getElementById('outlier-modal').classList.remove('on');
-      // Revoke preview URLs
       outliers.forEach(({url})=>URL.revokeObjectURL(url));
       document.getElementById('outlier-keep-btn').onclick=null;
       document.getElementById('outlier-remove-btn').onclick=null;
       resolve(choice);
     };
-    document.getElementById('outlier-keep-btn').onclick=()=>cleanup('keep');
-    document.getElementById('outlier-remove-btn').onclick=()=>cleanup('remove');
+
+    document.getElementById('outlier-keep-btn').onclick=()=>{
+      // Return accepted items with their rotation so addImages can apply it
+      const accepted=outliers
+        .map((o,i)=>({...o,_rot:state[i].rot,_accepted:state[i].accepted}))
+        .filter(o=>o._accepted);
+      cleanup({action:'accept', accepted});
+    };
+
+    document.getElementById('outlier-remove-btn').onclick=()=>cleanup({action:'remove'});
   });
 }
 
@@ -2397,10 +2460,25 @@ async function addImages(filesInput){
         {w:mw,h:mh,count:majorityCount},
         outlierProbed
       );
-      if(choice==='remove'){
+      if(choice.action==='remove'){
         const removeSet=new Set(outlierProbed.map(({file})=>file.name+'|'+file.size));
         unique=unique.filter(f=>!removeSet.has(f.name+'|'+f.size));
         toast('🗑',`${outlierProbed.length} outlier${outlierProbed.length!==1?'s':''} removed`);
+      } else if(choice.action==='accept'){
+        // Remove all outliers first, then re-add only the accepted ones
+        const allOutlierSet=new Set(outlierProbed.map(({file})=>file.name+'|'+file.size));
+        unique=unique.filter(f=>!allOutlierSet.has(f.name+'|'+f.size));
+        // Re-insert accepted files and store their rotation for addImages to apply
+        if(choice.accepted.length){
+          choice.accepted.forEach(o=>{
+            unique.push(o.file);
+            // Tag rotation onto the file object so the batch loop can read it
+            o.file._forceRot=o._rot;
+          });
+          toast('✓',`${choice.accepted.length} outlier${choice.accepted.length!==1?'s':''} accepted`);
+        } else {
+          toast('ℹ️','No outliers accepted');
+        }
       }
       // else keep all — outlier URLs already revoked in _showOutlierModal cleanup
     } else {
@@ -2485,18 +2563,22 @@ async function addImages(filesInput){
       // Detect landscape screenshots (likely rotated iphone) — flag for rotate button
       const ar=w/h;
       if(ar>1.1)fr._isLandscape=true;
-      // Auto-rotate landscape images to portrait before storing
+      // Auto-rotate: use forced rotation from outlier modal, else auto-detect landscape
       let finalCanvas=c;
       const ar2=w/h;
-      if(ar2>1.1){
+      const forcedRot=f._forceRot||0;
+      const rotDeg=forcedRot!==0?forcedRot:(ar2>1.1?90:0);
+      if(rotDeg!==0){
+        const turns=((rotDeg/90)%4+4)%4;
+        let cw=w,ch=h;
+        if(turns===1||turns===3){cw=h;ch=w;}
         const rc2=document.createElement('canvas');
-        rc2.width=h;rc2.height=w;
+        rc2.width=cw;rc2.height=ch;
         const rctx=rc2.getContext('2d',{alpha:false});
         rctx.translate(rc2.width/2,rc2.height/2);
-        rctx.rotate(Math.PI/2);
+        rctx.rotate(turns*Math.PI/2);
         rctx.drawImage(c,-w/2,-h/2);
         finalCanvas=rc2;
-        // Re-classify after rotation
         const newAr=rc2.width/rc2.height;
         fr._gridSrc=newAr<0.8?'iphone':newAr>1.1?'mac':'unknown';
       }
