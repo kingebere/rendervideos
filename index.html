@@ -2537,82 +2537,69 @@ async function addImages(filesInput){
   document.getElementById('live-ct').textContent='0';
   document.getElementById('live-txt').textContent=`Loading · 0 / ${unique.length}`;
 
-  const IMG_BATCH=8; // parallel decode batch size
+  // Process in batches — decode dims only, use raw object URL for display
+  // NO canvas work, NO toBlob, NO IndexedDB during import loop
+  // Keeps main thread free to paint cards as they arrive
+  const IMG_BATCH=12;
   for(let bi=0;bi<unique.length;bi+=IMG_BATCH){
     if(cancelFlag)break;
     const batch=unique.slice(bi,Math.min(bi+IMG_BATCH,unique.length));
-    // Step 1: decode all images in parallel — onload does NOTHING heavy,
-    // just resolves with the img element. No canvas work inside the handler.
+
+    // Decode dimensions only — onload stores nothing heavy
     const decoded=await Promise.all(batch.map(f=>new Promise(res=>{
       const img=new Image();
       const url=URL.createObjectURL(f);
-      img.onload=()=>res({f,img,url,w:img.naturalWidth,h:img.naturalHeight});
+      img.onload=()=>{
+        res({f,url,w:img.naturalWidth,h:img.naturalHeight});
+        // Don't revoke — url becomes blobUrl for the frame
+      };
       img.onerror=()=>{URL.revokeObjectURL(url);res(null);};
       img.src=url;
     })));
 
-    // Step 2: do canvas drawImage OUTSIDE onload, one at a time with a yield
-    // between each so the browser can paint between heavy operations
-    const results=[];
-    for(const d of decoded){
-      if(!d){results.push(null);continue;}
-      const {f,img,url,w,h}=d;
-      const c=document.createElement('canvas');
-      c.width=w;c.height=h;
-      c.getContext('2d',{alpha:false}).drawImage(img,0,0);
-      URL.revokeObjectURL(url);
-      results.push({f,c,w,h});
-      // Yield after each drawImage so browser compositor gets a breath
-      await yieldUI(0);
-    }
-
-    // Append batch to DOM in one fragment pass
     const frag=document.createDocumentFragment();
-    for(const r of results){
-      if(!r||cancelFlag)continue;
-      const {f,c,w,h}=r;
+    for(const d of decoded){
+      if(!d||cancelFlag)continue;
+      const {f,url,w,h}=d;
       loaded++;
-      const fr={
-        id:'fr_img_'+Date.now()+'_'+Math.random().toString(36).slice(2),
-        canvas:null,name:f.name.replace(/\.[^.]+$/,''),
-        flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],
-        timestamp:loaded,videoId:vid.id,source:'screenshot',
-        _rotation:0
-      };
+
+      const ar=w/h;
       if(!vid._sourceSet){
-        const ar=w/h;
         vid._gridSrc=ar<0.8?'iphone':ar>1.1?'mac':'unknown';
         vid._sourceSet=true;
       }
-      fr._gridSrc=vid._gridSrc;
-      // Detect landscape screenshots (likely rotated iphone) — flag for rotate button
-      const ar=w/h;
-      if(ar>1.1)fr._isLandscape=true;
-      // Only apply rotation if user explicitly set it in the outlier modal
-      let finalCanvas=c;
+
       const forcedRot=f._forceRot||0;
-      if(forcedRot!==0){
-        const turns=((forcedRot/90)%4+4)%4;
-        let cw=w,ch=h;
-        if(turns===1||turns===3){cw=h;ch=w;}
-        const rc2=document.createElement('canvas');
-        rc2.width=cw;rc2.height=ch;
-        const rctx=rc2.getContext('2d',{alpha:false});
-        rctx.translate(rc2.width/2,rc2.height/2);
-        rctx.rotate(turns*Math.PI/2);
-        rctx.drawImage(c,-w/2,-h/2);
-        finalCanvas=rc2;
-        const newAr=rc2.width/rc2.height;
-        fr._gridSrc=newAr<0.8?'iphone':newAr>1.1?'mac':'unknown';
-      }
-      await storeFrameAsBlob(fr,finalCanvas);
+      // Determine final gridSrc after rotation
+      let finalAr=ar;
+      if(forcedRot===90||forcedRot===270)finalAr=h/w;
+      const gridSrc=finalAr<0.8?'iphone':finalAr>1.1?'mac':'unknown';
+
+      const fr={
+        id:'fr_img_'+Date.now()+'_'+Math.random().toString(36).slice(2),
+        canvas:null,
+        // Use raw object URL directly — no encoding needed for display
+        blobUrl:url,
+        _thumbBlobUrl:url, // same URL for thumb — lazy encode happens on demand
+        _rawFileUrl:url,   // keep ref so we can encode to webp later
+        _rawFile:f,        // keep file ref for lazy encoding
+        _rawW:w,_rawH:h,
+        _forcedRot:forcedRot,
+        _needsEncode:true, // flag: encode to webp when idle
+        name:f.name.replace(/\.[^.]+$/,''),
+        flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],
+        timestamp:loaded,videoId:vid.id,source:'screenshot',
+        _gridSrc:gridSrc,
+        _isLandscape:(finalAr>1.1)
+      };
+
       vid.frames.push(fr);
-      // Build card directly into fragment (no per-frame DOM append)
       filteredFramesCache.push(fr);
       filteredFrameIds.push(fr.id);
       frag.appendChild(makeCard(fr));
       renderedFrameCount++;
     }
+
     const grid=document.getElementById('fg');
     grid.style.display='grid';
     document.getElementById('emp').style.display='none';
@@ -2622,8 +2609,8 @@ async function addImages(filesInput){
     _setImgProg(loaded,unique.length);
     document.getElementById('live-ct').textContent=loaded;
     document.getElementById('live-txt').textContent=`Loading · ${loaded} / ${unique.length}`;
-    bgQueueFrames(results.filter(Boolean).map(r=>vid.frames.find(fr=>fr.name===r.f.name.replace(/\.[^.]+$/,''))).filter(Boolean));
-    await yieldUI(0);
+    // Single yield per batch — let browser paint
+    await new Promise(r=>requestAnimationFrame(r));
   }
 
   if(_ip)_ip.style.display='none';
