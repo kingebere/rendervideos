@@ -2541,19 +2541,30 @@ async function addImages(filesInput){
   for(let bi=0;bi<unique.length;bi+=IMG_BATCH){
     if(cancelFlag)break;
     const batch=unique.slice(bi,Math.min(bi+IMG_BATCH,unique.length));
-    const results=await Promise.all(batch.map(f=>new Promise(res=>{
+    // Step 1: decode all images in parallel — onload does NOTHING heavy,
+    // just resolves with the img element. No canvas work inside the handler.
+    const decoded=await Promise.all(batch.map(f=>new Promise(res=>{
       const img=new Image();
       const url=URL.createObjectURL(f);
-      img.onload=()=>{
-        const c=document.createElement('canvas');
-        c.width=img.naturalWidth;c.height=img.naturalHeight;
-        c.getContext('2d',{alpha:false}).drawImage(img,0,0);
-        URL.revokeObjectURL(url);
-        res({f,c,w:img.naturalWidth,h:img.naturalHeight});
-      };
+      img.onload=()=>res({f,img,url,w:img.naturalWidth,h:img.naturalHeight});
       img.onerror=()=>{URL.revokeObjectURL(url);res(null);};
       img.src=url;
     })));
+
+    // Step 2: do canvas drawImage OUTSIDE onload, one at a time with a yield
+    // between each so the browser can paint between heavy operations
+    const results=[];
+    for(const d of decoded){
+      if(!d){results.push(null);continue;}
+      const {f,img,url,w,h}=d;
+      const c=document.createElement('canvas');
+      c.width=w;c.height=h;
+      c.getContext('2d',{alpha:false}).drawImage(img,0,0);
+      URL.revokeObjectURL(url);
+      results.push({f,c,w,h});
+      // Yield after each drawImage so browser compositor gets a breath
+      await yieldUI(0);
+    }
 
     // Append batch to DOM in one fragment pass
     const frag=document.createDocumentFragment();
