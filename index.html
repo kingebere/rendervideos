@@ -793,6 +793,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <span style="color:var(--m);font-size:9px">frames</span>
     <button class="lj" onclick="jumpToLatest()">↓ Latest</button>
   </div>
+  <div id="img-prog" style="display:none;align-items:center;gap:8px;padding:4px 11px;background:var(--s);border-bottom:1px solid var(--b);flex-shrink:0;font-size:10px;font-family:'DM Mono',monospace">
+    <div style="width:6px;height:6px;border-radius:50%;background:var(--a3);flex-shrink:0;animation:lp 1.2s ease-in-out infinite"></div>
+    <span id="img-prog-txt" style="color:var(--m)">Loading…</span>
+    <div style="flex:1;height:3px;background:var(--s2);border-radius:99px;overflow:hidden;min-width:60px">
+      <div id="img-prog-fill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--a),#60a5fa);border-radius:99px;transition:width .2s"></div>
+    </div>
+    <button onclick="cancelFlag=true" style="background:none;border:none;color:var(--m);cursor:pointer;font-size:10px;padding:0 2px" title="Cancel">✕</button>
+  </div>
   <div class="fa" id="frames-area">
     <div class="emp" id="emp">
       <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 9 5 3-5 3V9z"/></svg>
@@ -1661,15 +1669,27 @@ function loadThumbIntoImg(img, fr) {
 
 function ensureThumbObserver() {
   if (gridLazyObserver) return gridLazyObserver;
+  let _rafPending=false;
+  const _pending=[];
   gridLazyObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
-      const img = entry.target;
-      const fr = getFrame(img.dataset.frameId);
-      if (fr) loadThumbIntoImg(img, fr);
-      gridLazyObserver.unobserve(img);
+      _pending.push(entry.target);
+      gridLazyObserver.unobserve(entry.target);
     });
-  }, { root: document.getElementById('frames-area'), rootMargin: '400px' });
+    if(!_rafPending){
+      _rafPending=true;
+      requestAnimationFrame(()=>{
+        _rafPending=false;
+        // Process max 20 thumbs per frame to avoid reflow storm
+        const batch=_pending.splice(0,20);
+        batch.forEach(img=>{
+          const fr=getFrame(img.dataset.frameId);
+          if(fr)loadThumbIntoImg(img,fr);
+        });
+      });
+    }
+  }, { root: document.getElementById('frames-area'), rootMargin: '800px 0px' });
   return gridLazyObserver;
 }
 
@@ -2411,45 +2431,97 @@ async function addImages(filesInput){
   activeVideoId=vid.id;
   renderVideoList();
   let loaded=0;
+  // Non-blocking inline progress — no overlay
+  const _ip=document.getElementById('img-prog');
+  const _ipt=document.getElementById('img-prog-txt');
+  const _ipf=document.getElementById('img-prog-fill');
+  function _setImgProg(n,total){
+    if(_ipt)_ipt.textContent=`${n} / ${total} images`;
+    if(_ipf)_ipf.style.width=Math.round(n/total*100)+'%';
+  }
+  if(_ip)_ip.style.display='flex';
+  _setImgProg(0,unique.length);
   document.getElementById('live-bar').classList.add('on');
-  for(const f of unique){
+  document.getElementById('live-ct').textContent='0';
+  document.getElementById('live-txt').textContent=`Loading · 0 / ${unique.length}`;
+
+  const IMG_BATCH=8; // parallel decode batch size
+  for(let bi=0;bi<unique.length;bi+=IMG_BATCH){
     if(cancelFlag)break;
-    await new Promise(res=>{
+    const batch=unique.slice(bi,Math.min(bi+IMG_BATCH,unique.length));
+    const results=await Promise.all(batch.map(f=>new Promise(res=>{
       const img=new Image();
       const url=URL.createObjectURL(f);
-      img.onload=async()=>{
+      img.onload=()=>{
         const c=document.createElement('canvas');
         c.width=img.naturalWidth;c.height=img.naturalHeight;
-        c.getContext('2d').drawImage(img,0,0);
-        URL.revokeObjectURL(url);loaded++;
-        const fr={
-          id:'fr_img_'+Date.now()+'_'+Math.random().toString(36).slice(2),
-          canvas:null,name:f.name.replace(/\.[^.]+$/,''),
-          flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],
-          timestamp:loaded,videoId:vid.id,source:'screenshot'
-        };
-        if(!vid._sourceSet){
-          const ar=img.naturalWidth/img.naturalHeight;
-          vid._gridSrc=ar<0.8?'iphone':ar>1.1?'mac':'unknown';
-          vid._sourceSet=true;
-        }
-        fr._gridSrc=vid._gridSrc;
-        // Replace status bar for iphone-aspect frames
-        // if(fr._gridSrc==='iphone')await replaceStatusBar(c); // DISABLED
-        await storeFrameAsBlob(fr,c);
-        vid.frames.push(fr);
-        appendFrameCard(fr,'screenshot');
-        updateStatsQuick();
-        document.getElementById('live-ct').textContent=loaded;
-        document.getElementById('live-txt').textContent=`Loading · ${loaded}/${unique.length} · ${esc(f.name)}`;
-        bgQueueFrames([fr]);
-        res();
+        c.getContext('2d',{alpha:false}).drawImage(img,0,0);
+        URL.revokeObjectURL(url);
+        res({f,c,w:img.naturalWidth,h:img.naturalHeight});
       };
-      img.onerror=()=>{URL.revokeObjectURL(url);res();};
+      img.onerror=()=>{URL.revokeObjectURL(url);res(null);};
       img.src=url;
-    });
-    if(loaded%10===0)await yieldUI();
+    })));
+
+    // Append batch to DOM in one fragment pass
+    const frag=document.createDocumentFragment();
+    for(const r of results){
+      if(!r||cancelFlag)continue;
+      const {f,c,w,h}=r;
+      loaded++;
+      const fr={
+        id:'fr_img_'+Date.now()+'_'+Math.random().toString(36).slice(2),
+        canvas:null,name:f.name.replace(/\.[^.]+$/,''),
+        flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],
+        timestamp:loaded,videoId:vid.id,source:'screenshot',
+        _rotation:0
+      };
+      if(!vid._sourceSet){
+        const ar=w/h;
+        vid._gridSrc=ar<0.8?'iphone':ar>1.1?'mac':'unknown';
+        vid._sourceSet=true;
+      }
+      fr._gridSrc=vid._gridSrc;
+      // Detect landscape screenshots (likely rotated iphone) — flag for rotate button
+      const ar=w/h;
+      if(ar>1.1)fr._isLandscape=true;
+      // Auto-rotate landscape images to portrait before storing
+      let finalCanvas=c;
+      const ar2=w/h;
+      if(ar2>1.1){
+        const rc2=document.createElement('canvas');
+        rc2.width=h;rc2.height=w;
+        const rctx=rc2.getContext('2d',{alpha:false});
+        rctx.translate(rc2.width/2,rc2.height/2);
+        rctx.rotate(Math.PI/2);
+        rctx.drawImage(c,-w/2,-h/2);
+        finalCanvas=rc2;
+        // Re-classify after rotation
+        const newAr=rc2.width/rc2.height;
+        fr._gridSrc=newAr<0.8?'iphone':newAr>1.1?'mac':'unknown';
+      }
+      await storeFrameAsBlob(fr,finalCanvas);
+      vid.frames.push(fr);
+      // Build card directly into fragment (no per-frame DOM append)
+      filteredFramesCache.push(fr);
+      filteredFrameIds.push(fr.id);
+      frag.appendChild(makeCard(fr));
+      renderedFrameCount++;
+    }
+    const grid=document.getElementById('fg');
+    grid.style.display='grid';
+    document.getElementById('emp').style.display='none';
+    grid.appendChild(frag);
+    updateRenderMeta(filteredFramesCache.length);
+    updateStatsQuick();
+    _setImgProg(loaded,unique.length);
+    document.getElementById('live-ct').textContent=loaded;
+    document.getElementById('live-txt').textContent=`Loading · ${loaded} / ${unique.length}`;
+    bgQueueFrames(results.filter(Boolean).map(r=>vid.frames.find(fr=>fr.name===r.f.name.replace(/\.[^.]+$/,''))).filter(Boolean));
+    await yieldUI(0);
   }
+
+  if(_ip)_ip.style.display='none';
   document.getElementById('live-bar').classList.remove('on');
   renderVideoList();updateStats();renderFlows();toggleExpBtns();
   saveSession();
@@ -2789,6 +2861,7 @@ function makeCard(fr){
         <button class="ab ab-w" onclick="event.stopPropagation();openEdit('${fr.id}','words')"><span>🔤</span><span class="abl">Words</span></button>
         <button class="ab ab-f" onclick="event.stopPropagation();openFace('${fr.id}')"><span>👤</span><span class="abl">Faces</span></button>
         <button class="ab ab-r${fr.redacted?' on':''}" onclick="event.stopPropagation();openEdit('${fr.id}','draw')"><span>✏️</span><span class="abl">Redact</span></button>
+        ${fr._isLandscape?`<button class="ab ab-w" onclick="event.stopPropagation();rotateFrame('${fr.id}')" title="Rotate 90° to portrait"><span>🔄</span><span class="abl">Rotate</span></button>`:''}
         <button class="ab ab-v" onclick="event.stopPropagation();revertFrame('${fr.id}')" title="Revert to original"><span>↩</span><span class="abl">Revert</span></button>
         <button class="ab ab-d" onclick="event.stopPropagation();delFrame('${fr.id}')"><span>🗑</span><span class="abl">Delete</span></button>
       </div>
@@ -4927,21 +5000,24 @@ async function exportZip(vid){
     const flowFolders={};assignedFlows.forEach(f=>{flowFolders[f.id]=vFolder.folder(f.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,''));});
     const unassignedFolder=vFolder.folder('unassigned');
     const vManifest={id:v.id,name:v.name,source:v.source,frames:[]};
-    for(const fr of toExport){
-      globalSeq++;
-      // Export at FULL quality PNG
-      const _fc=await getFrameCanvas(fr);
-      const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
-      const fn=`seq${String(globalSeq).padStart(4,'0')}_${fr.name}.png`;
-      const flowNames=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?fl.name:'';}).filter(Boolean);
-      if(fr.flows.length>0){fr.flows.forEach(fid=>{if(flowFolders[fid])flowFolders[fid].file(fn,blob,{binary:true});});}
-      else{unassignedFolder.file(fn,blob,{binary:true});}
-      csvRows.push(`${globalSeq},"${esc(v.name)}","${fn}","${flowNames.join('|')}",${fr.timestamp?.toFixed(2)||''},${v.source||'unknown'}`);
-      vManifest.frames.push({globalSeq,filename:fn,flows:flowNames,timestamp:fr.timestamp});
-      if(globalSeq%10===0){
-        if(zipCancelFlag){hideLd();toast('⚠️','Export cancelled');return;}
-        setLdPb(Math.round(globalSeq/totalFramesToExport*80),'Encoding…');await yieldUI();
-      }
+    const ZIP_BATCH=6;
+    for(let zi=0;zi<toExport.length;zi+=ZIP_BATCH){
+      if(zipCancelFlag){hideLd();toast('⚠️','Export cancelled');return;}
+      const zBatch=toExport.slice(zi,zi+ZIP_BATCH);
+      await Promise.all(zBatch.map(async fr=>{
+        globalSeq++;
+        const seq=globalSeq;
+        const _fc=await getFrameCanvas(fr);
+        const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
+        const fn=`seq${String(seq).padStart(4,'0')}_${fr.name}.png`;
+        const flowNames=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?fl.name:'';}).filter(Boolean);
+        if(fr.flows.length>0){fr.flows.forEach(fid=>{if(flowFolders[fid])flowFolders[fid].file(fn,blob,{binary:true});});}
+        else{unassignedFolder.file(fn,blob,{binary:true});}
+        csvRows.push(`${seq},"${esc(v.name)}","${fn}","${flowNames.join('|')}",${fr.timestamp?.toFixed(2)||''},${v.source||'unknown'}`);
+        vManifest.frames.push({globalSeq:seq,filename:fn,flows:flowNames,timestamp:fr.timestamp});
+      }));
+      setLdPb(Math.round(globalSeq/totalFramesToExport*80),'Encoding…');
+      await yieldUI();
     }
     manifestData.videos.push(vManifest);
   }
@@ -5162,6 +5238,42 @@ async function clearAllImages(){
   const ffl=document.getElementById('ffl');if(ffl)ffl.value='';
   const vfl=document.getElementById('vfl');if(vfl)vfl.value='';
   toast('🗑','All images cleared — ready for new upload');
+}
+
+// ─── ROTATE LANDSCAPE FRAME ───────────────────────────────────────────────────
+async function rotateFrame(id){
+  const fr=getFrame(id);if(!fr)return;
+  const canvas=await getFrameCanvas(fr);
+  // Rotate 90° clockwise into a new canvas
+  const rc2=document.createElement('canvas');
+  rc2.width=canvas.height;rc2.height=canvas.width;
+  const rctx=rc2.getContext('2d',{alpha:true});
+  rctx.translate(rc2.width/2,rc2.height/2);
+  rctx.rotate(Math.PI/2);
+  rctx.drawImage(canvas,-canvas.width/2,-canvas.height/2);
+  // Re-classify source based on new dimensions
+  const ar=rc2.width/rc2.height;
+  fr._gridSrc=ar<0.8?'iphone':ar>1.1?'mac':'unknown';
+  fr._isLandscape=(ar>1.1);
+  fr.canvas=null;
+  releaseFrameBlobs(fr);
+  await storeFrameAsBlob(fr,rc2);
+  // Refresh card
+  const card=document.querySelector(`.card[data-id="${fr.id}"]`);
+  if(card){
+    const img=card.querySelector('img');
+    if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}
+    // Replace img-w aspect class
+    const iw=card.querySelector('.img-w');
+    if(iw){iw.className='img-w '+fr._gridSrc;}
+    // Remove rotate button if now portrait
+    if(!fr._isLandscape){const rb=card.querySelector('.ab-w[title*="Rotate"]');if(rb)rb.remove();}
+  }
+  // Update lightbox if open
+  const lbImg=document.getElementById('lb-img');
+  if(lbImg&&lbFrId===fr.id)lbImg.src=fr.blobUrl;
+  scheduleSaveSession();
+  toast('🔄',`Rotated to ${fr._gridSrc} · added to grid`);
 }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
