@@ -2588,13 +2588,11 @@ async function addImages(filesInput){
       // Detect landscape screenshots (likely rotated iphone) — flag for rotate button
       const ar=w/h;
       if(ar>1.1)fr._isLandscape=true;
-      // Auto-rotate: use forced rotation from outlier modal, else auto-detect landscape
+      // Only apply rotation if user explicitly set it in the outlier modal
       let finalCanvas=c;
-      const ar2=w/h;
       const forcedRot=f._forceRot||0;
-      const rotDeg=forcedRot!==0?forcedRot:(ar2>1.1?90:0);
-      if(rotDeg!==0){
-        const turns=((rotDeg/90)%4+4)%4;
+      if(forcedRot!==0){
+        const turns=((forcedRot/90)%4+4)%4;
         let cw=w,ch=h;
         if(turns===1||turns===3){cw=h;ch=w;}
         const rc2=document.createElement('canvas');
