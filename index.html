@@ -2456,50 +2456,54 @@ async function addImages(filesInput){
   unique.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
 
   // ── Outlier detection (only when 4+ images from a folder-like set) ──────
-  if(unique.length>=4){
-    const probed=await _probeImageDims(unique);
-    // Count occurrences of each W×H pair
-    const dimCounts={};
-    probed.forEach(({w,h})=>{const k=`${w}x${h}`;dimCounts[k]=(dimCounts[k]||0)+1;});
-    // Majority = most common dimension pair
-    const majorityKey=Object.entries(dimCounts).sort((a,b)=>b[1]-a[1])[0][0];
-    const [mw,mh]=majorityKey.split('x').map(Number);
-    const majorityCount=dimCounts[majorityKey];
-    const outlierProbed=probed.filter(({w,h})=>w!==mw||h!==mh);
-    if(outlierProbed.length>0&&outlierProbed.length<unique.length){
-      // There are outliers but not ALL images are outliers
-      // Keep blob URLs open for the modal preview, revoke majority URLs
-      probed.filter(({w,h})=>w===mw&&h===mh).forEach(({url})=>URL.revokeObjectURL(url));
-      const choice=await _showOutlierModal(
-        {w:mw,h:mh,count:majorityCount},
-        outlierProbed
-      );
-      if(choice.action==='remove'){
-        const removeSet=new Set(outlierProbed.map(({file})=>file.name+'|'+file.size));
-        unique=unique.filter(f=>!removeSet.has(f.name+'|'+f.size));
-        toast('🗑',`${outlierProbed.length} outlier${outlierProbed.length!==1?'s':''} removed`);
-      } else if(choice.action==='accept'){
-        // Remove all outliers first, then re-add only the accepted ones
-        const allOutlierSet=new Set(outlierProbed.map(({file})=>file.name+'|'+file.size));
-        unique=unique.filter(f=>!allOutlierSet.has(f.name+'|'+f.size));
-        // Re-insert accepted files and store their rotation for addImages to apply
-        if(choice.accepted.length){
-          choice.accepted.forEach(o=>{
-            unique.push(o.file);
-            // Tag rotation onto the file object so the batch loop can read it
-            o.file._forceRot=o._rot;
-          });
-          toast('✓',`${choice.accepted.length} outlier${choice.accepted.length!==1?'s':''} accepted`);
-        } else {
-          toast('ℹ️','No outliers accepted');
-        }
-      }
-      // else keep all — outlier URLs already revoked in _showOutlierModal cleanup
-    } else {
-      // No outliers or all same size — revoke all probed URLs
-      probed.forEach(({url})=>URL.revokeObjectURL(url));
-    }
-  }
+  // if(unique.length>=4){
+  //   const probed=await _probeImageDims(unique);
+  //   // Count occurrences of each W×H pair
+  //   const dimCounts={};
+  //   probed.forEach(({w,h})=>{const k=`${w}x${h}`;dimCounts[k]=(dimCounts[k]||0)+1;});
+  //   // Majority = most common dimension pair
+  //   const majorityKey=Object.entries(dimCounts).sort((a,b)=>b[1]-a[1])[0][0];
+  //   const [mw,mh]=majorityKey.split('x').map(Number);
+  //   const majorityCount=dimCounts[majorityKey];
+  //   const outlierProbed=probed.filter(({w,h})=>w!==mw||h!==mh);
+
+  //   if(outlierProbed.length>0&&outlierProbed.length<unique.length){
+  //     // There are outliers but not ALL images are outliers
+  //     // Keep blob URLs open for the modal preview, revoke majority URLs
+  //     probed.filter(({w,h})=>w===mw&&h===mh).forEach(({url})=>URL.revokeObjectURL(url));
+  //     const choice=await _showOutlierModal(
+  //       {w:mw,h:mh,count:majorityCount},
+  //       outlierProbed
+  //     );
+  //     if(choice.action==='remove'){
+  //       const removeSet=new Set(outlierProbed.map(({file})=>file.name+'|'+file.size));
+  //       unique=unique.filter(f=>!removeSet.has(f.name+'|'+f.size));
+  //       toast('🗑',`${outlierProbed.length} outlier${outlierProbed.length!==1?'s':''} removed`);
+  //     } else if(choice.action==='accept'){
+  //       // Remove all outliers first, then re-add only the accepted ones
+  //       const allOutlierSet=new Set(outlierProbed.map(({file})=>file.name+'|'+file.size));
+  //       unique=unique.filter(f=>!allOutlierSet.has(f.name+'|'+f.size));
+  //       // Re-insert accepted files and store their rotation for addImages to apply
+  //       if(choice.accepted.length){
+  //         choice.accepted.forEach(o=>{
+  //           unique.push(o.file);
+  //           // Tag rotation onto the file object so the batch loop can read it
+  //           o.file._forceRot=o._rot;
+  //         });
+  //         toast('✓',`${choice.accepted.length} outlier${choice.accepted.length!==1?'s':''} accepted`);
+  //       } else {
+  //         toast('ℹ️','No outliers accepted');
+  //       }
+  //     }
+  //     // else keep all — outlier URLs already revoked in _showOutlierModal cleanup
+  //   } else {
+  //     // No outliers or all same size — revoke all probed URLs
+  //     probed.forEach(({url})=>URL.revokeObjectURL(url));
+  //   }
+  // }
+
+// Outlier filtering disabled.
+// Keep every uploaded image, even if dimensions differ.
 
   const rawFolder=unique[0]?.webkitRelativePath?unique[0].webkitRelativePath.split('/')[0]:'Screenshots';
   const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,'').replace(/_/g,' ').trim()||'Screenshots';
