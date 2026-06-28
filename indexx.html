@@ -119,13 +119,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 .emp h3{font-family:'Syne',sans-serif;font-size:16px;color:var(--t);opacity:.3}
 .emp p{font-size:11px;max-width:240px;line-height:1.7;opacity:.7}
 /* FIXED grid - no stretch */
-.fg{display:grid;gap:20px;align-items:start;align-content:start;justify-content:start;grid-auto-flow:row;grid-auto-rows:auto}
-.fg.iphone,.fg.screenshot,.fg.unknown{grid-template-columns:repeat(auto-fill,minmax(190px,230px))}
-.fg.mac,.fg.web{grid-template-columns:repeat(auto-fill,minmax(260px,320px))}
+.fg{display:grid;gap:12px;align-items:start}
+.fg.iphone{grid-template-columns:repeat(auto-fill,minmax(165px,1fr))}
+.fg.mac,.fg.web,.fg.screenshot,.fg.unknown{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
 .fg.list{grid-template-columns:1fr!important}
 /* card */
-.card{border-radius:8px;border:2px solid var(--b);background:var(--s);overflow:hidden;transition:border-color .15s,box-shadow .15s;position:relative;cursor:pointer;box-sizing:border-box;contain:layout paint style}
-.card:hover{border-color:#2563eb50;box-shadow:0 0 0 2px #2563eb20}
+.card{border-radius:8px;border:2px solid var(--b);background:var(--s);overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s;position:relative;cursor:pointer}
+.card:hover{border-color:#2563eb50;transform:translateY(-2px);box-shadow:0 6px 20px #0008}
 .card.sel{border-color:var(--a);box-shadow:0 0 0 3px #2563eb28}
 .card.jas{animation:jas .6s ease-out}
 @keyframes jas{0%{box-shadow:0 0 0 4px var(--a3);border-color:var(--a3)}100%{box-shadow:none}}
@@ -136,7 +136,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 .img-w.web{aspect-ratio:16/9}
 .img-w.screenshot{aspect-ratio:9/19.5}
 .img-w.unknown{aspect-ratio:9/16}
-.img-w img{width:100%;height:100%;object-fit:contain;display:block;background:var(--s3);opacity:1;transition:opacity .15s ease}
+.img-w img{width:100%;height:100%;object-fit:contain;display:block;background:var(--s3);opacity:0;transition:opacity .15s ease}
 .img-w img.is-loaded{opacity:1}
 /* For list view - use natural aspect ratio */
 .fg.list .img-w{aspect-ratio:unset;max-height:200px}
@@ -228,7 +228,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 .lb-nav:hover{background:var(--a)}.lb-nav.p{left:9px}.lb-nav.n{right:9px}.lb-nav:disabled{opacity:.2;cursor:default}
 /* REPLACE WITH: */
 .lb-ft{position:fixed;top:0;left:0;right:320px;min-height:52px;padding:8px 14px;background:rgba(8,8,11,.92);border-bottom:1px solid rgba(255,255,255,.08);display:grid;grid-template-columns:minmax(110px,1fr) minmax(80px,1.2fr) auto;align-items:center;gap:8px;z-index:376;backdrop-filter:blur(12px)}
-.lb-bgs{display:flex;gap:3px;flex-wrap:wrap;min-width:0;max-height:42px;overflow:auto}.lb-acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;max-width:min(620px,46vw)}
+.lb-bgs{display:flex;gap:3px;flex-wrap:nowrap;min-width:0;max-height:42px;overflow-x:auto;overflow-y:hidden}.lb-acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;max-width:min(620px,46vw)}
 .lb-acts .btn{min-height:28px}
 /* Lightbox flow sidebar */
 .lb-fsp{position:fixed;top:0;right:0;width:320px;bottom:0;background:var(--s);border-left:1px solid var(--b);z-index:371;display:flex;flex-direction:column;transition:transform .2s ease}
@@ -354,27 +354,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 .vst-outer{flex:1;background:#08080b;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden;position:relative}
 #vid-main{max-width:100%;max-height:100%;object-fit:contain;display:block;outline:none;background:#000;border-radius:0}
 .device-wrap{position:relative;display:flex;align-items:center;justify-content:center;height:100%;width:100%;max-height:100%;max-width:100%;padding:0}
-.device-frame{border-radius:0;overflow:hidden;box-shadow:none;background:#000;border:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative}
-.device-frame.composed{width:auto;height:min(100%,calc(100vw * 1.25));max-width:100%;max-height:100%;background:#fff;box-shadow:none}
-.device-frame.composed[data-aspect="9:16"]{height:100%;aspect-ratio:9/16}
-.device-frame.composed[data-aspect="4:5"]{height:100%;aspect-ratio:4/5}
-.device-frame.composed video{opacity:0;pointer-events:none}
+.device-frame{border-radius:0;overflow:hidden;box-shadow:none;background:#000;border:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
 .device-frame video{display:block;width:100%;height:100%}
-.vid-preview-overlay{position:absolute;inset:0;pointer-events:none;z-index:3;width:100%;height:100%;display:block}
 .vid-empty-msg{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--m);font-size:12px;text-align:center;padding:20px}
 .vid-empty-msg svg{opacity:.12}
 .vid-ctrl-bar{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--s);border-top:1px solid var(--b);flex-shrink:0}
 .ctrl-time-lbl{font-family:'DM Mono',monospace;font-size:12px;color:var(--t);min-width:90px;flex-shrink:0}
-.canvas-panel{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--s);border-top:1px solid var(--b);flex-shrink:0;overflow-x:auto;min-height:34px}
-.canvas-group{display:flex;align-items:center;gap:5px;flex-shrink:0}
-.canvas-label{font-size:9px;color:var(--m);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.04em}
-.seg-mini{display:inline-flex;border:1px solid var(--b);border-radius:6px;overflow:hidden;background:var(--s2)}
-.seg-mini button{border:0;border-right:1px solid var(--b);background:transparent;color:var(--m);font-size:10px;padding:3px 7px;cursor:pointer;white-space:nowrap}
-.seg-mini button:last-child{border-right:0}
-.seg-mini button.on{background:var(--a);color:#fff}
-.bg-swatch{width:22px;height:22px;border-radius:5px;border:1px solid var(--b);cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
-.bg-swatch.on{outline:2px solid var(--a2);outline-offset:1px}
-.canvas-color{width:28px;height:22px;border:1px solid var(--b);border-radius:5px;background:transparent;padding:0;cursor:pointer}
 .mark-bar{display:flex;align-items:center;gap:7px;padding:5px 12px;background:var(--s);border-top:1px solid var(--b);flex-shrink:0;flex-wrap:wrap}
 .mark-time{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--a2);min-width:42px;text-align:center}
 .mark-sep{color:var(--m);font-size:13px}
@@ -387,26 +372,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 .tl-playhead::before{content:'';position:absolute;top:2px;left:50%;transform:translateX(-50%);width:8px;height:8px;background:var(--a2);border-radius:50%}
 .tl-mark-range{position:absolute;top:0;height:100%;background:#f7c26a1a;border-left:2px solid var(--a2);border-right:2px solid var(--a2);pointer-events:none;z-index:3}
 .tl-mark-range.pending{background:#f7c26a10;border-right:1px dashed var(--a2);opacity:.9}
-.tl-cut-range{position:absolute;top:0;height:100%;background:rgba(239,68,68,.18);border-left:1px solid rgba(239,68,68,.65);border-right:1px solid rgba(239,68,68,.65);pointer-events:none;z-index:2}
 .tl-band{position:absolute;top:2px;height:28px;border-radius:4px;opacity:.8;cursor:pointer;display:flex;align-items:center;padding:0 5px;overflow:hidden;min-width:4px;transition:opacity .1s}
 .tl-band:hover{opacity:1}
 .tl-band-lbl{font-size:9px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.6)}
-.filmstrip{flex-shrink:0;height:118px;background:var(--bg);border-top:1px solid var(--b);display:flex;flex-direction:column;overflow:hidden}
-.filmstrip.grid{height:min(70vh,640px)}
-.filmstrip-head{height:28px;display:flex;align-items:center;justify-content:space-between;padding:3px 8px;border-bottom:1px solid var(--b);background:var(--s);flex-shrink:0}
-.filmstrip-count{font-family:'DM Mono',monospace;font-size:9px;color:var(--m)}
-.tray-switch{display:inline-flex;border:1px solid var(--b);border-radius:6px;overflow:hidden;background:var(--s2)}
-.tray-switch button{width:28px;height:20px;border:0;border-right:1px solid var(--b);background:transparent;color:var(--m);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;padding:0}
-.tray-switch button:last-child{border-right:0}
-.tray-switch button.on{background:var(--a);color:#fff}
-#filmstrip-inner{display:flex;gap:6px;overflow-x:auto;padding:6px 8px;align-items:center;flex:1;min-width:0;box-sizing:border-box}
-.filmstrip.grid #filmstrip-inner{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,210px));grid-auto-rows:300px;justify-content:start;gap:20px;align-items:start;align-content:start;overflow-x:hidden;overflow-y:auto;padding:18px;box-sizing:border-box}
+.filmstrip{flex-shrink:0;height:118px;background:var(--bg);border-top:1px solid var(--b);display:flex;overflow:hidden}
+#filmstrip-inner{display:flex;gap:3px;overflow-x:auto;padding:5px 8px;align-items:center;flex:1;min-width:0}
 #filmstrip-inner::-webkit-scrollbar{height:4px}
 #filmstrip-inner::-webkit-scrollbar-thumb{background:var(--b);border-radius:2px}
-.fs-thumb{flex:0 0 86px;width:86px;height:104px;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;border:2px solid transparent;transition:border-color .1s,box-shadow .1s;box-sizing:border-box;contain:layout paint style;background:var(--s2)}
-.filmstrip.grid .fs-thumb{flex:none;width:100%;height:300px;min-width:0;max-width:210px;max-height:none;aspect-ratio:auto;align-self:start}
-.fs-thumb:hover{border-color:var(--m)}
-.fs-thumb.active{border-color:var(--a2);box-shadow:0 0 0 2px color-mix(in srgb,var(--a2) 30%,transparent)}
+.fs-thumb{flex-shrink:0;width:86px;height:104px;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;border:2px solid transparent;transition:border-color .1s,transform .1s}
+.fs-thumb:hover{border-color:var(--m);transform:scale(1.04)}
+.fs-thumb.active{border-color:var(--a2);transform:scale(1.06)}
 .fs-thumb img{width:100%;height:100%;object-fit:cover;display:block;background:var(--s2)}
 .fs-time{position:absolute;bottom:2px;left:2px;font-family:'DM Mono',monospace;font-size:7px;color:#fff;background:rgba(0,0,0,.72);padding:0 3px;border-radius:2px;pointer-events:none}
 .fs-flow-bar{position:absolute;bottom:0;left:0;right:0;height:3px;pointer-events:none}
@@ -675,10 +650,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       </div>
       <div>
         <div class="mst" style="margin-bottom:5px">Flow</div>
-        <input class="ti" id="flow-confirm-input" placeholder="Search presets or type custom flows..." autocomplete="off" oninput="renderFlowConfirmChoices()"/>
+        <input class="ti" id="flow-confirm-input" placeholder="Search presets or type a custom flow..." autocomplete="off" oninput="renderFlowConfirmChoices()"/>
       </div>
       <div class="flow-choice-grid" id="flow-confirm-choices"></div>
-      <div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace" id="flow-confirm-hint">Click multiple flows · commas create several · Enter confirms</div>
+      <div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace" id="flow-confirm-hint">Click multiple flows · type to create one · Enter confirms</div>
     </div>
     <div class="mf" style="padding:10px 16px">
       <button class="btn bg" onclick="closeFlowConfirmModal()">Cancel</button>
@@ -695,16 +670,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
         <div class="fmtseg" id="fmt-seg">
           <div class="fmtb on" data-fmt="webm" onclick="setVexFmt('webm',this)">WebM<span class="fs">Always works</span></div>
           <div class="fmtb" data-fmt="mp4" onclick="setVexFmt('mp4',this)">MP4<span class="fs">Wide compat</span></div>
+          <div class="fmtb" data-fmt="mov" onclick="setVexFmt('mov',this)">MOV<span class="fs">Apple</span></div>
         </div>
       </div>
       <div><div class="mst" style="margin-bottom:4px">FPS</div>
         <select class="ni sel" id="vex-fps"><option value="6">6</option><option value="12">12</option><option value="24">24</option><option value="30">30</option><option value="60" selected>60</option></select>
       </div>
     </div>
-    <label class="eor"><input type="checkbox" id="vex-statusbar" checked/> Remove status bar on export</label>
     <div style="background:#2563eb10;border:1.5px solid #2563eb40;border-radius:8px;padding:11px">
       <div style="font-weight:700;font-size:12px;margin-bottom:3px;display:flex;align-items:center;gap:5px">🎞️ Full Edited Video <span style="font-size:9px;font-weight:400;color:var(--m);font-family:'DM Mono',monospace;margin-left:auto" id="full-fc"></span></div>
-      <div style="font-size:10px;color:var(--m);margin-bottom:8px;line-height:1.6">All remaining frames in order — deleted frames gone, all edits baked in.</div>
+      <div style="font-size:10px;color:var(--m);margin-bottom:8px;line-height:1.6">Uses the original video when available — cuts skipped, redactions overlaid, audio kept.</div>
       <button class="btn bp" style="width:100%" id="vex-full-btn" onclick="exportFullEditedVideo()">⬇ Download Full Edited Video</button>
     </div>
     <div><div class="mst" style="margin-bottom:5px">By Flow</div><div id="vex-flows"></div></div>
@@ -731,7 +706,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <label class="eor"><input type="checkbox" id="e-all" checked/> All frames incl. untagged</label>
       <label class="eor"><input type="checkbox" id="e-manifest" checked/> Flow manifest (JSON)</label>
       <label class="eor"><input type="checkbox" id="e-csv" checked/> CSV summary</label>
-      <label class="eor"><input type="checkbox" id="e-statusbar" checked/> Remove status bar on export</label>
     </div>
     <div class="mf">
       <button class="btn bg" onclick="document.getElementById('exp-modal').classList.remove('on')">Cancel</button>
@@ -794,11 +768,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
         <div class="or"><div><div class="ol">FPS</div><div class="os">Frames/sec</div></div><input type="number" class="ni" id="o-fps" value="1" min="0.1" max="8" step="0.1"/></div>
         <div class="or"><div><div class="ol">Skip similar</div><div class="os">Dedup frames</div></div><label class="tog"><input type="checkbox" id="o-dedup" checked><span class="ts"></span></label></div>
         <div class="or"><div class="ol">Sensitivity</div><input type="number" class="ni" id="o-sens" value="5" min="1" max="30"/></div>
-        <div class="or"><div><div class="ol">Target frames</div><div class="os">Samples entire video</div></div><input type="number" class="ni" id="o-maxframes" value="250" min="25" max="5000" step="25"/></div>
         <div class="or"><div class="ol">Chunk size</div>
           <select class="ni sel" id="o-chunk"><option value="3">3 min</option><option value="5" selected>5 min</option><option value="10">10 min</option><option value="0">Off</option></select>
         </div>
-        <div style="font-size:9px;color:var(--m);line-height:1.5;padding:3px 0">⚡ Smart extraction keeps the frame count manageable. Raise FPS or Max frames when you need denser coverage.</div>
+        <div style="font-size:9px;color:var(--m);line-height:1.5;padding:3px 0">⚡ Extracts full video to end — no frame cap. Use ■ Stop to halt early.</div>
       </div>
     </details>
     <div style="padding:0 9px 5px;flex-shrink:0">
@@ -923,7 +896,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <div class="device-wrap" id="device-wrap" style="display:none">
         <div class="device-frame" id="device-frame">
           <video id="vid-main" playsinline preload="metadata"></video>
-          <canvas id="vid-preview-overlay" class="vid-preview-overlay"></canvas>
         </div>
       </div>
     </div>
@@ -940,57 +912,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
         <option value="1.5">1.5×</option>
         <option value="2">2×</option>
       </select>
-      <button class="btn bg sm" id="redact-reveal-btn" onclick="toggleRedactionReveal()" title="Show or hide redactions in preview/export">Reveal Redact</button>
-      <button class="btn bd sm" onclick="addRedactionAtCurrent()" title="Add a manual redaction at the current video time">Add Redact</button>
-      <button class="btn bg sm" id="full-view-btn" onclick="toggleVideoFullView()" title="Full preview (V)">Full View</button>
-    </div>
-    <!-- CANVAS / BACKGROUND CONTROLS -->
-    <div class="canvas-panel" id="canvas-panel" style="display:none">
-      <div class="canvas-group">
-        <span class="canvas-label">Canvas</span>
-        <span class="seg-mini">
-          <button type="button" id="canvas-aspect-45" onclick="setCanvasAspect('4:5')">4:5</button>
-          <button type="button" id="canvas-aspect-916" onclick="setCanvasAspect('9:16')">9:16</button>
-        </span>
-      </div>
-      <div class="canvas-group">
-        <span class="canvas-label">Frame</span>
-        <span class="seg-mini">
-          <button type="button" id="canvas-frame-black" onclick="setCanvasFrame('black')">Black</button>
-          <button type="button" id="canvas-frame-natural" onclick="setCanvasFrame('natural')">Natural</button>
-          <button type="button" id="canvas-frame-cosmic-orange" onclick="setCanvasFrame('cosmic-orange')">Orange</button>
-          <button type="button" id="canvas-frame-silver" onclick="setCanvasFrame('silver')">Silver</button>
-          <button type="button" id="canvas-frame-deep-blue" onclick="setCanvasFrame('deep-blue')">Blue</button>
-          <button type="button" id="canvas-frame-none" onclick="setCanvasFrame('none')">None</button>
-        </span>
-      </div>
-      <div class="canvas-group">
-        <span class="canvas-label">Shadow</span>
-        <span class="seg-mini">
-          <button type="button" id="canvas-shadow-none" onclick="setCanvasShadow('none')">None</button>
-          <button type="button" id="canvas-shadow-soft" onclick="setCanvasShadow('soft')">Soft</button>
-          <button type="button" id="canvas-shadow-strong" onclick="setCanvasShadow('strong')">Strong</button>
-        </span>
-      </div>
-      <div class="canvas-group">
-        <span class="canvas-label">Background</span>
-        <span class="seg-mini">
-          <button type="button" id="canvas-bg-solid" onclick="setCanvasBgStyle('solid')">Color</button>
-          <button type="button" id="canvas-bg-gradient" onclick="setCanvasBgStyle('gradient')">Gradient</button>
-          <button type="button" id="canvas-bg-mesh" onclick="setCanvasBgStyle('mesh')">Mesh</button>
-        </span>
-        <input class="canvas-color" id="canvas-bg-color" type="color" value="#ffffff" oninput="setCanvasSolidColor(this.value)" title="Background color">
-        <span class="canvas-group" id="canvas-bg-swatches"></span>
-      </div>
-      <div class="canvas-group">
-        <span class="canvas-label">Overlay</span>
-        <span class="seg-mini">
-          <button type="button" id="canvas-overlay-none" onclick="setCanvasOverlay('none')">None</button>
-          <button type="button" id="canvas-overlay-dots" onclick="setCanvasOverlay('dots')">Dots</button>
-          <button type="button" id="canvas-overlay-grid" onclick="setCanvasOverlay('grid')">Grid</button>
-          <button type="button" id="canvas-overlay-diagonal" onclick="setCanvasOverlay('diagonal')">Lines</button>
-        </span>
-      </div>
     </div>
     <!-- MARK BAR -->
     <div class="mark-bar" id="mark-bar" style="display:none">
@@ -1014,13 +935,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     </div>
     <!-- FILMSTRIP -->
     <div class="filmstrip" id="filmstrip" style="display:none">
-      <div class="filmstrip-head">
-        <span class="filmstrip-count" id="filmstrip-count">0 frames</span>
-        <span class="tray-switch" role="tablist" aria-label="Frame tray view">
-          <button type="button" class="on" id="tray-strip-btn" onclick="setFrameTrayMode('strip')" title="Horizontal frames">▤</button>
-          <button type="button" id="tray-grid-btn" onclick="setFrameTrayMode('grid')" title="Grid frames">▦</button>
-        </span>
-      </div>
       <div id="filmstrip-inner"></div>
     </div>
   </div>
@@ -1196,7 +1110,7 @@ async function dbSaveFrameBlob(fr){
     const thumbBuf=thumbResp?await thumbResp.arrayBuffer():null;
     await new Promise((res,rej)=>{
       const tx=db.transaction(STORE_BLOBS,'readwrite');
-      tx.objectStore(STORE_BLOBS).put({id:fr.id,main:mainBuf,thumb:thumbBuf,mainType:fr._blobType||'image/webp',thumbType:fr._thumbBlobType||fr._blobType||'image/webp'});
+      tx.objectStore(STORE_BLOBS).put({id:fr.id,main:mainBuf,thumb:thumbBuf});
       tx.oncomplete=res;tx.onerror=rej;
     });
   }catch(e){console.warn('dbSaveFrameBlob',e);}
@@ -1212,10 +1126,8 @@ async function dbLoadFrameBlob(fr){
       req.onsuccess=()=>res(req.result);req.onerror=rej;
     });
     if(!rec)return false;
-    fr._blobType=rec.mainType||'image/webp';
-    fr._thumbBlobType=rec.thumbType||fr._blobType;
-    fr.blobUrl=URL.createObjectURL(new Blob([rec.main],{type:fr._blobType}));
-    if(rec.thumb)fr._thumbBlobUrl=URL.createObjectURL(new Blob([rec.thumb],{type:fr._thumbBlobType}));
+    fr.blobUrl=URL.createObjectURL(new Blob([rec.main],{type:'image/webp'}));
+    if(rec.thumb)fr._thumbBlobUrl=URL.createObjectURL(new Blob([rec.thumb],{type:'image/webp'}));
     return true;
   }catch(e){return false;}
 }
@@ -1298,7 +1210,7 @@ async function restoreSession(){
     return 'cancelled';
   };
   for(const vm of meta.videos){
-    const v={...vm,objectURL:null,file:null,frames:[]};
+    const v={...vm,objectURL:null,file:null,frames:[],cutRanges:vm.cutRanges||[]};
     for(const fm of vm.frames){
       const fr={...fm,canvas:null,blobUrl:null,_thumbBlobUrl:null,selected:false};
       const ok=await dbLoadFrameBlob(fr);
@@ -1355,7 +1267,7 @@ function loadPersistentWords(){
   return null;
 }
 function savePrefs(){
-  try{localStorage.setItem(LS_PREFS,JSON.stringify({globalHideStyle,vexFormat,currentView,canvasOptions,showVideoRedactions}));}catch(e){}
+  try{localStorage.setItem(LS_PREFS,JSON.stringify({globalHideStyle,vexFormat,currentView}));}catch(e){}
 }
 
 // ─── STATE ─────────────────────────────────────────────────────────────────
@@ -1364,32 +1276,8 @@ let flows=[];
 let wordList=[];
 let activeVideoId=null;
 let currentView='g', cancelFlag=false, restoreCancelFlag=false;
-let frameTrayMode='strip', _previewOverlayRaf=0, _previewCutJumping=false;
 let globalHideStyle='fill', vexFormat='webm';
-let showVideoRedactions=true;
-let videoFullView=false;
-let canvasOptions={
-  enabled:true,
-  aspect:'4:5',
-  bgStyle:'solid',
-  solid:'#ffffff',
-  gradient:['#ffffff','#dbeafe'],
-  mesh:['#ffffff','#dbeafe','#fef3c7','#f5d0fe'],
-  overlay:'none',
-  frame:'cosmic-orange',
-  shadow:'none',
-  bgOpacity:1,
-  _frameGeometryV2:true
-};
-const CANVAS_BG_PRESETS=[
-  {solid:'#ffffff',gradient:['#ffffff','#dbeafe'],mesh:['#ffffff','#dbeafe','#fef3c7','#f5d0fe']},
-  {solid:'#f8fafc',gradient:['#f8fafc','#c7d2fe'],mesh:['#f8fafc','#bfdbfe','#bbf7d0','#fde68a']},
-  {solid:'#111827',gradient:['#111827','#334155'],mesh:['#111827','#1d4ed8','#0891b2','#f97316']},
-  {solid:'#fdf2f8',gradient:['#fdf2f8','#fbcfe8'],mesh:['#fdf2f8','#fbcfe8','#bae6fd','#fed7aa']},
-  {solid:'#ecfeff',gradient:['#ecfeff','#99f6e4'],mesh:['#ecfeff','#99f6e4','#bfdbfe','#ddd6fe']}
-];
 let darkMode=true;
-let flowConfirmSelectedIds=new Set();
 let ocrWorker=null, ocrReady=false; // ocrWorker kept for legacy compat; pool is primary
 let _ocrPool=[];        // array of {worker, busy}
 let _ocrQueue=[];       // pending {canvas, resolve, reject}
@@ -1398,6 +1286,7 @@ let lbFrId=null;
 let lbStickyFlows=[]; // array of flow ids — all auto-applied on nav
 let lbPendingHits=[];
 let lbPendingFaces=[]; // word-list hits pending accept/reject in lightbox // auto-tag flow when navigating in lightbox
+let flowConfirmSelectedIds=[];
 let rdFrId=null, rdBoxes=[], rdDrawing=false, rdStart=null, rdCur=null;
 let trimStart=0, trimEnd=0, videoDuration=0;
 let uploadMode='video';
@@ -1426,7 +1315,7 @@ function restoreFromBin(idx){
   let vid=getVideo(entry.videoId);
   if(!vid){
     vid={id:entry.videoId,name:entry.videoName||'Restored',sizeMB:0,duration:0,
-      source:'screenshot',objectURL:null,frames:[],extracted:true,
+      source:'screenshot',objectURL:null,frames:[],extracted:true,cutRanges:[],
       mimeType:'image',file:null,codec:'image',needsTranscode:false};
     videos.push(vid);updateVDD();renderVideoList();
   }
@@ -1495,12 +1384,13 @@ let _bgPaused=false;      // pause while user is actively editing
 const THUMB_MAX_EDGE=320;
 const FRAME_MAX_EDGE=2600;
 const FRAME_MAX_PIXELS=5_200_000;
+const SOURCE_EXPORT_MAX_EDGE=3840;
+const SOURCE_EXPORT_MAX_PIXELS=8_294_400;
 const IMAGE_UPLOAD_BATCH=2;
-const GRID_RENDER_BATCH=24;
-const GRID_RENDER_STEP=16;
-const GRID_MAX_DOM_CARDS=96;
-const FILMSTRIP_MAX_DOM_THUMBS=160;
-const CANVAS_CACHE_LIMIT=2;
+const GRID_RENDER_BATCH=36;
+const GRID_RENDER_STEP=24;
+const GRID_MAX_DOM_CARDS=180;
+const CANVAS_CACHE_LIMIT=4;
 
 const SRC_LABELS={iphone:'iPhone',mac:'Mac',web:'Web',screenshot:'Shot',unknown:'?'};
 const SRC_COLORS={iphone:'si',mac:'sm2',web:'sw',screenshot:'ss',unknown:''};
@@ -1892,8 +1782,8 @@ async function revertFrame(id){
   if(fr.blobUrl)URL.revokeObjectURL(fr.blobUrl);
   if(fr._thumbBlobUrl)URL.revokeObjectURL(fr._thumbBlobUrl);
   // Reconstruct fresh blob URLs from the original ArrayBuffers
-  fr.blobUrl=URL.createObjectURL(new Blob([fr._originalBuf],{type:fr._originalBlobType||fr._blobType||'image/webp'}));
-  fr._thumbBlobUrl=URL.createObjectURL(new Blob([fr._originalThumbBuf],{type:fr._originalThumbBlobType||fr._thumbBlobType||fr._blobType||'image/webp'}));
+  fr.blobUrl=URL.createObjectURL(new Blob([fr._originalBuf],{type:'image/webp'}));
+  fr._thumbBlobUrl=URL.createObjectURL(new Blob([fr._originalThumbBuf],{type:'image/webp'}));
   // Clear all edit metadata
   fr.redacted=false;
   fr.redactBoxes=[];
@@ -1935,26 +1825,13 @@ async function revertFrame(id){
 }
 
 // Store frame as a compressed WebP blob URL — releases the canvas immediately
-function canvasToBlobSafe(canvas,type='image/webp',quality=.82){
-  return new Promise((res,rej)=>{
-    try{
-      canvas.toBlob(blob=>{
-        if(blob&&blob.size){res(blob);return;}
-        try{
-          const dataUrl=canvas.toDataURL('image/png');
-          const bin=atob(dataUrl.split(',')[1]||'');
-          const bytes=new Uint8Array(bin.length);
-          for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
-          res(new Blob([bytes],{type:'image/png'}));
-        }catch(e){rej(e);}
-      },type,quality);
-    }catch(e){rej(e);}
-  });
-}
-
 async function storeFrameAsBlob(fr,canvas){
-  const blob=await canvasToBlobSafe(canvas,'image/webp',0.82);
-  fr._blobType=blob.type||'image/webp';
+  const blob=await new Promise((res,rej)=>{
+    canvas.toBlob(blob=>{
+      if(!blob){rej(new Error('Could not encode frame'));return;}
+      res(blob);
+    },'image/webp',0.82);
+  });
   fr.blobUrl=URL.createObjectURL(blob);
   const tw=Math.max(1,Math.min(THUMB_MAX_EDGE,canvas.width));
   const th2=Math.max(1,Math.round(canvas.height*(tw/canvas.width)));
@@ -1962,14 +1839,16 @@ async function storeFrameAsBlob(fr,canvas){
   const tctx=get2dCtx(tc,false,true);
   tctx.clearRect(0,0,tw,th2);
   tctx.drawImage(canvas,0,0,tw,th2);
-  const tb=await canvasToBlobSafe(tc,'image/webp',0.75);
-  fr._thumbBlobType=tb.type||fr._blobType||'image/webp';
+  const tb=await new Promise((res,rej)=>{
+    tc.toBlob(tb=>{
+      if(!tb){rej(new Error('Could not encode thumbnail'));return;}
+      res(tb);
+    },'image/webp',0.75);
+  });
   fr._thumbBlobUrl=URL.createObjectURL(tb);
   if(!fr._originalBuf){
     fr._originalBuf=await blob.arrayBuffer();
     fr._originalThumbBuf=await tb.arrayBuffer();
-    fr._originalBlobType=fr._blobType;
-    fr._originalThumbBlobType=fr._thumbBlobType;
   }
   /* dead encoder kept disabled
       fr.blobUrl=URL.createObjectURL(blob);
@@ -2007,10 +1886,6 @@ function getFrameCanvas(fr) {
   if (fr.canvas) return Promise.resolve(fr.canvas);
 
   return new Promise((res, rej) => {
-    if(!fr.blobUrl){
-      dbLoadFrameBlob(fr).then(ok=>ok?getFrameCanvas(fr).then(res,rej):rej(new Error('Frame image is missing'))).catch(rej);
-      return;
-    }
     const img = new Image();
 
     img.onload = () => {
@@ -2026,70 +1901,25 @@ function getFrameCanvas(fr) {
       }
 
       ctx.clearRect(0, 0, c.width, c.height);
-      ctx.drawImage(img, 0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0);
 
       fr.canvas = c;
       rememberFrameCanvas(fr);
       res(c);
     };
 
-    img.onerror = async () => {
-      const ok=await dbLoadFrameBlob(fr).catch(()=>false);
-      if(ok){
-        getFrameCanvas(fr).then(res,rej);
-        return;
-      }
-      rej(new Error('Could not decode frame image'));
-    };
+    img.onerror = rej;
     img.src = fr.blobUrl;
   });
 }
 
 
-async function ensureFrameImageUrls(fr){
-  if(fr._thumbBlobUrl||fr.blobUrl)return true;
-  if(await dbLoadFrameBlob(fr).catch(()=>false))return true;
-  if(fr.canvas){
-    try{await storeFrameAsBlob(fr,fr.canvas);return !!(fr._thumbBlobUrl||fr.blobUrl);}catch(e){console.warn('rebuild frame image failed',e);}
-  }
-  return false;
-}
-
-function _imgPlaceholder(){
-  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="180" height="320" viewBox="0 0 180 320"><rect width="180" height="320" fill="#15151a"/><path d="M42 158h96M90 110v96" stroke="#6b7280" stroke-width="8" stroke-linecap="round"/><text x="90" y="240" text-anchor="middle" fill="#9ca3af" font-family="Arial" font-size="14">loading</text></svg>');
-}
-
-async function loadThumbIntoImg(img, fr, force=false) {
-  if (!img||!fr) return;
-  if (img.dataset.loaded === '1'&&!force) return;
-  img.dataset.loaded = 'loading';
-  img.classList.remove('is-loaded');
-  if(!img.src)img.src=_imgPlaceholder();
-  const ok=await ensureFrameImageUrls(fr);
-  if(!ok){
-    img.dataset.loaded='0';
-    img.src=_imgPlaceholder();
-    return;
-  }
-  const src=fr._thumbBlobUrl || fr.blobUrl;
-  img.onload = () => {
-    img.dataset.loaded='1';
-    img.classList.add('is-loaded');
-  };
-  img.onerror = async () => {
-    img.dataset.loaded='0';
-    img.classList.remove('is-loaded');
-    if(fr._thumbBlobUrl&&src===fr._thumbBlobUrl){try{URL.revokeObjectURL(fr._thumbBlobUrl);}catch(e){}fr._thumbBlobUrl=null;}
-    else if(fr.blobUrl&&src===fr.blobUrl){try{URL.revokeObjectURL(fr.blobUrl);}catch(e){}fr.blobUrl=null;}
-    const recovered=await dbLoadFrameBlob(fr).catch(()=>false)||await ensureFrameImageUrls(fr);
-    const fallback=fr.blobUrl||fr._thumbBlobUrl;
-    if(recovered&&fallback&&fallback!==src){
-      setTimeout(()=>loadThumbIntoImg(img,fr,true),80);
-    }else{
-      img.src=_imgPlaceholder();
-    }
-  };
-  img.src = src;
+function loadThumbIntoImg(img, fr) {
+  if (img.dataset.loaded === '1') return;
+  img.onload = () => img.classList.add('is-loaded');
+  img.onerror = () => { img.removeAttribute('src'); img.classList.remove('is-loaded'); };
+  img.src = fr._thumbBlobUrl || fr.blobUrl;
+  img.dataset.loaded = '1';
 }
 
 // Shared drain queue — filled by queueThumbLoad, drained by _drainThumbQueue
@@ -2126,27 +1956,23 @@ function ensureThumbObserver() {
     }
   }, {
     root: document.getElementById('frames-area'),
-    rootMargin: '1600px 0px'
+    rootMargin: '200px 0px'   // tight — only near-viewport cards
   });
   return gridLazyObserver;
 }
 
 function queueThumbLoad(img, fr) {
   img.dataset.frameId = fr.id;
-  img.dataset.loaded='0';
   // Transparent 1x1 placeholder — no decode cost
-  img.src = _imgPlaceholder();
+  img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+  const gridView=document.getElementById('grid-view');
+  const gridHidden=gridView&&getComputedStyle(gridView).display==='none';
+  if(gridHidden){
+    if(!_thumbQueue.includes(img))_thumbQueue.push(img);
+    if(!_thumbDrainRaf)_thumbDrainRaf=requestAnimationFrame(_drainThumbQueue);
+    return;
+  }
   ensureThumbObserver().observe(img);
-}
-
-function healVisibleFrameImages(){
-  document.querySelectorAll('#fg img[data-frame-id], #filmstrip-inner img[data-frame-id]').forEach(img=>{
-    const fr=getFrame(img.dataset.frameId);
-    if(!fr)return;
-    if(img.dataset.loaded!=='1'||!img.complete||!img.naturalWidth){
-      loadThumbIntoImg(img,fr,true);
-    }
-  });
 }
 // ─── STATUS BAR REPLACEMENT (canvas-drawn, no external images) ───────────────
 // Detects bar background brightness, erases the original bar, then draws a
@@ -2268,41 +2094,13 @@ const SB_SVG = {
 
 let sbSvgReadyPromise = null;
 const STATUS_NAVBAR_W = {time:34,battery:28,wifi:18,signal:20};
-const STATUS_SVG_FALLBACK_B64 = {
-  Time:'PHN2ZyB3aWR0aD0iMzQiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAzNCAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuNDQwOTIgMEM1LjA4Mjg1IDAgNS42OTE1NyAwLjExODk3OCA2LjI2NzA5IDAuMzU2OTM0QzYuODQyNjEgMC41ODkzNTUgNy4zNTE3MyAwLjk1NDU5IDcuNzk0NDMgMS40NTI2NEM4LjI0MjY4IDEuOTQ1MTUgOC41OTQwOCAyLjU3ODc4IDguODQ4NjMgMy4zNTM1MkM5LjEwMzE5IDQuMTIyNzIgOS4yMzA0NyA1LjA0OTY0IDkuMjMwNDcgNi4xMzQyOFY2LjE1MDg4QzkuMjMwNDcgNy40OTU2MSA5LjAzNjc4IDguNjQ2NjUgOC42NDk0MSA5LjYwNEM4LjI2MjA0IDEwLjU2MTQgNy43MDU4OSAxMS4yOTc0IDYuOTgwOTYgMTEuODEyQzYuMjYxNTYgMTIuMzIxMSA1LjQwMTA0IDEyLjU3NTcgNC4zOTk0MSAxMi41NzU3QzMuNjYzNDEgMTIuNTc1NyAyLjk5OTM1IDEyLjQ0MjkgMi40MDcyMyAxMi4xNzcyQzEuODIwNjQgMTEuOTA2MSAxLjMzMzY2IDExLjUzNTMgMC45NDYyODkgMTEuMDY0OUMwLjU2NDQ1MyAxMC41ODkgMC4zMDcxMjkgMTAuMDQ2NyAwLjE3NDMxNiA5LjQzNzk5TDAuMTU3NzE1IDkuMzQ2NjhIMi4yNTc4MUwyLjI5MTAyIDkuNDI5NjlDMi4zOTYxNiA5LjcwNjM4IDIuNTQ1NTcgOS45NDk4NyAyLjczOTI2IDEwLjE2MDJDMi45Mzg0OCAxMC4zNzA0IDMuMTc2NDMgMTAuNTMzNyAzLjQ1MzEyIDEwLjY0OTlDMy43MzUzNSAxMC43NjA2IDQuMDUwNzggMTAuODE1OSA0LjM5OTQxIDEwLjgxNTlDNS4wMzAyNyAxMC44MTU5IDUuNTQ0OTIgMTAuNjMwNSA1Ljk0MzM2IDEwLjI1OThDNi4zNDczMyA5Ljg4MzQ2IDYuNjQ4OTMgOS4zODI2NSA2Ljg0ODE0IDguNzU3MzJDNy4wNTI5IDguMTI2NDYgNy4xNjkxMSA3LjQyOTIgNy4xOTY3OCA2LjY2NTUzQzcuMjAyMzEgNi41ODI1MiA3LjIwNTA4IDYuNTAyMjggNy4yMDUwOCA2LjQyNDhDNy4yMDUwOCA2LjM0MTggNy4yMDUwOCA2LjI2MTU2IDcuMjA1MDggNi4xODQwOEw2LjgzMTU0IDQuMTgzNTlDNi44MzE1NCAzLjcyOTgyIDYuNzI2NCAzLjMxNzU1IDYuNTE2MTEgMi45NDY3OEM2LjMwNTgzIDIuNTc2MDEgNi4wMjA4MyAyLjI4MjcxIDUuNjYxMTMgMi4wNjY4OUM1LjMwNjk3IDEuODUxMDcgNC45MDU3NiAxLjc0MzE2IDQuNDU3NTIgMS43NDMxNkM0LjAyNTg4IDEuNzQzMTYgMy42MzAyMSAxLjg0ODMxIDMuMjcwNTEgMi4wNTg1OUMyLjkxMDgxIDIuMjY4ODggMi42MjMwNSAyLjU1NjY0IDIuNDA3MjMgMi45MjE4OEMyLjE5MTQxIDMuMjgxNTggMi4wODM1IDMuNjg1NTUgMi4wODM1IDQuMTMzNzlWNC4xNTAzOUMyLjA4MzUgNC42MTUyMyAyLjE4NTg3IDUuMDI3NTEgMi4zOTA2MiA1LjM4NzIxQzIuNTk1MzggNS43NDEzNyAyLjg3NDg0IDYuMDIwODMgMy4yMjkgNi4yMjU1OUMzLjU4MzE3IDYuNDMwMzQgMy45ODcxNCA2LjUzMjcxIDQuNDQwOTIgNi41MzI3MUM0Ljg5NDY5IDYuNTMyNzEgNS4zMDE0MyA2LjQzMzExIDUuNjYxMTMgNi4yMzM4OUM2LjAyMDgzIDYuMDM0NjcgNi4zMDU4MyA1Ljc1Nzk4IDYuNTE2MTEgNS40MDM4MUM2LjcyNjQgNS4wNDk2NCA2LjgzMTU0IDQuNjQ4NDQgNi44MzE1NCA0LjIwMDJWNC4xODM1OUg3LjMyOTU5VjYuMzkxNkg3LjAzOTA2QzYuODk1MTggNi43MDcwMyA2LjY4MjEzIDcuMDAwMzMgNi4zOTk5IDcuMjcxNDhDNi4xMTc2OCA3LjU0MjY0IDUuNzY5MDQgNy43NjEyMyA1LjM1NCA3LjkyNzI1QzQuOTQ0NSA4LjA5MzI2IDQuNDYzMDUgOC4xNzYyNyAzLjkwOTY3IDguMTc2MjdDMy4xNDYgOC4xNzYyNyAyLjQ3MDg3IDguMDA0NzIgMS44ODQyOCA3LjY2MTYyQzEuMjk3NjkgNy4zMTg1MiAwLjgzNTYxMiA2Ljg0ODE0IDAuNDk4MDQ3IDYuMjUwNDlDMC4xNjYwMTYgNS42NTI4MyAwIDQuOTc3NyAwIDQuMjI1MVY0LjIwODVDMCAzLjM5NTAyIDAuMTg4MTUxIDIuNjcyODUgMC41NjQ0NTMgMi4wNDE5OUMwLjk0NjI4OSAxLjQwNTYgMS40NzIwMSAwLjkwNzU1MiAyLjE0MTYgMC41NDc4NTJDMi44MTY3MyAwLjE4MjYxNyAzLjU4MzE3IDAgNC40NDA5MiAwWk0xMi45OTkgMTAuNjY2NUMxMi42MjI3IDEwLjY2NjUgMTIuMzA3MyAxMC41NDIgMTIuMDUyNyAxMC4yOTNDMTEuODAzNyAxMC4wMzg0IDExLjY3OTIgOS43Mjg1MiAxMS42NzkyIDkuMzYzMjhDMTEuNjc5MiA4Ljk5MjUxIDExLjgwMzcgOC42ODI2MiAxMi4wNTI3IDguNDMzNTlDMTIuMzA3MyA4LjE3OTA0IDEyLjYyMjcgOC4wNTE3NiAxMi45OTkgOC4wNTE3NkMxMy4zODA5IDguMDUxNzYgMTMuNjk2MyA4LjE3OTA0IDEzLjk0NTMgOC40MzM1OUMxNC4xOTQzIDguNjgyNjIgMTQuMzE4OCA4Ljk5MjUxIDE0LjMxODggOS4zNjMyOEMxNC4zMTg4IDkuNzI4NTIgMTQuMTk0MyAxMC4wMzg0IDEzLjk0NTMgMTAuMjkzQzEzLjY5NjMgMTAuNTQyIDEzLjM4MDkgMTAuNjY2NSAxMi45OTkgMTAuNjY2NVpNMTIuOTk5IDQuNTA3MzJDMTIuNjIyNyA0LjUwNzMyIDEyLjMwNzMgNC4zODI4MSAxMi4wNTI3IDQuMTMzNzlDMTEuODAzNyAzLjg3OTIzIDExLjY3OTIgMy41NjkzNCAxMS42NzkyIDMuMjA0MUMxMS42NzkyIDIuODMzMzMgMTEuODAzNyAyLjUyMzQ0IDEyLjA1MjcgMi4yNzQ0MUMxMi4zMDczIDIuMDE5ODYgMTIuNjIyNyAxLjg5MjU4IDEyLjk5OSAxLjg5MjU4QzEzLjM4MDkgMS44OTI1OCAxMy42OTYzIDIuMDE5ODYgMTMuOTQ1MyAyLjI3NDQxQzE0LjE5NDMgMi41MjM0NCAxNC4zMTg4IDIuODMzMzMgMTQuMzE4OCAzLjIwNDFDMTQuMzE4OCAzLjU2OTM0IDE0LjE5NDMgMy44NzkyMyAxMy45NDUzIDQuMTMzNzlDMTMuNjk2MyA0LjM4MjgxIDEzLjM4MDkgNC41MDczMiAxMi45OTkgNC41MDczMlpNMjIuNTc4MSAxMi4yNzY5VjkuOTc3NTRIMTYuNzE3OFY4LjIyNjA3QzE3LjAzMzIgNy42ODkyOSAxNy4zNDg2IDcuMTQ5NzQgMTcuNjY0MSA2LjYwNzQyQzE3Ljk4NSA2LjA2NTEgMTguMzA4OCA1LjUyNTU1IDE4LjYzNTMgNC45ODg3N0MxOC45NjczIDQuNDQ2NDUgMTkuMjk2NSAzLjkxMjQzIDE5LjYyMyAzLjM4NjcyQzE5Ljk1NTEgMi44NTU0NyAyMC4yODQzIDIuMzMyNTIgMjAuNjEwOCAxLjgxNzg3QzIwLjk0MjkgMS4yOTc2OSAyMS4yNzQ5IDAuNzkxMzQxIDIxLjYwNjkgMC4yOTg4MjhIMjQuNjIwMVY4LjIwOTQ3SDI2LjIzODhWOS45Nzc1NEgyNC42MjAxVjEyLjI3NjlIMjIuNTc4MVpNMTguNzEgOC4yNTkyOEgyMi42MTEzVjIuMDA4NzlIMjIuNDg2OEMyMi4yNDMzIDIuMzg1MDkgMjEuOTkxNSAyLjc3MjQ2IDIxLjczMTQgMy4xNzA5QzIxLjQ3NjkgMy41NjkzNCAyMS4yMTk2IDMuOTc2MDcgMjAuOTU5NSA0LjM5MTExQzIwLjY5OTQgNC44MDYxNSAyMC40NDIxIDUuMjIzOTYgMjAuMTg3NSA1LjY0NDUzQzE5LjkzMjkgNi4wNTk1NyAxOS42ODEyIDYuNDc3MzggMTkuNDMyMSA2Ljg5Nzk1QzE5LjE4MzEgNy4zMTI5OSAxOC45NDI0IDcuNzI1MjYgMTguNzEgOC4xMzQ3N1Y4LjI1OTI4Wk0zMS4xOTQzIDEyLjI3NjlWMi40MDcyM0gzMS4wNDQ5TDI4LjA2NDkgNC41MDczMlYyLjQ5ODU0TDMxLjE5NDMgMC4yOTg4MjhIMzMuMzI3NlYxMi4yNzY5SDMxLjE5NDNaIiBmaWxsPSJibGFjayIvPgo8L3N2Zz4K',
-  CellularConnection:'PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAyMCAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZmlsbC1ydWxlPSJldmVub2RkIiBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0xOS4yIDEuMTQ2MjNDMTkuMiAwLjUxMzE4MyAxOC43MjI0IDAgMTguMTMzMyAwSDE3LjA2NjdDMTYuNDc3NiAwIDE2IDAuNTEzMTgzIDE2IDEuMTQ2MjNWMTEuMDgwMkMxNiAxMS43MTMyIDE2LjQ3NzYgMTIuMjI2NCAxNy4wNjY3IDEyLjIyNjRIMTguMTMzM0MxOC43MjI0IDEyLjIyNjQgMTkuMiAxMS43MTMyIDE5LjIgMTEuMDgwMlYxLjE0NjIzWk0xMS43NjU5IDIuNDQ1MjhIMTIuODMyNkMxMy40MjE3IDIuNDQ1MjggMTMuODk5MiAyLjk3MDc4IDEzLjg5OTIgMy42MTkwMlYxMS4wNTI3QzEzLjg5OTIgMTEuNzAwOSAxMy40MjE3IDEyLjIyNjQgMTIuODMyNiAxMi4yMjY0SDExLjc2NTlDMTEuMTc2OCAxMi4yMjY0IDEwLjY5OTIgMTEuNzAwOSAxMC42OTkyIDExLjA1MjdWMy42MTkwMkMxMC42OTkyIDIuOTcwNzggMTEuMTc2OCAyLjQ0NTI4IDExLjc2NTkgMi40NDUyOFpNNy40MzQxMSA1LjA5NDMzSDYuMzY3NDVDNS43NzgzNCA1LjA5NDMzIDUuMzAwNzggNS42MjY1MiA1LjMwMDc4IDYuMjgzMDFWMTEuMDM3N0M1LjMwMDc4IDExLjY5NDIgNS43NzgzNCAxMi4yMjY0IDYuMzY3NDUgMTIuMjI2NEg3LjQzNDExQzguMDIzMjIgMTIuMjI2NCA4LjUwMDc4IDExLjY5NDIgOC41MDA3OCAxMS4wMzc3VjYuMjgzMDFDOC41MDA3OCA1LjYyNjUyIDguMDIzMjIgNS4wOTQzMyA3LjQzNDExIDUuMDk0MzNaTTIuMTMzMzMgNy41Mzk2MkgxLjA2NjY3QzAuNDc3NTYzIDcuNTM5NjIgMCA4LjA2NDIxIDAgOC43MTEzMlYxMS4wNTQ3QzAgMTEuNzAxOCAwLjQ3NzU2MyAxMi4yMjY0IDEuMDY2NjcgMTIuMjI2NEgyLjEzMzMzQzIuNzIyNDQgMTIuMjI2NCAzLjIgMTEuNzAxOCAzLjIgMTEuMDU0N1Y4LjcxMTMyQzMuMiA4LjA2NDIxIDIuNzIyNDQgNy41Mzk2MiAyLjEzMzMzIDcuNTM5NjJaIiBmaWxsPSJibGFjayIvPgo8L3N2Zz4K',
-  Wifi:'PHN2ZyB3aWR0aD0iMTgiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAxOCAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZmlsbC1ydWxlPSJldmVub2RkIiBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik04LjU3MTMgMi40NjYyOEMxMS4wNTg0IDIuNDY2MzkgMTMuNDUwNCAzLjM4ODQ3IDE1LjI1MjkgNS4wNDE5NUMxNS4zODg3IDUuMTY5NiAxNS42MDU2IDUuMTY3OTkgMTUuNzM5MyA1LjAzODM0TDE3LjAzNjggMy43NzQ4N0MxNy4xMDQ1IDMuNzA5MTEgMTcuMTQyMiAzLjYyMDA0IDE3LjE0MTcgMy41MjczNUMxNy4xNDExIDMuNDM0NjcgMTcuMTAyMyAzLjM0NjAzIDE3LjAzMzggMy4yODEwNEMxMi4zMDI4IC0xLjA5MzY4IDQuODM5MDcgLTEuMDkzNjggMC4xMDgwNTYgMy4yODEwNEMwLjAzOTUyNCAzLjM0NTk4IDAuMDAwNjM5NzY2IDMuNDM0NiA3LjgyMzk4ZS0wNiAzLjUyNzI4Qy0wLjAwMDYyNDExOCAzLjYxOTk2IDAuMDM3MDQ4MyAzLjcwOTA2IDAuMTA0Njg5IDMuNzc0ODdMMS40MDI1NSA1LjAzODM0QzEuNTM2MTUgNS4xNjgxOSAxLjc1MzI3IDUuMTY5OCAxLjg4ODkzIDUuMDQxOTVDMy42OTE2NyAzLjM4ODM2IDYuMDgzOTUgMi40NjYyOCA4LjU3MTMgMi40NjYyOFpNOC41Njc5NSA2LjY4NjU2QzkuOTI1MjcgNi42ODY0NyAxMS4yMzQxIDcuMTk4MjEgMTIuMjQwMyA4LjEyMjM0QzEyLjM3NjMgOC4yNTM1IDEyLjU5MDcgOC4yNTA2NSAxMi43MjM0IDguMTE1OTNMMTQuMDEwNiA2Ljc5NjYzQzE0LjA3ODQgNi43Mjc0MiAxNC4xMTYxIDYuNjMzNTUgMTQuMTE1MSA2LjUzNkMxNC4xMTQxIDYuNDM4NDQgMTQuMDc0NiA2LjM0NTM2IDE0LjAwNTQgNi4yNzc1N0MxMC45NDE2IDMuMzg2NzIgNi4xOTY4OCAzLjM4NjcyIDMuMTMzMDUgNi4yNzc1N0MzLjA2Mzg0IDYuMzQ1MzYgMy4wMjQzNSA2LjQzODQ5IDMuMDIzNDUgNi41MzYwN0MzLjAyMjU0IDYuNjMzNjYgMy4wNjAyOCA2LjcyNzUyIDMuMTI4MjIgNi43OTY2M0w0LjQxNTEzIDguMTE1OTNDNC41NDc3OCA4LjI1MDY1IDQuNzYyMTUgOC4yNTM1IDQuODk4MjMgOC4xMjIzNEM1LjkwMzY4IDcuMTk4ODIgNy4yMTE1MiA2LjY4NzEzIDguNTY3OTUgNi42ODY1NlpNMTEuMDkyNCA5LjQ4MDExQzExLjA5NDMgOS41ODU0NiAxMS4wNTcyIDkuNjg3MDMgMTAuOTg5OSA5Ljc2MDg0TDguODEzMjcgMTIuMjE1NkM4Ljc0OTQ2IDEyLjI4NzcgOC42NjI0NyAxMi4zMjgzIDguNTcxNyAxMi4zMjgzQzguNDgwOTMgMTIuMzI4MyA4LjM5Mzk0IDEyLjI4NzcgOC4zMzAxMyAxMi4yMTU2TDYuMTUzMSA5Ljc2MDg0QzYuMDg1ODUgOS42ODY5NyA2LjA0ODg2IDkuNTg1MzcgNi4wNTA4NSA5LjQ4MDAyQzYuMDUyODQgOS4zNzQ2NyA2LjA5MzY1IDkuMjc0OTEgNi4xNjM2NCA5LjIwNDI5QzcuNTUzNzQgNy44OTA0IDkuNTg5NjYgNy44OTA0IDEwLjk3OTggOS4yMDQyOUMxMS4wNDk3IDkuMjc0OTcgMTEuMDkwNCA5LjM3NDc2IDExLjA5MjQgOS40ODAxMVoiIGZpbGw9ImJsYWNrIi8+Cjwvc3ZnPgo=',
-  Battery:'PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iMTMiIHZpZXdCb3g9IjAgMCAyOCAxMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgb3BhY2l0eT0iMC4zNSIgeD0iMC41IiB5PSIwLjUiIHdpZHRoPSIyNCIgaGVpZ2h0PSIxMiIgcng9IjMuOCIgc3Ryb2tlPSJibGFjayIvPgo8cGF0aCBvcGFjaXR5PSIwLjQiIGQ9Ik0yNiA0Ljc4MTEzVjguODU2NkMyNi44MDQ3IDguNTExNDMgMjcuMzI4IDcuNzA4NDcgMjcuMzI4IDYuODE4ODZDMjcuMzI4IDUuOTI5MjYgMjYuODA0NyA1LjEyNjMgMjYgNC43ODExM1oiIGZpbGw9ImJsYWNrIi8+CjxyZWN0IHg9IjIiIHk9IjIiIHdpZHRoPSIyMSIgaGVpZ2h0PSI5IiByeD0iMi41IiBmaWxsPSJibGFjayIvPgo8L3N2Zz4K'
-};
 
-async function loadStatusAsset(color,file){
-  const url=`navbar/${color}/${encodeURIComponent(file)}.svg`;
-  const fallbackKey=file==='Cellular Connection'?'CellularConnection':file;
-  let svg='';
-  const canFetchLocal=location.protocol!=='file:';
-  if(canFetchLocal){
-    try{
-      const res=await fetch(url);
-      if(!res.ok)throw new Error(`${url} failed`);
-      svg=await res.text();
-    }catch(e){
-      svg='';
-    }
-  }
-  if(!svg){
-    const b64=STATUS_SVG_FALLBACK_B64[fallbackKey];
-    if(!b64)throw new Error(`${url} failed`);
-    svg=atob(b64);
-    if(color==='white')svg=svg.replace(/black/g,'white');
-  }
-  svg=svg
-    .replace(/<script[\s\S]*?<\/script>/gi,'')
-    .replace(/\s(?:href|xlink:href)=["'](?!#)[^"']*["']/gi,'');
+function loadStatusAsset(color,key,file){
   return new Promise((resolve,reject)=>{
     const img=new Image();
     img.onload=()=>resolve(img);
-    img.onerror=()=>reject(new Error(`${url} failed`));
-    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+    img.onerror=()=>reject(new Error(`navbar/${color}/${file}.svg failed`));
+    img.src=`navbar/${color}/${encodeURIComponent(file)}.svg`;
   });
 }
 
@@ -2310,15 +2108,15 @@ function loadStatusBarSVGs() {
   if (sbSvgReadyPromise) return sbSvgReadyPromise;
 
   sbSvgReadyPromise = Promise.all([
-    loadStatusAsset('black','Time'),
-    loadStatusAsset('black','Cellular Connection'),
-    loadStatusAsset('black','Wifi'),
-    loadStatusAsset('black','Battery'),
+    loadStatusAsset('black','time','Time'),
+    loadStatusAsset('black','signal','Cellular Connection'),
+    loadStatusAsset('black','wifi','Wifi'),
+    loadStatusAsset('black','battery','Battery'),
 
-    loadStatusAsset('white','Time'),
-    loadStatusAsset('white','Cellular Connection'),
-    loadStatusAsset('white','Wifi'),
-    loadStatusAsset('white','Battery'),
+    loadStatusAsset('white','time','Time'),
+    loadStatusAsset('white','signal','Cellular Connection'),
+    loadStatusAsset('white','wifi','Wifi'),
+    loadStatusAsset('white','battery','Battery'),
   ]).then(([
     blackTime, blackSignal, blackWifi, blackBattery,
     whiteTime, whiteSignal, whiteWifi, whiteBattery
@@ -2345,8 +2143,7 @@ function statusAssetsReady(set){
 function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg){
   const sbH=Math.round(sH*.055);
   if(sbH<2||sW<12)return false;
-  const br=bg?.avgR??bg?.r, bgc=bg?.avgG??bg?.g, bb=bg?.avgB??bg?.b;
-  const lum=Number.isFinite(br)?(0.299*br+0.587*bgc+0.114*bb):255;
+  const lum=bg?(0.299*bg.r+0.587*bg.g+0.114*bg.b):255;
   const set=lum>140?'black':'white';
   if(!statusAssetsReady(set))return false;
   const icons=SB_SVG[set];
@@ -2357,130 +2154,49 @@ function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg){
   const gap=sW*.018;
   ctx.drawImage(icons.time,sX+hPad+sW*.10,iconY,STATUS_NAVBAR_W.time*scale,iconH);
   let rx=sX+sW-hPad;
-  rx-=STATUS_NAVBAR_W.battery*scale;ctx.drawImage(icons.battery,rx,iconY,STATUS_NAVBAR_W.battery*scale,iconH);
-  rx-=gap+STATUS_NAVBAR_W.wifi*scale;ctx.drawImage(icons.wifi,rx,iconY,STATUS_NAVBAR_W.wifi*scale,iconH);
-  rx-=gap+STATUS_NAVBAR_W.signal*scale;ctx.drawImage(icons.signal,rx,iconY,STATUS_NAVBAR_W.signal*scale,iconH);
+  rx-=STATUS_NAVBAR_W.battery*scale;
+  ctx.drawImage(icons.battery,rx,iconY,STATUS_NAVBAR_W.battery*scale,iconH);
+  rx-=gap+STATUS_NAVBAR_W.wifi*scale;
+  ctx.drawImage(icons.wifi,rx,iconY,STATUS_NAVBAR_W.wifi*scale,iconH);
+  rx-=gap+STATUS_NAVBAR_W.signal*scale;
+  ctx.drawImage(icons.signal,rx,iconY,STATUS_NAVBAR_W.signal*scale,iconH);
   return true;
 }
 
 loadStatusBarSVGs().catch(err=>console.warn('Status bar SVG preload failed',err));
 
-function applyStatusBarRemoval(ctx,sX,sY,sW,sH){
-  try{
-    const sbH=Math.round(sH*0.055);
-    const X=Math.round(sX),Y=Math.round(sY),W2=Math.round(sW);
-    if(sbH<2||W2<2)return null;
-    const readCanvas=document.createElement('canvas');
-    readCanvas.width=W2;readCanvas.height=sbH;
-    const readCtx=readCanvas.getContext('2d',{willReadFrequently:true});
-    if(!readCtx)return null;
-    readCtx.drawImage(ctx.canvas,X,Y,W2,sbH,0,0,W2,sbH);
-    const imgData=readCtx.getImageData(0,0,W2,sbH);
-    const d=imgData.data;
-    const topRowEnd=Math.max(1,Math.round(sbH*0.18));
-    const botRowStart=Math.round(sbH*0.72);
-    const numCols=Math.min(160,Math.max(24,Math.round(W2/4)));
-    const colW=W2/numCols;
-    const hInset=Math.round(W2*0.06);
-    const topR=new Float32Array(numCols),topG=new Float32Array(numCols),topB=new Float32Array(numCols);
-    const botR=new Float32Array(numCols),botG=new Float32Array(numCols),botB=new Float32Array(numCols);
-    const sampleStrip=(rowStart,rowEnd,outR,outG,outB)=>{
-      const valid=new Uint8Array(numCols);
-      for(let col=0;col<numCols;col++){
-        const x0=Math.round(col*colW),x1=Math.min(Math.round((col+1)*colW),W2);
-        const px0=Math.max(x0,hInset),px1=Math.min(x1,W2-hInset);
-        if(px0>=px1)continue;
-        const rs=[],gs=[],bs=[];
-        for(let py=rowStart;py<rowEnd;py++){
-          for(let px=px0;px<px1;px++){
-            const i=(py*W2+px)*4;
-            if(d[i+3]<16)continue;
-            rs.push(d[i]);gs.push(d[i+1]);bs.push(d[i+2]);
-          }
-        }
-        if(!rs.length)continue;
-        rs.sort((a,b)=>a-b);gs.sort((a,b)=>a-b);bs.sort((a,b)=>a-b);
-        const trim=Math.min(Math.floor(rs.length/3),Math.max(1,Math.floor(rs.length*0.15)));
-        const from=trim,to=Math.max(from+1,rs.length-trim),cnt=to-from;
-        let sR=0,sG=0,sB=0;
-        for(let k=from;k<to;k++){sR+=rs[k];sG+=gs[k];sB+=bs[k];}
-        outR[col]=sR/cnt;outG[col]=sG/cnt;outB[col]=sB/cnt;valid[col]=1;
-      }
-      for(let col=1;col<numCols;col++){
-        if(!valid[col]&&valid[col-1]){outR[col]=outR[col-1];outG[col]=outG[col-1];outB[col]=outB[col-1];valid[col]=1;}
-      }
-      for(let col=numCols-2;col>=0;col--){
-        if(!valid[col]&&valid[col+1]){outR[col]=outR[col+1];outG[col]=outG[col+1];outB[col]=outB[col+1];valid[col]=1;}
-      }
-    };
-    sampleStrip(0,topRowEnd,topR,topG,topB);
-    sampleStrip(botRowStart,sbH,botR,botG,botB);
-    let sumR=0,sumG=0,sumB=0;
-    for(let py=0;py<sbH;py++){
-      const ty=py/Math.max(1,sbH-1);
-      for(let px=0;px<W2;px++){
-        const fc=(px+0.5)/colW-0.5;
-        const c0=Math.max(0,Math.min(numCols-2,Math.floor(fc)));
-        const c1=c0+1;
-        const tx=Math.max(0,Math.min(1,fc-c0));
-        const r=(topR[c0]*(1-tx)+topR[c1]*tx)*(1-ty)+(botR[c0]*(1-tx)+botR[c1]*tx)*ty;
-        const g=(topG[c0]*(1-tx)+topG[c1]*tx)*(1-ty)+(botG[c0]*(1-tx)+botG[c1]*tx)*ty;
-        const b=(topB[c0]*(1-tx)+topB[c1]*tx)*(1-ty)+(botB[c0]*(1-tx)+botB[c1]*tx)*ty;
-        const i=(py*W2+px)*4;
-        d[i]=Math.round(r);d[i+1]=Math.round(g);d[i+2]=Math.round(b);d[i+3]=255;
-        sumR+=r;sumG+=g;sumB+=b;
-      }
-    }
-    readCtx.putImageData(imgData,0,0);
-    ctx.drawImage(readCanvas,X,Y);
-    const total=sbH*W2;
-    return {avgR:sumR/total,avgG:sumG/total,avgB:sumB/total};
-  }catch(e){return null;}
-}
-
 function replaceStatusBarFast(canvas){
   const W=canvas.width,H=canvas.height;
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
-  const bg=applyStatusBarRemoval(ctx,0,0,W,H);
-  if(!bg)return false;
-  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
-  return true;
-}
-function exportStatusBarEnabled(scope='zip'){
-  const id=scope==='video'?'vex-statusbar':'e-statusbar';
-  const el=document.getElementById(id);
-  return el?el.checked!==false:true;
-}
-function safeApplyExportStatusBar(canvas){
-  try{return replaceStatusBarFast(canvas);}
-  catch(e){console.warn('status bar export removal failed',e);return false;}
-}
-function cloneCanvasForExport(src){
-  const c=document.createElement('canvas');
-  c.width=src.width;c.height=src.height;
-  const ctx=c.getContext('2d',{alpha:true});
-  ctx.drawImage(src,0,0);
-  return c;
-}
-async function frameCanvasForExport(fr,removeStatusBar){
-  const base=await getFrameCanvas(fr);
-  const canvas=removeStatusBar?cloneCanvasForExport(base):base;
-  if(removeStatusBar)safeApplyExportStatusBar(canvas);
-  if(canvasCompositionEnabled()){
-    await waitPhoneFrameReady();
-    const size=getCanvasExportSize();
-    const out=document.createElement('canvas');
-    out.width=size.w;out.height=size.h;
-    const ctx=get2dCtx(out,false,false);
-    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height});
-    return out;
-  }
-  return canvas;
+  const barH=Math.max(10,Math.round(H*0.055));
+  const sample=(x,y,w,h)=>{
+    try{
+      const d=ctx.getImageData(Math.max(0,x),Math.max(0,y),Math.max(1,w),Math.max(1,h)).data;
+      let r=0,g=0,b=0,n=0,l=0;
+      for(let i=0;i<d.length;i+=4){
+        if(d[i+3]<16)continue;
+        r+=d[i];g+=d[i+1];b+=d[i+2];l+=0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2];n++;
+      }
+      return n?{r:Math.round(r/n),g:Math.round(g/n),b:Math.round(b/n),l:l/n}:{r:245,g:245,b:245,l:245};
+    }catch(e){return{r:245,g:245,b:245,l:245};}
+  };
+  const left=sample(Math.round(W*.06),Math.min(H-2,barH+Math.round(H*.01)),Math.round(W*.18),Math.max(3,Math.round(H*.012)));
+  const right=sample(Math.round(W*.76),Math.min(H-2,barH+Math.round(H*.01)),Math.round(W*.18),Math.max(3,Math.round(H*.012)));
+  const grad=ctx.createLinearGradient(0,0,W,0);
+  grad.addColorStop(0,`rgb(${left.r},${left.g},${left.b})`);
+  grad.addColorStop(1,`rgb(${right.r},${right.g},${right.b})`);
+  ctx.save();
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,barH);
+  const ok=drawStatusBarAssetIcons(ctx,0,0,W,H,{r:(left.r+right.r)/2,g:(left.g+right.g)/2,b:(left.b+right.b)/2});
+  ctx.restore();
+  return ok;
 }
 
 async function replaceStatusBar(canvas) {
-  if(replaceStatusBarFast(canvas))return;
+  const fastOk=replaceStatusBarFast(canvas);
+  if(fastOk)return;
   const W = canvas.width, H = canvas.height;
   if (W / H > 0.75) return;
 
@@ -2666,38 +2382,13 @@ function addFlow(name,re=true){
   setTimeout(()=>{newFlow._isNew=false;},8000);
   return newFlow.id;
 }
-function ensureFlow(name,re=false){
-  const t=String(name||'').trim();
-  if(!t)return null;
-  let fl=flows.find(f=>f.name.toLowerCase()===t.toLowerCase());
-  if(fl)return fl;
-  const id=addFlow(t,re);
-  return typeof id==='string'?flows.find(f=>f.id===id):null;
-}
-function parseFlowNames(raw){
-  return String(raw||'').split(/[,;\n]+/).map(s=>s.trim()).filter(Boolean);
-}
 function delFlow(id){
   flows=flows.filter(f=>f.id!==id);
   allFrames().forEach(fr=>{fr.flows=fr.flows.filter(x=>x!==id);});
   savePersistentFlows();
   renderFlows();renderQFlows();renderFrames();updateFSum();updateFDD();
 }
-function addFlowCustom(){
-  const i=document.getElementById('nfi');
-  const names=parseFlowNames(i?.value||'');
-  if(!names.length)return;
-  let made=0,dups=0;
-  names.forEach(name=>{
-    const existed=flows.some(f=>f.name.toLowerCase()===name.toLowerCase());
-    const fl=ensureFlow(name,false);
-    if(fl){if(existed)dups++;else made++;}
-  });
-  savePersistentFlows();
-  renderFlows();renderQFlows();updateFDD();
-  if(i)i.value='';
-  toast(made?'✓':'⚠️',made?`Added ${made} flow${made!==1?'s':''}`:`${dups} flow${dups!==1?'s':''} already exist`);
-}
+function addFlowCustom(){const i=document.getElementById('nfi');addFlow(i.value);i.value='';}
 
 // FIX: Remove a flow from a specific frame
 function removeFlowFromFrame(frId,fid,evt){
@@ -2778,18 +2469,29 @@ function renderQFlows(){
 function assignFlow(fid){
   const sel=allFrames().filter(f=>f.selected);
   if(!sel.length){toast('⚠️','Select frames first');return;}
+  const changed=addFlowsToFrames(sel,[fid]);
   const fl=flows.find(f=>f.id===fid);
-  sel.forEach(fr=>{if(!fr.flows.includes(fid))fr.flows.push(fid);});
   saveSession(); // immediate — tagging must never be lost on refresh
   document.querySelectorAll('#qflows .qfb').forEach(b=>{if(b._fid===fid){b.classList.remove('fl');void b.offsetWidth;b.classList.add('fl');}});
-  // Update cards in place
+  // Keep the selection active so multiple flows can be tagged in one pass.
   const ids=sel.map(f=>f.id);
   ids.forEach(id=>{
     const fr=getFrame(id);const card=document.querySelector(`.card[data-id="${id}"]`);
     if(card&&fr){updateCardBadges(card,fr);card.classList.add('sel');}
   });
   renderFlows();updateFSum();updateStats();
-  toast('✓',`"${fl?.name}" added to ${sel.length} frame${sel.length>1?'s':''} · selection kept`);
+  toast('✓',`"${fl?.name}" → ${sel.length} frame${sel.length>1?'s':''}${changed?'':' · already tagged'}`);
+}
+function addFlowsToFrames(frames,ids){
+  let changed=0;
+  const unique=[...new Set((ids||[]).filter(Boolean))];
+  frames.forEach(fr=>{
+    fr.flows=Array.isArray(fr.flows)?fr.flows:[];
+    unique.forEach(fid=>{
+      if(!fr.flows.includes(fid)){fr.flows.push(fid);changed++;}
+    });
+  });
+  return changed;
 }
 function updateFDD(){
   const s=document.getElementById('ffl');const v=s.value;
@@ -3161,7 +2863,7 @@ async function addImages(filesInput){
   const vid={
     id:'img_'+Date.now(),name:folderName+` (${unique.length})`,
     sizeMB:(unique.reduce((s,f)=>s+f.size,0)/1024/1024).toFixed(1),
-    duration:0,source:'screenshot',objectURL:null,frames:[],extracted:true,
+    duration:0,source:'screenshot',objectURL:null,frames:[],extracted:true,cutRanges:[],
     mimeType:'image',file:null,codec:'image',needsTranscode:false
   };
   videos.push(vid);
@@ -3252,6 +2954,7 @@ async function addImages(filesInput){
         fr._gridSrc=newAr<0.8?'iphone':newAr>1.1?'mac':'unknown';
       }
       try{
+        replaceStatusBarFast(finalCanvas);
         await storeFrameAsBlob(fr,finalCanvas);
       }catch(e){
         console.warn('image store failed',f.name,e);
@@ -3319,28 +3022,24 @@ async function addFiles(files){
   renderVideoList();updateVDD();updateStats();
   document.getElementById('ex-btn').disabled=false;
   updateCodecWarning();
+  toast('✓',`${added.length} video${added.length>1?'s':''} added · extracting`);
   try{await loadStatusBarSVGs();}catch(e){console.warn('status assets unavailable',e);}
   for(const vid of added){
     activeVideoId=vid.id;
     loadVideoStage(vid);
     await yieldUI(80);
-    if(vid.needsTranscode&&!vid.transcoded){
-      toast('âš ï¸',`"${vid.name}" needs H.264/WebM conversion before extraction`);
-      continue;
-    }
     await extractVideo(vid);
   }
-  toast('✓',`${valid.length} video${valid.length>1?'s':''} added`);
 }
 
 // ─── CODEC DETECTION ───────────────────────────────────────────────────────
 async function detectCodec(file,objectURL){
-  const SCAN_SIZE=2*1024*1024;
+  const SCAN_SIZE=Math.min(64*1024*1024,file.size);
   try{
     const startBuf=await file.slice(0,Math.min(SCAN_SIZE,file.size)).arrayBuffer();
     const startStr=new TextDecoder('latin1').decode(new Uint8Array(startBuf));
     let endStr='';
-    if(file.size>SCAN_SIZE){const endBuf=await file.slice(Math.max(0,file.size-524288)).arrayBuffer();endStr=new TextDecoder('latin1').decode(new Uint8Array(endBuf));}
+    if(file.size>SCAN_SIZE){const endBuf=await file.slice(Math.max(0,file.size-8*1024*1024)).arrayBuffer();endStr=new TextDecoder('latin1').decode(new Uint8Array(endBuf));}
     const combined=startStr+endStr;
     if(['hvc1','hev1','dvhe','dvh1'].some(s=>combined.includes(s)))return'hevc';
     if(['vp09','VP90'].some(s=>combined.includes(s)))return'vp9';
@@ -3349,6 +3048,33 @@ async function detectCodec(file,objectURL){
   const fn=file.name.toLowerCase();
   if(fn.match(/^img_\d{4}/i))return'hevc';
   return'h264';
+}
+async function probeDrawableVideo(url,dur){
+  return new Promise(res=>{
+    const v=document.createElement('video');
+    let done=false;
+    const finish=(ok,reason='')=>{if(done)return;done=true;v.onloadedmetadata=v.onloadeddata=v.onseeked=v.onerror=null;v.removeAttribute('src');try{v.load();}catch(e){}res({ok,reason});};
+    v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
+    const test=async()=>{
+      try{
+        const t=Math.min(Math.max(0.05,(dur||v.duration||1)*0.02),Math.max(0.05,(dur||v.duration||1)-0.05));
+        if(Number.isFinite(t)&&Math.abs((v.currentTime||0)-t)>0.01){
+          v.currentTime=t;
+          await new Promise(r=>{v.onseeked=r;setTimeout(r,2500);});
+        }
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        if(!v.videoWidth||!v.videoHeight)return finish(false,'no decoded video dimensions');
+        const c=document.createElement('canvas');c.width=32;c.height=32;
+        const ctx=get2dCtx(c,true,false);if(!ctx)return finish(false,'canvas unavailable');
+        ctx.drawImage(v,0,0,32,32);
+        finish(true,'');
+      }catch(e){finish(false,e?.message||'decode failed');}
+    };
+    v.onloadedmetadata=test;
+    v.onloadeddata=test;
+    v.onerror=()=>finish(false,'browser cannot decode this video');
+    setTimeout(()=>finish(false,'decode timed out'),10000);
+  });
 }
 async function probeDuration(url){
   return new Promise(res=>{
@@ -3374,20 +3100,23 @@ async function probeBlackFrame(url){
     v.onerror=()=>res(false);setTimeout(()=>{v.src='';res(false);},12000);
   });
 }
-function updateCodecWarning(){const w=document.getElementById('codec-warn');if(w)w.style.display=videos.some(v=>v.needsTranscode&&!v.transcoded)?'':'none';}
+function updateCodecWarning(){
+  const w=document.getElementById('codec-warn');if(!w)return;
+  const hevcVids=videos.filter(v=>v.codec==='hevc'||String(v.name||'').match(/\.(mov)$/i));
+  // Only show warning after extraction fails — never block the user pre-extraction
+  const failed=hevcVids.filter(v=>v.extracted&&(!v.frames||v.frames.length===0));
+  if(!failed.length){w.style.display='none';return;}
+  w.style.display='';
+  w.innerHTML='<div><span class="wdot"></span><b>📱 HEVC: 0 frames extracted</b></div>Your browser could not decode this HEVC video. On iPhone go to <b>Settings → Camera → Formats → Most Compatible</b>, re-record, and upload the new file.<br><div style="font-size:9px;color:var(--m);margin-top:3px">Chrome &amp; Edge on Windows normally support HEVC — ensure hardware acceleration is enabled.</div>';
+}
 
 // ─── EXTRACTION ─────────────────────────────────────────────────────────────
 async function extractActive(){const v=activeVideo();if(!v){toast('⚠️','Select a video first');return;}await extractVideo(v);}
 async function extractVideo(v){
-  if(v?.needsTranscode&&!v.transcoded){
-    updateCodecWarning();
-    toast('âš ï¸','HEVC video needs H.264/WebM conversion before extraction');
-    return;
-  }
-  const requestedFps=parseFloat(document.getElementById('o-fps').value)||1;
+  const fps=parseFloat(document.getElementById('o-fps').value)||1;
+  // NO frame cap — extract the entire video to the end regardless of length
   const dedup=document.getElementById('o-dedup').checked;
   const sens=parseInt(document.getElementById('o-sens').value)||5;
-  const maxFrames=Math.max(25,parseInt(document.getElementById('o-maxframes')?.value)||250);
   const chunkMins=parseInt(document.getElementById('o-chunk').value)||0;
   cancelFlag=false;v.frames=[];v.extracted=false;
   document.getElementById('ex-btn').style.display='none';
@@ -3399,10 +3128,23 @@ async function extractVideo(v){
   if(!v.duration||!isFinite(v.duration)){const dur=await probeDuration(v.objectURL);v.duration=dur||0;}
   const dur=v.duration;
   if(!dur||!isFinite(dur)){toast('❌','Could not read duration');resetExBtn();return;}
-  const adaptiveFps=Math.max(0.02,maxFrames/dur);
-  const fps=Math.min(requestedFps,adaptiveFps);
-  if(fps<requestedFps){
-    document.getElementById('ex-lbl').textContent=`Smart sampling entire video at ${fps.toFixed(2)} fps`;
+  // For HEVC/MOV files, skip the probe — createImageBitmap in extractChunk
+  // uses hardware decode (Chrome/Edge on Windows supports HEVC natively).
+  // Only probe non-HEVC files to catch truly unsupported formats early.
+  const isLikelyHevc=v.codec==='hevc'||String(v.name||'').match(/\.(mov)$/i);
+  if(!isLikelyHevc){
+    const drawable=await probeDrawableVideo(v.objectURL,dur);
+    if(!drawable.ok){
+      v.extracted=false;
+      document.getElementById('live-bar').classList.remove('on');
+      document.getElementById('live-ct').textContent='0';
+      document.getElementById('live-txt').textContent='Video cannot be decoded by this browser';
+      document.getElementById('ex-pb').style.width='0%';
+      document.getElementById('ex-lbl').textContent='Cannot decode — try converting to MP4/H.264';
+      resetExBtn();renderFrames();updateStats();renderVideoList();
+      toast('⚠️',`Cannot decode this video format. Convert to MP4/H.264 first.`);
+      return;
+    }
   }
   const chunkSecs=chunkMins>0?chunkMins*60:dur;
   const chunks=[];for(let t=0;t<dur;t+=chunkSecs)chunks.push({start:t,end:Math.min(t+chunkSecs,dur)});
@@ -3419,6 +3161,7 @@ async function extractVideo(v){
           prevData=pd;total++;
           if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
           const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,timeSec:ts,videoId:v.id,source:v.source};
+          replaceStatusBarFast(fc);
           // Convert to blob immediately, release the canvas 
           await storeFrameAsBlob(fr, fc);
           // fc is now unreferenced — GC can collect it
@@ -3435,7 +3178,13 @@ async function extractVideo(v){
         cancelCheck:()=>cancelFlag
       });
       setChunkState(ci,'done');
-    }catch(e){if(e.message==='cancelled'){setChunkState(ci,'err');break;}console.error(e);setChunkState(ci,'err');}
+    }catch(e){
+      if(e&&e.message==='cancelled'){setChunkState(ci,'err');break;}
+      const msg=e?(e.message||String(e)).slice(0,120):'Unknown error';
+      console.error('[extractChunk ci='+ci+']',e);
+      updateChunkLabel(ci,'⚠ '+msg);
+      setChunkState(ci,'err');
+    }
   }
   v.extracted=true;resetExBtn();
   document.getElementById('live-bar').classList.remove('on');
@@ -3444,96 +3193,135 @@ async function extractVideo(v){
   renderFrames();updateStats();renderFlows();renderVideoList();toggleExpBtns();
   if(_stageVid&&_stageVid.id===v.id){renderFilmstrip(v);_buildTimeline(v,v.duration||0);}
   else if(!_stageVid){loadVideoStage(v);}
-  if(!cancelFlag)toast('✓',`${v.frames.length} frames from "${v.name}"`);
-  else toast('⚠️',`Stopped · ${v.frames.length} frames kept`);
+  if(!cancelFlag){
+    if(v.frames.length===0&&(v.codec==='hevc'||String(v.name||'').match(/\.(mov)$/i))){
+      toast('⚠️','No frames extracted — try iPhone Settings → Camera → Formats → Most Compatible, then re-record');
+      document.getElementById('ex-lbl').textContent='HEVC decode failed — see tip below';
+      updateCodecWarning();
+    } else {
+      toast('✓',`${v.frames.length} frames from "${v.name}"`);
+    }
+  } else toast('⚠️',`Stopped · ${v.frames.length} frames kept`);
   // bgQueueFrames called per-frame above during extraction
 }
 
-// ULTRA-FAST extraction:
-// - Uses createImageBitmap() which is hardware-accelerated and non-blocking
-// - Single rAF per seek (browser composites before we read pixels)
-// - Aggressive 1.5s seek timeout (modern browsers seek H.264 in <200ms typically)
-// - Dedup samples ONLY the center safe zone (skips top 15% = status bar/recording dot, bottom 8% = home indicator)
-// - No real-time playback needed — pure seek+capture loop
 async function extractChunk({url,fps,dedup,sens,start,end,prevData,onFrame,onProgress,cancelCheck}){
-  const video=document.createElement('video');
-  video.muted=true;video.playsInline=true;video.preload='auto';video.src=url;
-  await new Promise(res=>{
-    if(video.readyState>=1){res();return;}
-    video.onloadedmetadata=res;video.onerror=res;setTimeout(res,15000);
-  });
-  const chunkDur=end-start;const interval=+(1/fps).toFixed(6);
-  // Shared offscreen canvas — reused per frame, never recreated
-  const W=video.videoWidth||1920,H=video.videoHeight||1080;
-  const offCanvas=document.createElement('canvas');offCanvas.width=W;offCanvas.height=H;
-  const offCtx=offCanvas.getContext('2d',{alpha:true,willReadFrequently:true});
-  let extracted=0;
+  // Prefer the existing #vid-main element — it is already visible and composited in the page,
+  // so Chrome's GPU-to-CPU canvas readback works for HEVC hardware-decoded frames.
+  // A hidden off-screen video element cannot be read via drawImage when HEVC uses GPU decode.
+  const stageEl=document.getElementById('vid-main');
+  const useStage=stageEl&&stageEl.videoWidth&&stageEl.videoHeight;
+  let video,ownedVideo=false;
 
-  // Dedup sample zone: skip top 15% (recording indicator, notch, status bar) and bottom 8% (home indicator)
-  const safeTop=Math.floor(H*0.15);
-  const safeBot=Math.floor(H*0.92);
-  const safeH=safeBot-safeTop;
+  if(useStage){
+    video=stageEl;
+    video.pause();
+  }else{
+    // Fallback: create a new element and add it visibly (small, bottom-left corner)
+    video=document.createElement('video');
+    video.muted=true;video.playsInline=true;video.preload='auto';
+    video.style.cssText='position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.04;pointer-events:none;z-index:9999;';
+    document.body.appendChild(video);
+    ownedVideo=true;
+    video.src=url;
+    await new Promise(res=>{
+      if(video.readyState>=1){res();return;}
+      video.onloadedmetadata=()=>res();
+      video.onerror=()=>res();
+      setTimeout(res,20000);
+    });
+  }
+
+  const W=video.videoWidth||0,H=video.videoHeight||0;
+  if(!W||!H){
+    if(ownedVideo){try{document.body.removeChild(video);}catch(_){}}
+    return 0;
+  }
+
+  const offCanvas=document.createElement('canvas');offCanvas.width=W;offCanvas.height=H;
+  const offCtx=offCanvas.getContext('2d',{willReadFrequently:true});
+  const hasRVFC=typeof video.requestVideoFrameCallback==='function';
+  const chunkDur=end-start;
+  const interval=+(1/fps).toFixed(6);
+  const savedTime=video.currentTime;
+  const savedRate=video.playbackRate;
+
+  const safeTop=Math.floor(H*0.15),safeBot=Math.floor(H*0.92),safeH=safeBot-safeTop;
   const sampleH=Math.min(80,Math.floor(safeH*0.4));
   const sampleY=safeTop+Math.floor((safeH-sampleH)/2);
   const sampleW=Math.min(200,Math.floor(W*0.65));
   const sampleX=Math.floor((W-sampleW)/2);
 
-  let t=start,lastKeptT=start-999;
-  const maxDedupGap=Math.max(4,interval*2);
-  while(t<=end+0.001){
-    if(cancelCheck())throw new Error('cancelled');
+  let extracted=0,nextCapture=start,cancelled=false;
 
-    // Seek
-    const seekT=Math.max(0,Math.min(t,video.duration-0.001));
-    video.currentTime=seekT;
-    await new Promise(res=>{
-      const tid=setTimeout(res,1500); // aggressive 1.5s timeout
-      video.onseeked=()=>{clearTimeout(tid);res();};
+  try{
+    if(isFinite(video.duration)&&video.duration>0){
+      video.currentTime=Math.max(0,Math.min(start,video.duration-0.001));
+      await new Promise(res=>{
+        const tid=setTimeout(res,5000);
+        video.onseeked=()=>{clearTimeout(tid);res();};
+      });
+    }
+
+    // Fast playback — rVFC guarantees each callback fires with a fully-decoded HEVC frame
+    video.playbackRate=8;
+
+    await new Promise(resolve=>{
+      let done=false;
+      const finish=()=>{if(!done){done=true;video.pause();resolve();}};
+      video.onerror=()=>finish();
+      video.onended=()=>finish();
+
+      async function tick(){
+        if(done)return;
+        try{
+          if(cancelCheck()){cancelled=true;finish();return;}
+          const ct=video.currentTime;
+          if(ct>end+interval){finish();return;}
+
+          while(!done&&nextCapture<=Math.min(ct+0.05,end)+0.001){
+            offCtx.drawImage(video,0,0,W,H);
+            const pd=offCtx.getImageData(sampleX,sampleY,sampleW,Math.min(40,sampleH)).data;
+            let s=0;for(let i=0;i<pd.length;i+=32)s+=pd[i]+pd[i+1]+pd[i+2];
+            const bright=s/(pd.length/32*3);
+
+            if(bright>=6){
+              let skip=false;
+              if(dedup&&prevData){
+                const curr=offCtx.getImageData(sampleX,sampleY,sampleW,sampleH);
+                if(similar(prevData,curr,sens))skip=true;else prevData=curr;
+              }else if(dedup){prevData=offCtx.getImageData(sampleX,sampleY,sampleW,sampleH);}
+              if(!skip){
+                const fc=document.createElement('canvas');fc.width=W;fc.height=H;
+                fc.getContext('2d').drawImage(offCanvas,0,0);
+                extracted++;
+                await onFrame(fc,+nextCapture.toFixed(3),prevData,W,H);
+              }
+            }
+            nextCapture=+(nextCapture+interval).toFixed(6);
+            onProgress(Math.min(Math.round((ct-start)/chunkDur*100),98),`${fmt(ct)} / ${fmt(end)} · ${extracted} frames`);
+          }
+          if(!done){
+            if(hasRVFC)video.requestVideoFrameCallback(()=>tick());
+            else requestAnimationFrame(()=>tick());
+          }
+        }catch(e){
+          console.error('[extractChunk tick]',e);
+          finish();
+        }
+      }
+
+      if(hasRVFC)video.requestVideoFrameCallback(()=>tick());
+      else requestAnimationFrame(()=>tick());
+      video.play().catch(e=>{console.warn('[extractChunk] play() rejected:',e.message||e);finish();});
     });
-
-    if(!video.videoWidth||!video.videoHeight){t=+(t+interval).toFixed(6);continue;}
-
-    // Use createImageBitmap for hardware-accelerated decode — much faster than drawImage
-    let bitmap;
-    try{bitmap=await createImageBitmap(video);}
-    catch(e){
-      // Fallback to direct drawImage if createImageBitmap fails
-      offCtx.drawImage(video,0,0,W,H);
-      bitmap=null;
-    }
-    if(bitmap){offCtx.drawImage(bitmap,0,0,W,H);bitmap.close();}
-
-    // HEVC black-frame detection: sample center strip
-    const probe=offCtx.getImageData(sampleX,sampleY,sampleW,Math.min(40,sampleH));
-    let sum=0;for(let i=0;i<probe.data.length;i+=32)sum+=probe.data[i]+probe.data[i+1]+probe.data[i+2];
-    if(sum/(probe.data.length/32*3)<6){
-      // Black/HEVC frame — single retry after brief delay
-      await new Promise(r=>setTimeout(r,80));
-      try{const bm2=await createImageBitmap(video);offCtx.drawImage(bm2,0,0,W,H);bm2.close();}catch(e){offCtx.drawImage(video,0,0,W,H);}
-    }
-
-    // Dedup: compare safe center zone only (avoids recording indicator sensitivity issue)
-    if(dedup&&prevData){
-      const curr=offCtx.getImageData(sampleX,sampleY,sampleW,sampleH);
-      if(similar(prevData,curr,sens)&&(t-lastKeptT)<maxDedupGap){t=+(t+interval).toFixed(6);continue;}
-      prevData=curr;
-    } else if(dedup){
-      prevData=offCtx.getImageData(sampleX,sampleY,sampleW,sampleH);
-    }
-
-    // Copy to dedicated frame canvas (don't reuse offCanvas — it will be overwritten next frame)
-    const fc=document.createElement('canvas');fc.width=W;fc.height=H;
-    fc.getContext('2d',{alpha:true}).drawImage(offCanvas,0,0);
-
-    extracted++;
-    lastKeptT=t;
-    await onFrame(fc,+t.toFixed(3),prevData,W,H);
-    onProgress(Math.min(Math.round((t-start)/chunkDur*100),98),`${fmt(t)} / ${fmt(end)} · ${extracted} frames`);
-    t=+(t+interval).toFixed(6);
-    // Minimal yield — just enough to keep UI painting (not a full setTimeout(0) stall)
-    if(extracted%10===0)await new Promise(r=>setTimeout(r,0));
+  }finally{
+    video.pause();
+    video.playbackRate=savedRate||1;
+    if(ownedVideo){video.src='';video.load();try{document.body.removeChild(video);}catch(_){}}
+    else{video.currentTime=savedTime;}
   }
-  video.src='';video.load();
+  if(cancelled)throw new Error('cancelled');
   return extracted;
 }
 function cancelExtraction(){cancelFlag=true;}
@@ -3602,7 +3390,6 @@ function renderMoreFrames(){
   renderedFrameCount=next;
   pruneGridDom();
   updateRenderMeta(filteredFramesCache.length);
-  setTimeout(healVisibleFrameImages,80);
 }
 function pruneGridDom(){
   const grid=document.getElementById('fg');if(!grid)return;
@@ -3644,7 +3431,7 @@ function renderFrames(){
   const srcCounts={};vis.forEach(fr=>{const key=fr._gridSrc||fr.source||'unknown';srcCounts[key]=(srcCounts[key]||0)+1;});
   const domSrc=Object.entries(srcCounts).sort((a,b)=>b[1]-a[1])[0]?.[0]||'unknown';
   grid.className='fg '+domSrc+(currentView==='l'?' list':'');
-  grid.innerHTML='';renderMoreFrames();updateStats();setTimeout(healVisibleFrameImages,120);
+  grid.innerHTML='';renderMoreFrames();updateStats();
 }
 function scheduleRenderFrames(){cancelAnimationFrame(renderFramesRaf);renderFramesRaf=requestAnimationFrame(renderFrames);}
 
@@ -3710,7 +3497,6 @@ function appendFrameCard(fr,src){
     if(renderedFrameCount<filteredFramesCache.length){
       grid.appendChild(makeCard(fr));renderedFrameCount++;pruneGridDom();
       updateRenderMeta(filteredFramesCache.length);
-      setTimeout(healVisibleFrameImages,80);
     }
     const imgSrc=fr._gridSrc||src||'unknown';
     grid.className='fg '+imgSrc+(currentView==='l'?' list':'');
@@ -3746,24 +3532,22 @@ function appendFilmThumb(fr){
   // Make filmstrip visible if not already
   const fs=document.getElementById('filmstrip');
   if(fs&&fs.style.display==='none')fs.style.display='flex';
-  const count=document.getElementById('filmstrip-count');
-  if(count&&_stageVid)count.textContent=`${_stageVid.frames.length} frame${_stageVid.frames.length!==1?'s':''}`;
-  if(fs)fs.classList.toggle('grid',frameTrayMode==='grid');
   // Skip if thumb already exists
   if(inner.querySelector(`.fs-thumb[data-fid="${fr.id}"]`))return;
-  if(inner.children.length>=FILMSTRIP_MAX_DOM_THUMBS){
-    const first=inner.firstElementChild;
-    if(first)first.remove();
-  }
   const colorMap={};
   flows.forEach((fl,i)=>{colorMap[fl.id]=BAND_COLORS[i%BAND_COLORS.length];});
   const thumb=document.createElement('div');
   thumb.className='fs-thumb';thumb.dataset.fid=fr.id;
   const img=document.createElement('img');
   img.loading='lazy';img.alt='';
-  img.dataset.frameId=fr.id;
-  img.src=_imgPlaceholder();
-  loadThumbIntoImg(img,fr,true);
+  if(fr._thumbBlobUrl)img.src=fr._thumbBlobUrl;
+  else if(fr.blobUrl)img.src=fr.blobUrl;
+  else{
+    (async()=>{
+      await dbLoadFrameBlob(fr);
+      if(img.isConnected)img.src=fr._thumbBlobUrl||fr.blobUrl||'';
+    })();
+  }
   const timeLbl=document.createElement('div');
   timeLbl.className='fs-time';
   const sec=normalizeFrameTiming(fr);
@@ -3987,16 +3771,10 @@ function rdNavFrame(dir){
 
 // ─── OCR (FASTER: pre-warm worker, parallel where possible) ─────────────────
 async function initOcr(){
-  const N=1;
+  const N=Math.min(4,Math.max(1,(navigator.hardwareConcurrency||2)-1));
   try{
-    const ocrOpts={
-      logger:()=>{},
-      workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-      corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd-lstm.wasm.js',
-      langPath:'https://tessdata.projectnaptha.com/4.0.0'
-    };
     const workers=await Promise.all(
-      Array.from({length:N},()=>Tesseract.createWorker('eng',1,ocrOpts))
+      Array.from({length:N},()=>Tesseract.createWorker('eng',1,{logger:()=>{}}))
     );
     _ocrPool=workers.map(w=>({worker:w,busy:false}));
     ocrWorker=_ocrPool[0].worker; // legacy compat
@@ -4024,7 +3802,6 @@ function _ocrRelease(slot){
 }
 
 async function runOcr(canvas){
-  if(!canvas||canvas.width<24||canvas.height<24)return[];
   if(!_ocrPool.length){
     // Pool not ready — fall back to legacy single worker if available
     if(!ocrWorker)return[];
@@ -5662,6 +5439,11 @@ function updateTrimUI(){
 }
 async function downloadTrim(){
   const v=activeVideo();if(!v||!v.objectURL){toast('⚠️','No video loaded');return;}
+  if(v.file){
+    const _appN=(document.getElementById('exp-appname')?.value||'').trim()||'trim';
+    const ok=await exportSourceEditedVideo(v,`${_appN}_${fmt(trimStart).replace(':','-')}`,{start:trimStart,end:trimEnd,frames:v.frames,includeCuts:true});
+    if(ok)return;
+  }
   const trimFrames=v.frames.filter(fr=>fr.timestamp>=trimStart&&fr.timestamp<=trimEnd).sort((a,b)=>a.timestamp-b.timestamp);
   if(trimFrames.length>0){await reconstructVideo(trimFrames,`trim_${fmt(trimStart).replace(':','-')}`);return;}
   toast('⚠️','Extract frames from this range first, then trim');
@@ -5696,36 +5478,11 @@ async function extractTrimRange(){
 }
 
 // ─── VIDEO EXPORT ─────────────────────────────────────────────────────────────
-function normalizeVideoFormat(f){return f==='mp4'?'mp4':'webm';}
-function setVexFmt(f,el){
-  vexFormat=normalizeVideoFormat(f);
-  document.querySelectorAll('#fmt-seg .fmtb').forEach(b=>b.classList.toggle('on',b.dataset.fmt===vexFormat));
-  savePrefs();
-}
-function mediaRecorderConfig(format,wantAudio=true){
-  const fmt=normalizeVideoFormat(format);
-  const mp4=[
-    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-    'video/mp4;codecs=avc1.42E01E',
-    'video/mp4;codecs=h264,aac',
-    'video/mp4'
-  ];
-  const webmAudio=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
-  const webmVideo=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
-  const choices=fmt==='mp4'?mp4:(wantAudio?webmAudio:webmVideo);
-  const mime=choices.find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}});
-  if(mime)return {mime,ext:fmt==='mp4'?'mp4':'webm',requested:fmt,fallback:false};
-  const fb=(wantAudio?webmAudio:webmVideo).find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
-  return {mime:fb,ext:'webm',requested:fmt,fallback:fmt==='mp4'};
-}
-function syncVexFormatControls(){
-  vexFormat=normalizeVideoFormat(vexFormat);
-  document.querySelectorAll('#fmt-seg .fmtb').forEach(b=>b.classList.toggle('on',b.dataset.fmt===vexFormat));
-}
+function setVexFmt(f,el){vexFormat=f;document.querySelectorAll('#fmt-seg .fmtb').forEach(b=>b.classList.toggle('on',b===el));savePrefs();}
 function openVexModal(){
   if(!allFrames().length){toast('⚠️','Extract frames first');return;}
   document.getElementById('full-fc').textContent=`${allFrames().length} frames`;
-  syncVexFormatControls();renderVexFlows();document.getElementById('vex-prog').style.display='none';
+  renderVexFlows();document.getElementById('vex-prog').style.display='none';
   document.getElementById('vex-modal').classList.add('on');
 }
 function closeVexModal(){document.getElementById('vex-modal').classList.remove('on');}
@@ -5746,7 +5503,7 @@ async function exportFullEditedVideo(){
   disableVexBtns(true);
   const src=_sourceVideoForFrames(sorted);
   if(src){
-    const ok=await exportSourceEditedVideo(src,_appN+'_full',{frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video')});
+    const ok=await exportSourceEditedVideo(src,_appN+'_full',{frames:src.frames,includeCuts:true});
     if(!ok)await reconstructVideo(sorted,_appN+'_full');
   }else await reconstructVideo(sorted,_appN+'_full');
   disableVexBtns(false);
@@ -5759,15 +5516,16 @@ async function exportOneFlowVideo(fid){
   const src=_sourceVideoForFrames(frs);
   if(src&&frs.length){
     const secs=frs.map(frameSec).filter(s=>s!=null);
-    const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
-    const ok=await exportSourceEditedVideo(src,fl?_appNf+'_'+fl.name:'flow',{
-      start:Math.max(0,Math.min(...secs)-pad),
-      end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),
-      frames:src.frames,
-      includeCuts:true,
-      removeStatusBar:exportStatusBarEnabled('video')
-    });
-    if(!ok)await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
+    if(secs.length){
+      const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
+      const ok=await exportSourceEditedVideo(src,fl?_appNf+'_'+fl.name:'flow',{
+        start:Math.max(0,Math.min(...secs)-pad),
+        end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),
+        frames:src.frames,
+        includeCuts:true
+      });
+      if(!ok)await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
+    }else await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
   }else await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
   disableVexBtns(false);
 }
@@ -5780,9 +5538,11 @@ async function exportAllFlowVideos(){
     const src=_sourceVideoForFrames(frs);
     if(src&&frs.length){
       const secs=frs.map(frameSec).filter(s=>s!=null);
-      const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
-      const ok=await exportSourceEditedVideo(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video')});
-      if(!ok)await reconstructVideo(frs,fl.name);
+      if(secs.length){
+        const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
+        const ok=await exportSourceEditedVideo(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true});
+        if(!ok)await reconstructVideo(frs,fl.name);
+      }else await reconstructVideo(frs,fl.name);
     }else await reconstructVideo(frs,fl.name);
     await yieldUI(300);
   }
@@ -5793,573 +5553,240 @@ function disableVexBtns(on){
   document.querySelectorAll('#vex-flows .btn').forEach(b=>b.disabled=on);
 }
 function _sourceVideoForFrames(frameList){
-  const ids=[...new Set((frameList||[]).map(fr=>fr.videoId).filter(Boolean))];
+  const ids=[...new Set(frameList.map(fr=>fr.videoId).filter(Boolean))];
   if(ids.length!==1)return null;
   const v=getVideo(ids[0]);
-  return v&&v.file&&v.objectURL?v:null;
+  return v&&v.objectURL&&v.file?v:null;
 }
-function _medianFrameStep(frameList){
-  const secs=[...(frameList||[])].map(frameSec).filter(s=>s!=null).sort((a,b)=>a-b);
-  const diffs=[];for(let i=1;i<secs.length;i++){const d=secs[i]-secs[i-1];if(d>0.001)diffs.push(d);}
-  if(!diffs.length)return 1;
-  diffs.sort((a,b)=>a-b);return diffs[Math.floor(diffs.length/2)]||1;
+function _normBox(b){
+  if(!b)return null;
+  const x=Math.max(0,Math.min(1,Number(b.x)||0));
+  const y=Math.max(0,Math.min(1,Number(b.y)||0));
+  const w=Math.max(0,Math.min(1-x,Number(b.w)||0));
+  const h=Math.max(0,Math.min(1-y,Number(b.h)||0));
+  return w>0&&h>0?{x,y,w,h}:null;
 }
-function _videoRedactionEvents(v){
-  const guard=0.35;
-  const step=Math.max(0.2,Math.min(1.5,_medianFrameStep(v.frames||[])/2+guard));
-  return (v.frames||[]).flatMap(fr=>{
-    const sec=frameSec(fr);if(sec==null)return[];
-    const boxes=[...(fr.redactBoxes||[]),...(fr.wordBoxes||[])].filter(b=>b&&Number.isFinite(+b.x)&&Number.isFinite(+b.y)&&Number.isFinite(+b.w)&&Number.isFinite(+b.h));
-    if(!boxes.length)return[];
-    return [{start:Math.max(0,sec-step),end:sec+step,boxes}];
+function _frameEditBoxes(fr){
+  return [...(fr.redactBoxes||[]),...(fr.wordBoxes||[])].map(_normBox).filter(Boolean);
+}
+function _mergeRanges(ranges,duration=Infinity){
+  const clean=(ranges||[])
+    .map(r=>({start:Math.max(0,Number(r.start)||0),end:Math.min(duration,Math.max(0,Number(r.end)||0))}))
+    .filter(r=>r.end-r.start>0.015)
+    .sort((a,b)=>a.start-b.start);
+  const out=[];
+  clean.forEach(r=>{
+    const last=out[out.length-1];
+    if(last&&r.start<=last.end+0.02)last.end=Math.max(last.end,r.end);
+    else out.push({...r});
   });
+  return out;
+}
+function _videoSegments(start,end,cutRanges){
+  const cuts=_mergeRanges(cutRanges,end);
+  const segs=[];let cursor=start;
+  cuts.forEach(c=>{
+    if(c.end<=start||c.start>=end)return;
+    const cs=Math.max(start,c.start),ce=Math.min(end,c.end);
+    if(cs-cursor>0.025)segs.push({start:cursor,end:cs});
+    cursor=Math.max(cursor,ce);
+  });
+  if(end-cursor>0.025)segs.push({start:cursor,end});
+  return segs;
+}
+function _medianFrameStep(frames){
+  const secs=frames.map(frameSec).filter(s=>s!=null).sort((a,b)=>a-b);
+  const diffs=[];
+  for(let i=1;i<secs.length;i++){
+    const d=secs[i]-secs[i-1];
+    if(d>0.015&&d<10)diffs.push(d);
+  }
+  if(!diffs.length)return 1/(parseFloat(document.getElementById('o-fps')?.value)||1);
+  diffs.sort((a,b)=>a-b);
+  return diffs[Math.floor(diffs.length/2)]||1;
+}
+function _redactionTimeline(v,sourceFrames=null){
+  const timelineFrames=(v.frames||[]).map(fr=>({fr,sec:frameSec(fr)})).filter(x=>x.sec!=null).sort((a,b)=>a.sec-b.sec);
+  const allowed=sourceFrames?new Set(sourceFrames.map(fr=>fr.id)):null;
+  const defaultStep=Math.max(0.08,Math.min(2,_medianFrameStep(v.frames||[])));
+  const events=[];
+  timelineFrames.forEach((item,i)=>{
+    if(allowed&&!allowed.has(item.fr.id))return;
+    const boxes=_frameEditBoxes(item.fr);
+    if(!boxes.length)return;
+    const prev=timelineFrames[i-1]?.sec;
+    const next=timelineFrames[i+1]?.sec;
+    const start=prev!=null?(prev+item.sec)/2:item.sec-defaultStep/2;
+    const end=next!=null?(item.sec+next)/2:item.sec+defaultStep/2;
+    events.push({start:Math.max(0,start),end:Math.min(v.duration||Infinity,end),boxes});
+  });
+  return events;
 }
 function _drawVideoRedactions(ctx,t,events,W,H){
-  if(!events?.length)return;
-  ctx.save();ctx.fillStyle='#050505';
-  events.forEach(ev=>{
-    if(t<ev.start||t>ev.end)return;
-    (ev.boxes||[]).forEach(b=>{
-      const nx=Math.abs(b.x)<=1&&Math.abs(b.w)<=1;
-      const x=nx?b.x*W:b.x,y=nx?b.y*H:b.y,w=nx?b.w*W:b.w,h=nx?b.h*H:b.h;
-      ctx.fillRect(Math.max(0,x),Math.max(0,y),Math.max(1,w),Math.max(1,h));
-    });
-  });
-  ctx.restore();
-}
-const PHONE_FRAME_SRC={
-  black:'black-titanium-iphone16pro.png',
-  natural:'natural-titanium-iphone16pro.png',
-  'cosmic-orange':'CosmicOrange.png',
-  silver:'Silver.png',
-  'deep-blue':'DeepBlue.png'
-};
-const PHONE_DEVICE={
-  frameWidth:629,
-  frameHeight:1304,
-  screenX:23,
-  screenY:17,
-  screenWidth:582,
-  screenHeight:1266,
-  screenRadius:52
-};
-const PHONE_SCREEN_R={
-  x:PHONE_DEVICE.screenX/PHONE_DEVICE.frameWidth,
-  y:PHONE_DEVICE.screenY/PHONE_DEVICE.frameHeight,
-  w:PHONE_DEVICE.screenWidth/PHONE_DEVICE.frameWidth,
-  h:PHONE_DEVICE.screenHeight/PHONE_DEVICE.frameHeight,
-  r:PHONE_DEVICE.screenRadius/PHONE_DEVICE.frameWidth
-};
-const PHONE_FRAME_ASPECT=PHONE_DEVICE.frameWidth/PHONE_DEVICE.frameHeight;
-const _phoneFrameCache={};
-function canvasCompositionEnabled(){return canvasOptions&&canvasOptions.enabled!==false;}
-function getCanvasExportSize(){
-  return canvasOptions.aspect==='9:16'?{w:1080,h:1920}:{w:1080,h:1350};
-}
-function getPhoneFrameImage(key){
-  if(!key||key==='none')return null;
-  const src=PHONE_FRAME_SRC[key]||PHONE_FRAME_SRC.black;
-  let img=_phoneFrameCache[key];
-  if(img)return img;
-  img=new Image();
-  img.decoding='async';
-  img.onload=()=>{try{drawVideoPreviewOverlay();}catch(e){}};
-  img.onerror=()=>{console.warn('phone frame failed to load',src);};
-  img.src=src;
-  _phoneFrameCache[key]=img;
-  return img;
-}
-function phoneFrameColor(key){
-  return ({
-    black:'#151519',
-    natural:'#c8bfa8',
-    'cosmic-orange':'#c96a2a',
-    silver:'#e0e0e8',
-    'deep-blue':'#2a3a6a'
-  })[key]||'#c96a2a';
-}
-function applyPhoneShadow(ctx,W,H){
-  const mode=canvasOptions.shadow||'none';
-  if(mode==='soft'){
-    ctx.shadowColor='rgba(0,0,0,.22)';
-    ctx.shadowBlur=Math.max(12,W*.025);
-    ctx.shadowOffsetY=Math.max(6,H*.006);
-  }else if(mode==='strong'){
-    ctx.shadowColor='rgba(0,0,0,.34)';
-    ctx.shadowBlur=Math.max(22,W*.04);
-    ctx.shadowOffsetY=Math.max(12,H*.012);
-  }else{
-    ctx.shadowColor='transparent';
-    ctx.shadowBlur=0;
-    ctx.shadowOffsetY=0;
-  }
-}
-async function waitPhoneFrameReady(){
-  const img=getPhoneFrameImage(canvasOptions.frame||'black');
-  if(!img||img.complete)return;
-  try{if(img.decode)await Promise.race([img.decode(),yieldUI(1200)]);else await yieldUI(250);}catch(e){}
-}
-function _canvasColor(hex,fallback='#ffffff'){
-  const v=String(hex||'').trim();
-  return /^#[0-9a-f]{6}$/i.test(v)?v:fallback;
-}
-function applyCanvasBackground(ctx,W,H){
-  const bg=canvasOptions||{};
+  const hits=events.filter(ev=>t>=ev.start&&t<=ev.end);
+  if(!hits.length)return;
   ctx.save();
-  ctx.globalAlpha=Math.max(0,Math.min(1,bg.bgOpacity==null?1:+bg.bgOpacity));
-  if(bg.bgStyle==='gradient'){
-    const g=ctx.createLinearGradient(0,0,W,H);
-    const colors=bg.gradient||['#ffffff','#dbeafe'];
-    g.addColorStop(0,_canvasColor(colors[0]));
-    g.addColorStop(1,_canvasColor(colors[1]||colors[0]));
-    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  }else if(bg.bgStyle==='mesh'){
-    ctx.fillStyle=_canvasColor((bg.mesh||[])[0],bg.solid||'#ffffff');ctx.fillRect(0,0,W,H);
-    const colors=bg.mesh||['#ffffff','#dbeafe','#fef3c7','#f5d0fe'];
-    const spots=[
-      [W*.18,H*.18,W*.62,colors[1]],[W*.82,H*.24,W*.55,colors[2]],
-      [W*.32,H*.86,W*.7,colors[3]],[W*.75,H*.78,W*.48,colors[0]]
-    ];
-    spots.forEach(([x,y,r,c])=>{
-      const grad=ctx.createRadialGradient(x,y,0,x,y,r);
-      grad.addColorStop(0,_canvasColor(c,'#dbeafe')+'cc');
-      grad.addColorStop(1,_canvasColor(c,'#dbeafe')+'00');
-      ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
-    });
-  }else{
-    ctx.fillStyle=_canvasColor(bg.solid,'#ffffff');ctx.fillRect(0,0,W,H);
-  }
-  ctx.restore();
-  drawCanvasPatternOverlay(ctx,W,H,bg.overlay);
-}
-function drawCanvasPatternOverlay(ctx,W,H,kind){
-  if(!kind||kind==='none')return;
-  ctx.save();
-  ctx.globalAlpha=.18;
-  ctx.strokeStyle='rgba(15,23,42,.24)';
-  ctx.fillStyle='rgba(15,23,42,.24)';
-  if(kind==='dots'){
-    const step=34,r=1.4;
-    for(let y=step/2;y<H;y+=step)for(let x=step/2;x<W;x+=step){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
-  }else if(kind==='grid'){
-    const step=48;
-    ctx.lineWidth=1;
-    for(let x=.5;x<W;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-    for(let y=.5;y<H;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-  }else if(kind==='diagonal'){
-    const step=54;
-    ctx.lineWidth=1;
-    for(let x=-H;x<W+H;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x+H,H);ctx.stroke();}
-  }
+  ctx.fillStyle='#ffffff';
+  ctx.strokeStyle='rgba(0,0,0,0.18)';
+  ctx.lineWidth=Math.max(1,Math.round(Math.min(W,H)*0.001));
+  hits.forEach(ev=>ev.boxes.forEach(b=>{
+    const x=Math.round(b.x*W),y=Math.round(b.y*H);
+    const w=Math.max(1,Math.round(b.w*W)),h=Math.max(1,Math.round(b.h*H));
+    ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);
+  }));
   ctx.restore();
 }
-function roundedRectPath(ctx,x,y,w,h,r){
-  r=Math.max(0,Math.min(r,w/2,h/2));
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
-  ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
-  ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
-  ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);
-  ctx.closePath();
+function _pickRecorderMime(fmt){
+  const prefs=fmt==='mp4'
+    ?['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4']
+    :fmt==='mov'
+      ?['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4']
+      :['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+  return prefs.find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
 }
-function containRect(srcW,srcH,x,y,w,h){
-  const sw=Math.max(1,srcW||w),sh=Math.max(1,srcH||h);
-  const scale=Math.min(w/sw,h/sh);
-  const dw=sw*scale,dh=sh*scale;
-  return {x:x+(w-dw)/2,y:y+(h-dh)/2,w:dw,h:dh};
+function _downloadExtForMime(mime,fmt){
+  if(mime.includes('mp4'))return 'mp4';
+  return 'webm';
 }
-function mediaHasContent(el){
-  if(!el)return false;
-  const tag=el.tagName;
-  if(tag==='VIDEO')return el.readyState>=2&&el.videoWidth>0;
-  if(tag==='IMG')return el.complete&&el.naturalWidth>0;
-  if(tag==='CANVAS')return el.width>0&&el.height>0;
-  return !!(el.width||el.videoWidth||el.naturalWidth);
-}
-function mediaIsPresent(el){
-  if(!el)return false;
-  const tag=el.tagName;
-  if(tag==='VIDEO')return el.videoWidth>0||!!el.src;
-  if(tag==='IMG')return !!el.src;
-  if(tag==='CANVAS')return el.width>0&&el.height>0;
-  return true;
-}
-function drawPhonePlaceholder(ctx,x,y,w,h){
-  ctx.save();
-  ctx.fillStyle='#111';ctx.fillRect(x,y,w,h);
-  const cx=x+w/2,cy=y+h*.43;
-  ctx.fillStyle='rgba(255,255,255,.1)';
-  roundedRectPath(ctx,cx-22,cy-22,44,44,12);ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.72)';ctx.lineWidth=2.2;
-  ctx.beginPath();ctx.moveTo(cx,cy+8);ctx.lineTo(cx,cy-8);ctx.moveTo(cx-8,cy);ctx.lineTo(cx,cy-8);ctx.lineTo(cx+8,cy);ctx.stroke();
-  ctx.fillStyle='rgba(255,255,255,.86)';ctx.font=`700 ${Math.max(10,Math.round(w*.028))}px DM Sans, sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.fillText('Choose media',cx,y+h*.55);
-  ctx.restore();
-}
-function getPhoneRect(W,H){
-  if(canvasOptions.frame==='none'){
-    const w=W*.84,h=H*.84;
-    return {x:(W-w)/2,y:(H-h)/2,w,h};
-  }
-  let h=H*(canvasOptions.aspect==='9:16'?.9:.92);
-  let w=h*PHONE_FRAME_ASPECT;
-  const maxW=W*.82;
-  if(w>maxW){w=maxW;h=w/PHONE_FRAME_ASPECT;}
-  return {x:(W-w)/2,y:(H-h)/2,w,h};
-}
-function getPhoneScreenRect(phone){
-  if(canvasOptions.frame==='none')return phone;
-  return {
-    x:phone.x+phone.w*PHONE_SCREEN_R.x,
-    y:phone.y+phone.h*PHONE_SCREEN_R.y,
-    w:phone.w*PHONE_SCREEN_R.w,
-    h:phone.h*PHONE_SCREEN_R.h,
-    r:phone.w*PHONE_SCREEN_R.r
-  };
-}
-function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
-  if(!showVideoRedactions||!events?.length)return;
-  ctx.save();ctx.fillStyle='#050505';
-  events.forEach(ev=>{
-    if(t<ev.start||t>ev.end)return;
-    (ev.boxes||[]).forEach(b=>{
-      const nx=Math.abs(b.x)<=1&&Math.abs(b.w)<=1;
-      const x=rect.x+(nx?b.x*rect.w:b.x*(rect.w/Math.max(1,sourceW||rect.w)));
-      const y=rect.y+(nx?b.y*rect.h:b.y*(rect.h/Math.max(1,sourceH||rect.h)));
-      const w=nx?b.w*rect.w:b.w*(rect.w/Math.max(1,sourceW||rect.w));
-      const h=nx?b.h*rect.h:b.h*(rect.h/Math.max(1,sourceH||rect.h));
-      ctx.fillRect(Math.max(rect.x,x),Math.max(rect.y,y),Math.max(1,w),Math.max(1,h));
-    });
-  });
-  ctx.restore();
-}
-function drawComposedMediaFrame(ctx,media,t,events,opts={}){
-  const W=ctx.canvas.width,H=ctx.canvas.height;
-  const srcW=opts.sourceW||media.videoWidth||media.naturalWidth||media.width||W;
-  const srcH=opts.sourceH||media.videoHeight||media.naturalHeight||media.height||H;
-  ctx.clearRect(0,0,W,H);
-  applyCanvasBackground(ctx,W,H);
-  const phone=getPhoneRect(W,H);
-  const screen=getPhoneScreenRect(phone);
-  const frameKey=canvasOptions.frame||'black';
-  const frameImg=getPhoneFrameImage(frameKey);
-  const frameReady=frameKey!=='none'&&frameImg&&frameImg.complete&&frameImg.naturalWidth;
-  if(frameKey!=='none'&&!frameReady){
-    ctx.save();
-    ctx.fillStyle=phoneFrameColor(frameKey);
-    roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.fill();
-    ctx.restore();
-  }
-  ctx.save();
-  roundedRectPath(ctx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
-  ctx.clip();
-  ctx.fillStyle='#111';ctx.fillRect(screen.x,screen.y,screen.w,screen.h);
-  const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
-  if(mediaHasContent(media)){
-    const smoothing={enabled:ctx.imageSmoothingEnabled,quality:ctx.imageSmoothingQuality};
-    ctx.imageSmoothingEnabled=true;
-    try{ctx.imageSmoothingQuality='high';}catch(e){}
-    try{ctx.drawImage(media,dr.x,dr.y,dr.w,dr.h);}catch(e){}
-    ctx.imageSmoothingEnabled=smoothing.enabled;
-    try{ctx.imageSmoothingQuality=smoothing.quality;}catch(e){}
-  }else if(!mediaIsPresent(media)){
-    drawPhonePlaceholder(ctx,screen.x,screen.y,screen.w,screen.h);
-  }
-  if(opts.includeRedactions!==false)drawRedactionsInRect(ctx,t||0,events,dr,srcW,srcH);
-  ctx.restore();
-  if(frameReady){
-    try{
-      ctx.save();
-      applyPhoneShadow(ctx,W,H);
-      ctx.drawImage(frameImg,phone.x,phone.y,phone.w,phone.h);
-      ctx.restore();
-    }catch(e){}
-  }else if(frameKey!=='none'){
-    ctx.save();ctx.strokeStyle=phoneFrameColor(frameKey);ctx.lineWidth=Math.max(6,phone.w*.035);
-    roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.stroke();ctx.restore();
-  }
-  return {phone,screen,mediaRect:screen};
-}
-function updateCanvasPreviewStyle(){
-  const df=document.getElementById('device-frame');
-  if(!df)return;
-  const on=canvasCompositionEnabled();
-  df.classList.toggle('composed',on);
-  df.dataset.aspect=canvasOptions.aspect||'4:5';
-  const vmain=document.getElementById('vid-main');
-  if(vmain)vmain.style.opacity=on?'0':'1';
-}
-function renderCanvasBgControls(){
-  const host=document.getElementById('canvas-bg-swatches');if(!host)return;
-  host.innerHTML='';
-  CANVAS_BG_PRESETS.forEach((p,i)=>{
-    const b=document.createElement('button');
-    b.type='button';b.className='bg-swatch';b.title='Background preset';
-    b.style.background=p.solid;
-    if(p.gradient)b.style.background=`linear-gradient(135deg,${p.gradient[0]},${p.gradient[1]})`;
-    if(p.mesh)b.style.background=`radial-gradient(circle at 25% 25%,${p.mesh[1]},transparent 45%),radial-gradient(circle at 75% 75%,${p.mesh[3]},transparent 45%),${p.mesh[0]}`;
-    b.classList.toggle('on',canvasOptions.solid===p.solid);
-    b.onclick=()=>applyCanvasBgPreset(i);
-    host.appendChild(b);
+async function _waitVideoEvent(video,event,timeout=8000){
+  return new Promise((res,rej)=>{
+    let done=false;
+    const finish=(ok)=>{if(done)return;done=true;clearTimeout(t);video.removeEventListener(event,on);ok?res():rej(new Error(event+' timeout'));};
+    const on=()=>finish(true);
+    const t=setTimeout(()=>finish(false),timeout);
+    video.addEventListener(event,on,{once:true});
   });
 }
-function updateCanvasControls(){
-  updateCanvasPreviewStyle();
-  ['45','916'].forEach(k=>{const el=document.getElementById('canvas-aspect-'+k);if(el)el.classList.toggle('on',(k==='45'?'4:5':'9:16')===canvasOptions.aspect);});
-  ['black','natural','cosmic-orange','silver','deep-blue','none'].forEach(k=>{const el=document.getElementById('canvas-frame-'+k);if(el)el.classList.toggle('on',(canvasOptions.frame||'cosmic-orange')===k);});
-  ['none','soft','strong'].forEach(k=>{const el=document.getElementById('canvas-shadow-'+k);if(el)el.classList.toggle('on',(canvasOptions.shadow||'none')===k);});
-  ['solid','gradient','mesh'].forEach(k=>{const el=document.getElementById('canvas-bg-'+k);if(el)el.classList.toggle('on',(canvasOptions.bgStyle||'solid')===k);});
-  ['none','dots','grid','diagonal'].forEach(k=>{const el=document.getElementById('canvas-overlay-'+k);if(el)el.classList.toggle('on',(canvasOptions.overlay||'none')===k);});
-  const c=document.getElementById('canvas-bg-color');if(c)c.value=_canvasColor(canvasOptions.solid,'#ffffff');
-  const rb=document.getElementById('redact-reveal-btn');
-  if(rb){rb.classList.toggle('bp',showVideoRedactions);rb.textContent=showVideoRedactions?'Hide Redact':'Reveal Redact';}
-  renderCanvasBgControls();
-  drawVideoPreviewOverlay();
-}
-function applyVideoFullView(){
-  const ids=['canvas-panel','mark-bar','tl-area','filmstrip'];
-  ids.forEach(id=>{
-    const el=document.getElementById(id);
-    if(el)el.style.display=videoFullView?'none':(id==='tl-area'||id==='filmstrip'||id==='mark-bar'||id==='canvas-panel'?'flex':'');
-  });
-  const btn=document.getElementById('full-view-btn');
-  if(btn){btn.classList.toggle('bp',videoFullView);btn.textContent=videoFullView?'Exit Full':'Full View';}
-  drawVideoPreviewOverlay();
-}
-function toggleVideoFullView(){
-  videoFullView=!videoFullView;
-  applyVideoFullView();
-  toast('▣',videoFullView?'Full preview on (V to exit)':'Timeline visible');
-}
-function setCanvasAspect(v){canvasOptions.aspect=v==='9:16'?'9:16':'4:5';savePrefs();updateCanvasControls();}
-function setCanvasFrame(v){canvasOptions.frame=['black','natural','cosmic-orange','silver','deep-blue','none'].includes(v)?v:'cosmic-orange';savePrefs();updateCanvasControls();}
-function setCanvasShadow(v){canvasOptions.shadow=['none','soft','strong'].includes(v)?v:'none';savePrefs();updateCanvasControls();}
-function setCanvasBgStyle(v){canvasOptions.bgStyle=['solid','gradient','mesh'].includes(v)?v:'solid';savePrefs();updateCanvasControls();}
-function setCanvasSolidColor(v){canvasOptions.solid=_canvasColor(v,'#ffffff');savePrefs();updateCanvasControls();}
-function setCanvasOverlay(v){canvasOptions.overlay=['none','dots','grid','diagonal'].includes(v)?v:'none';savePrefs();updateCanvasControls();}
-function applyCanvasBgPreset(i){
-  const p=CANVAS_BG_PRESETS[i]||CANVAS_BG_PRESETS[0];
-  canvasOptions.solid=p.solid;canvasOptions.gradient=[...p.gradient];canvasOptions.mesh=[...p.mesh];
-  savePrefs();updateCanvasControls();
-}
-function toggleRedactionReveal(){showVideoRedactions=!showVideoRedactions;savePrefs();updateCanvasControls();}
-function addRedactionAtCurrent(){
-  if(!_stageVid||!_stageVid.frames?.length){toast('⚠','Extract frames first');return;}
-  const video=document.getElementById('vid-main');
-  const t=video&&isFinite(video.currentTime)?video.currentTime:0;
-  let best=null,bestD=Infinity;
-  _stageVid.frames.forEach(fr=>{const s=frameSec(fr);if(s==null)return;const d=Math.abs(s-t);if(d<bestD){bestD=d;best=fr;}});
-  if(!best){toast('⚠','No frame near this time');return;}
-  openEdit(best.id,'draw');
-}
-function _sourceSegments(v,start=0,end=null,includeCuts=true){
-  const hi=end==null?(v.duration||0):end;
-  let segs=[{start:Math.max(0,start||0),end:Math.max(0,hi)}];
-  const cuts=includeCuts?(v.cutRanges||[]):[];
-  cuts.forEach(cut=>{
-    const cs=Math.max(segs[0]?.start??0,cut.start||0),ce=Math.min(hi,cut.end||0);
-    if(!(ce>cs))return;
-    const next=[];
-    segs.forEach(s=>{
-      if(ce<=s.start||cs>=s.end){next.push(s);return;}
-      if(cs>s.start)next.push({start:s.start,end:cs});
-      if(ce<s.end)next.push({start:ce,end:s.end});
-    });
-    segs=next;
-  });
-  return segs.filter(s=>s.end-s.start>0.03);
-}
-function _seekVideo(video,t,timeout=4000){
-  return new Promise(res=>{
-    const done=()=>{clearTimeout(tid);video.onseeked=null;res();};
-    const tid=setTimeout(done,timeout);
-    video.onseeked=done;
-    try{video.currentTime=t;}catch(e){done();}
-  });
-}
-async function exportSourceEditedVideo(v,label,opts={}){
-  if(!v||!v.objectURL)return false;
-  if(typeof MediaRecorder==='undefined')return false;
-  const format=normalizeVideoFormat(opts.format||vexFormat);
-  let fps=parseInt(opts.fps??document.getElementById('vex-fps')?.value)||30;
-  if(format==='mp4')fps=Math.min(fps,30);
-  const removeStatusBar=opts.removeStatusBar!==undefined?!!opts.removeStatusBar:exportStatusBarEnabled('video');
-  const useProg=!opts.silent;
-  const prog=useProg?document.getElementById('vex-prog'):null,progT=useProg?document.getElementById('vex-pt'):null,progB=useProg?document.getElementById('vpb'):null,progD=useProg?document.getElementById('vex-pd'):null;
-  if(prog){prog.style.display='block';progB.style.width='0%';}
+async function exportSourceEditedVideo(v,label,{start=0,end=null,frames=null,includeCuts=true}={}){
+  if(!v||!v.objectURL||!v.file||typeof MediaRecorder==='undefined')return false;
+  const duration=v.duration||await probeDuration(v.objectURL)||0;
+  end=Math.min(end??duration,duration);
+  start=Math.max(0,Math.min(start,end));
+  const cutRanges=includeCuts?_mergeRanges(v.cutRanges||[],duration):[];
+  const segments=_videoSegments(start,end,cutRanges);
+  if(!segments.length){toast('⚠️','Everything in this range is cut');return true;}
+  const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb');
+  if(prog){prog.style.display='block';progB.style.width='0%';progT.textContent=`Rendering "${label}" from source video...`;}
   const video=document.createElement('video');
-  video.src=v.objectURL;video.preload='auto';video.playsInline=true;video.muted=true;video.volume=0;
-  await new Promise(r=>{video.onloadedmetadata=r;video.onerror=r;setTimeout(r,8000);});
-  if(!video.videoWidth||!video.videoHeight){if(prog)prog.style.display='none';if(!opts.silent)toast('⚠️','Could not read source video');video.src='';return false;}
-  if(canvasCompositionEnabled())await waitPhoneFrameReady();
-  const size=canvasCompositionEnabled()?getCanvasExportSize():safeCanvasSize(video.videoWidth,video.videoHeight,1280,1280*1280*2);
-  const canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;
-  const ctx=canvas.getContext('2d',{alpha:false});
-  const sourceCleanCanvas=document.createElement('canvas');
-  const sourceCleanCtx=sourceCleanCanvas.getContext('2d',{alpha:false});
-  const stream=canvas.captureStream(Math.max(1,Math.min(60,fps)));
-  const canvasTrack=stream.getVideoTracks()[0];
-  const sourceStream=(video.captureStream&&video.captureStream())||(video.mozCaptureStream&&video.mozCaptureStream());
-  if(sourceStream)sourceStream.getAudioTracks().forEach(t=>stream.addTrack(t));
-  let recCfg=mediaRecorderConfig(format,true);
-  if(recCfg.fallback&&!opts.silent)toast('⚠','MP4 is not supported by this browser encoder, exporting WebM instead');
-  const chunks=[];let mr;
+  video.src=v.objectURL;video.preload='auto';video.playsInline=true;video.muted=false;video.volume=0;
+  await _waitVideoEvent(video,'loadedmetadata',12000).catch(()=>{});
+  if(!video.videoWidth||!video.videoHeight){if(prog)prog.style.display='none';toast('⚠️','Could not read source video');return false;}
+  const size=safeCanvasSize(video.videoWidth,video.videoHeight,SOURCE_EXPORT_MAX_EDGE,SOURCE_EXPORT_MAX_PIXELS);
+  const canvas=document.getElementById('rc');canvas.width=size.w;canvas.height=size.h;
+  const ctx=get2dCtx(canvas,false,false);
+  const fps=parseInt(document.getElementById('vex-fps').value)||30;
+  const canvasStream=canvas.captureStream(Math.max(1,Math.min(60,fps)));
+  let audioCtx=null,audioDest=null,audioTracks=[];
   try{
-    mr=new MediaRecorder(stream,{mimeType:recCfg.mime,videoBitsPerSecond:opts.videoBitsPerSecond||12_000_000,audioBitsPerSecond:160_000});
-  }catch(e){
-    if(format==='mp4'){
-      recCfg=mediaRecorderConfig('webm',true);
-      if(!opts.silent)toast('⚠','MP4 recorder failed, exporting WebM instead');
-      try{mr=new MediaRecorder(stream,{mimeType:recCfg.mime,videoBitsPerSecond:opts.videoBitsPerSecond||12_000_000,audioBitsPerSecond:160_000});}
-      catch(err){if(prog)prog.style.display='none';try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(_e){}video.removeAttribute('src');return false;}
-    }else{if(prog)prog.style.display='none';try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(_e){}video.removeAttribute('src');return false;}
-  }
-  mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
-  const redactions=_videoRedactionEvents(v);
-  const segs=_sourceSegments(v,opts.start??0,opts.end??v.duration,opts.includeCuts!==false);
-  const totalDur=segs.reduce((s,x)=>s+x.end-x.start,0);
-  if(!segs.length){if(!opts.silent)toast('⚠️','No source duration after cuts');if(prog)prog.style.display='none';video.src='';return false;}
-  let doneDur=0,raf=0,stopped=false,lastFrameAt=0,aborted=false;
-  const startedAt=performance.now();
-  const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
-  const cleanup=()=>{
-    stopped=true;
-    cancelAnimationFrame(raf);
-    try{video.pause();}catch(e){}
-    try{canvasTrack&&canvasTrack.stop&&canvasTrack.stop();}catch(e){}
-    try{stream&&stream.getTracks&&stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
-    video.removeAttribute('src');
-    try{video.load&&video.load();}catch(e){}
-  };
-  const frameEvery=1000/Math.max(1,fps);
-  const requestCanvasFrame=()=>{};
-  const pauseRecorder=()=>{
-    try{if(mr.state==='recording')mr.pause();}catch(e){}
-  };
-  const resumeRecorder=()=>{
-    try{if(mr.state==='paused')mr.resume();}catch(e){}
-  };
-  const drawFrame=()=>{
-    if(canvasCompositionEnabled()){
-      let media=video;
-      if(removeStatusBar){
-        if(sourceCleanCanvas.width!==video.videoWidth||sourceCleanCanvas.height!==video.videoHeight){
-          sourceCleanCanvas.width=video.videoWidth;sourceCleanCanvas.height=video.videoHeight;
-        }
-        sourceCleanCtx.drawImage(video,0,0,sourceCleanCanvas.width,sourceCleanCanvas.height);
-        safeApplyExportStatusBar(sourceCleanCanvas);
-        media=sourceCleanCanvas;
-      }
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight});
-    }else{
-      ctx.drawImage(video,0,0,canvas.width,canvas.height);
-      if(removeStatusBar)safeApplyExportStatusBar(canvas);
-      if(showVideoRedactions)_drawVideoRedactions(ctx,video.currentTime,redactions,canvas.width,canvas.height);
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(AC){
+      audioCtx=new AC();
+      await audioCtx.resume().catch(()=>{});
+      const src=audioCtx.createMediaElementSource(video);
+      audioDest=audioCtx.createMediaStreamDestination();
+      src.connect(audioDest);
+      audioTracks=audioDest.stream.getAudioTracks();
     }
-    requestCanvasFrame();
-  };
+  }catch(e){
+    try{
+      const ms=video.captureStream?video.captureStream():null;
+      audioTracks=ms?[...ms.getAudioTracks()]:[];
+    }catch(_e){}
+  }
+  const stream=new MediaStream([...canvasStream.getVideoTracks(),...audioTracks]);
+  const mime=_pickRecorderMime(vexFormat);
+  const chunks=[];
+  const bits=Math.min(60_000_000,Math.max(12_000_000,Math.round(size.w*size.h*Math.max(24,fps)*0.22)));
+  const mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:bits,audioBitsPerSecond:192000});
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  const redactions=_redactionTimeline(v,frames);
+  let drawRaf=0,stopped=false;
   const draw=()=>{
     if(stopped)return;
-    const now=performance.now();
-    if(now-lastFrameAt>=frameEvery-1){lastFrameAt=now;drawFrame();}
-    raf=requestAnimationFrame(draw);
+    try{
+      ctx.drawImage(video,0,0,size.w,size.h);
+      replaceStatusBarFast(canvas);
+      _drawVideoRedactions(ctx,video.currentTime,redactions,size.w,size.h);
+    }catch(e){}
+    drawRaf=requestAnimationFrame(draw);
   };
-  const stoppedPromise=new Promise(resolve=>{
-    mr.onstop=()=>{
-      cleanup();
-      if(aborted){if(prog)prog.style.display='none';resolve(false);return;}
-      const blob=new Blob(chunks,{type:recCfg.mime});
-      if(blob.size<2048){
-        if(prog)prog.style.display='none';
-        if(!opts.silent)toast('⚠','Video recorder produced an empty file; retrying with frame renderer');
-        resolve(false);
-        return;
-      }
-      if(prog){progB.style.width='100%';prog.style.display='none';}
-      if(opts.returnBlob){
-        resolve({blob,mime:recCfg.mime,ext:recCfg.ext,audioTracks:sourceStream?.getAudioTracks().length||0});
-        return;
-      }
-      _triggerDownload(blob,label,recCfg.ext);
-      toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB · audio ${sourceStream?.getAudioTracks().length?'kept':'none'}`);
-      resolve(true);
-    };
-  });
-  let recorderStarted=false;
-  const startRecorder=()=>{
-    if(recorderStarted)return;
-    recorderStarted=true;
-    mr.start(250);
-    draw();
-  };
-  for(let segIndex=0;segIndex<segs.length;segIndex++){
-    const seg=segs[segIndex];
-    if(shouldAbort()){aborted=true;break;}
-    if(progT)progT.textContent=`Rendering "${label}" ${fmt(seg.start)} → ${fmt(seg.end)}`;
-    await _seekVideo(video,seg.start);
-    if(shouldAbort()){aborted=true;break;}
-    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-    lastFrameAt=0;
-    startRecorder();
-    resumeRecorder();
-    drawFrame();
-    const playOk=await video.play().then(()=>true).catch(()=>false);
-    if(!playOk){aborted=true;break;}
+  draw();
+  const done=new Promise(res=>{mr.onstop=res;});
+  const outputDur=segments.reduce((s,x)=>s+(x.end-x.start),0);
+  let rendered=0;
+  let recStarted=false;
+  for(let si=0;si<segments.length;si++){
+    const seg=segments[si];
+    video.pause();
+    video.currentTime=seg.start;
+    await _waitVideoEvent(video,'seeked',10000).catch(()=>{});
+    ctx.drawImage(video,0,0,size.w,size.h);
+    replaceStatusBarFast(canvas);
+    _drawVideoRedactions(ctx,seg.start,redactions,size.w,size.h);
+    if(!recStarted){mr.start(500);recStarted=true;}
+    else{try{if(mr.state==='paused')mr.resume();}catch(e){}}
+    try{await video.play();}
+    catch(e){
+      if(prog)prog.style.display='none';
+      toast('⚠️','Browser blocked source playback; falling back to frame export');
+      stopped=true;if(drawRaf)cancelAnimationFrame(drawRaf);
+      canvasStream.getTracks().forEach(t=>t.stop());
+      if(audioDest)audioDest.stream.getTracks().forEach(t=>t.stop());
+      if(audioCtx)audioCtx.close().catch(()=>{});
+      video.src='';
+      try{if(mr.state!=='inactive')mr.stop();}catch(_e){}
+      return false;
+    }
+    const segLen=seg.end-seg.start;
     await new Promise(resolve=>{
       const tick=()=>{
-        if(shouldAbort()){aborted=true;video.pause();resolve();return;}
-        if(video.paused||video.ended||video.currentTime>=seg.end-0.015){video.pause();resolve();return;}
-        const inSeg=Math.max(0,video.currentTime-seg.start);
-        try{opts.onProgress&&opts.onProgress(doneDur+inSeg,totalDur,{segmentIndex:segIndex,segments:segs.length,currentTime:video.currentTime});}catch(e){}
-        const pct=Math.min(98,Math.round((doneDur+inSeg)/totalDur*96));
-        if(progB)progB.style.width=pct+'%';
-        if(progD)progD.textContent=`${fmt(doneDur+inSeg)} / ${fmt(totalDur)} · ${segs.length} segment${segs.length!==1?'s':''}`;
-        requestAnimationFrame(tick);
+        if(video.ended||video.currentTime>=seg.end-0.015){video.pause();resolve();return;}
+        const inSeg=Math.max(0,Math.min(segLen,video.currentTime-seg.start));
+        const pct=outputDur?Math.round((rendered+inSeg)/outputDur*96):0;
+        if(prog){progB.style.width=pct+'%';progT.textContent=`Rendering "${label}" - ${fmt(rendered+inSeg)} / ${fmt(outputDur)}`;}
+        setTimeout(tick,120);
       };
       tick();
     });
-    if(aborted)break;
-    pauseRecorder();
-    doneDur+=seg.end-seg.start;
-    try{opts.onProgress&&opts.onProgress(doneDur,totalDur,{segmentIndex:segIndex,segments:segs.length,currentTime:seg.end});}catch(e){}
+    rendered+=segLen;
+    if(si<segments.length-1){try{if(mr.state==='recording')mr.pause();}catch(e){}}
+    await yieldUI(50);
   }
-  video.pause();
-  stopped=true;
-  cancelAnimationFrame(raf);
-  resumeRecorder();
-  drawFrame();
   try{mr.requestData();}catch(e){}
-  try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
-  const result=await Promise.race([
-    stoppedPromise,
-    new Promise(resolve=>setTimeout(()=>{aborted=true;cleanup();resolve(false);},60000))
-  ]);
-  cleanup();
-  return result;
+  setTimeout(()=>{try{mr.stop();}catch(e){}},80);
+  await done;
+  stopped=true;if(drawRaf)cancelAnimationFrame(drawRaf);
+  canvasStream.getTracks().forEach(t=>t.stop());
+  if(audioDest)audioDest.stream.getTracks().forEach(t=>t.stop());
+  if(audioCtx)audioCtx.close().catch(()=>{});
+  video.src='';
+  const blob=new Blob(chunks,{type:mime});
+  const ext=_downloadExtForMime(mime,vexFormat);
+  _triggerDownload(blob,label,ext);
+  if(prog){progB.style.width='100%';prog.style.display='none';}
+  toast('⬇',`"${label}" source render · ${(blob.size/1024/1024).toFixed(1)}MB · audio ${audioTracks.length?'kept':'none'}`);
+  return true;
 }
 async function reconstructVideo(frameList,label){
   if(!frameList.length){toast('⚠️',`No frames for "${label}"`);return;}
-  const format=normalizeVideoFormat(vexFormat);
-  let fps=parseInt(document.getElementById('vex-fps').value)||30;
-  if(format==='mp4')fps=Math.min(fps,30);
+  const fps=parseInt(document.getElementById('vex-fps').value)||30;
   const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb');
   prog.style.display='block';progB.style.width='0%';
   progT.textContent=`Loading frames for "${label}"…`;
   // Pre-load all canvases from blobs — works even when tab is backgrounded
   const canvases=[];
-  const removeStatusBar=exportStatusBarEnabled('video');
   for(let i=0;i<frameList.length;i++){
-    canvases.push(await frameCanvasForExport(frameList[i],removeStatusBar));
+    canvases.push(await getFrameCanvas(frameList[i]));
     if(i%20===0){progB.style.width=Math.round(i/frameList.length*30)+'%';await yieldUI();}
   }
   const W=canvases[0].width,H=canvases[0].height;
   // Try WebCodecs first (works off-page)
-  if(format==='webm'&&typeof VideoEncoder!=='undefined'){
+  if(typeof VideoEncoder!=='undefined'){
     try{return await _encodeWebCodecs(canvases,label,fps,W,H,prog,progT,progB);}
     catch(e){console.warn('WebCodecs failed, fallback:',e);}
   }
   // Fallback: captureStream
-  return await _encodeMediaRecorder(canvases,label,fps,W,H,prog,progT,progB,format);
+  return await _encodeMediaRecorder(canvases,label,fps,W,H,prog,progT,progB);
 }
 
 async function _encodeWebCodecs(canvases,label,fps,W,H,prog,progT,progB){
@@ -6372,7 +5799,7 @@ async function _encodeWebCodecs(canvases,label,fps,W,H,prog,progT,progB){
     },
     error:(e)=>{encErr=e;}
   });
-  const cfg={codec:'vp8',width:W,height:H,bitrate:14_000_000,framerate:fps};
+  const cfg={codec:'vp8',width:W,height:H,bitrate:8_000_000,framerate:fps};
   const sup=await VideoEncoder.isConfigSupported(cfg);
   if(!sup.supported)throw new Error('vp8 unsupported');
   encoder.configure(cfg);
@@ -6386,46 +5813,31 @@ async function _encodeWebCodecs(canvases,label,fps,W,H,prog,progT,progB){
   await encoder.flush();encoder.close();
   if(!chunks.length)throw new Error('no chunks');
   const blob=_chunksToWebM(chunks,W,H,fps);
-  if(blob.size<2048)throw new Error('empty webm');
   _triggerDownload(blob,label,'webm');
   toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB .webm · ${canvases.length} frames`);
   progB.style.width='100%';prog.style.display='none';
 }
 
-async function _encodeMediaRecorder(canvases,label,fps,W,H,prog,progT,progB,format='webm'){
+async function _encodeMediaRecorder(canvases,label,fps,W,H,prog,progT,progB){
   if(typeof MediaRecorder==='undefined'){toast('❌','MediaRecorder not supported');prog.style.display='none';return;}
   const mspf=Math.floor(1000/fps);
-  let recCfg=mediaRecorderConfig(format,false);
-  if(recCfg.fallback)toast('⚠','MP4 is not supported by this browser encoder, exporting WebM instead');
+  const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
   const rc=document.getElementById('rc');rc.width=W;rc.height=H;
   const rctx=rc.getContext('2d',{alpha:true});
   rctx.drawImage(canvases[0],0,0,W,H);
   await new Promise(r=>setTimeout(r,80));
   const stream=rc.captureStream(fps);
   if(!stream.getVideoTracks().length){toast('❌','captureStream failed — stay on page');prog.style.display='none';return;}
-  const chunks=[];let mr;
-  try{
-    mr=new MediaRecorder(stream,{mimeType:recCfg.mime,videoBitsPerSecond:16_000_000});
-  }catch(e){
-    if(format==='mp4'){
-      recCfg=mediaRecorderConfig('webm',false);
-      toast('⚠','MP4 recorder failed, exporting WebM instead');
-      try{mr=new MediaRecorder(stream,{mimeType:recCfg.mime,videoBitsPerSecond:16_000_000});}
-      catch(err){toast('❌','Video export failed');prog.style.display='none';return false;}
-    }else{toast('❌','Video export failed');prog.style.display='none';return false;}
-  }
+  const chunks=[];
+  const mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:16000000});
   mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data.slice());};
   return new Promise(resolve=>{
     mr.onstop=()=>{
-      const blob=new Blob(chunks,{type:recCfg.mime});
-      if(blob.size<2048){
-        toast('❌',`Export failed: empty video (${blob.size}B)`);
-        prog.style.display='none';resolve(false);return;
-      }
+      const blob=new Blob(chunks,{type:mime});
       if(blob.size<5000)toast('⚠️',`Small output (${blob.size}B) — stay on page while encoding`);
-      _triggerDownload(blob,label,recCfg.ext);
+      _triggerDownload(blob,label,'webm');
       toast('⬇',`"${label}" · ${(blob.size/1024/1024).toFixed(1)}MB · ${canvases.length} frames`);
-      progB.style.width='100%';prog.style.display='none';resolve(true);
+      progB.style.width='100%';prog.style.display='none';resolve();
     };
     mr.start(100);let fi=0;
     const timer=setInterval(()=>{
@@ -6491,51 +5903,6 @@ function renderExpVideoList(){
     c.appendChild(d);
   });
 }
-function exportSlug(s,fallback='export'){
-  const v=String(s||fallback).trim().replace(/\.[a-z0-9]+$/i,'');
-  return (v.replace(/&/g,'and').replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').toLowerCase()||fallback);
-}
-function exportSessionBaseSlug(s,fallback='export'){
-  return exportSlug(s,fallback).replace(/_session_\d+_uiland$/,'').replace(/_uiland$/,'')||fallback;
-}
-function exportSessionId(s){
-  const m=exportSlug(s,'').match(/(?:^|_)session_(\d+)(?:_|$)/);
-  return m?m[1]:String(Math.floor(1000+Math.random()*9000));
-}
-function exportTitleSlug(s,fallback='Session'){
-  const v=String(s||fallback).trim().replace(/\.[a-z0-9]+$/i,'');
-  return (v.replace(/&/g,'and').replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,44)||fallback);
-}
-function exportFileStem(s,fallback='video'){
-  const v=String(s||fallback).trim().replace(/\.[a-z0-9]+$/i,'');
-  return (v.replace(/&/g,'and').replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,90)||fallback);
-}
-function csvCell(v){return `"${String(v??'').replace(/"/g,'""')}"`;}
-function exportTimeName(sec){
-  sec=Math.max(0,Number(sec)||0);
-  const m=Math.floor(sec/60),s=Math.floor(sec%60);
-  return `${String(m).padStart(2,'0')}m${String(s).padStart(2,'0')}s`;
-}
-function exportClock(sec){
-  sec=Math.max(0,Number(sec)||0);
-  const m=Math.floor(sec/60),s=Math.floor(sec%60);
-  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-}
-function exportDuration(sec){
-  sec=Math.max(0,Number(sec)||0);
-  const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);
-  return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-}
-function flowFolderName(fl,idx){
-  return `${String(idx+1).padStart(3,'0')}_${exportTitleSlug(fl?.name||'Flow','Flow')}`;
-}
-function exportFigmaHtml(title,imageFile,meta){
-  return `<span data-h2d="uiland-export"></span><!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title>
-<style>html,body{margin:0;background:#f4f4f5;font-family:Arial,sans-serif}main{min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:24px}img{max-width:100%;height:auto;box-shadow:0 8px 40px rgba(0,0,0,.18);background:white}.meta{position:fixed;left:10px;bottom:10px;background:rgba(0,0,0,.72);color:white;border-radius:6px;padding:6px 8px;font-size:11px}</style>
-</head><body><main><img src="${esc(imageFile.split('/').pop())}" alt=""></main><div class="meta">${esc(meta)}</div></body></html>`;
-}
 async function exportZip(vid){
   const nameInput=document.getElementById('exp-appname');
   const appName=(nameInput?.value||'').trim();
@@ -6545,7 +5912,6 @@ async function exportZip(vid){
   const expAll=document.getElementById('e-all').checked;
   const expMan=document.getElementById('e-manifest').checked;
   const expCsv=document.getElementById('e-csv').checked;
-  const removeStatusBar=exportStatusBarEnabled('zip');
   const targetVideos=vid==='active'
     ? [activeVideo()].filter(Boolean)
     : vid&&vid!=='all'
@@ -6554,149 +5920,67 @@ async function exportZip(vid){
   if(!targetVideos.length){toast('⚠️','No frames to export');return;}
   const totalFramesToExport=targetVideos.reduce((sum,v)=>sum+((expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0)).length),0);
   if(!totalFramesToExport){toast('⚠️','No matching frames');return;}
-  showLd('Building ZIP...');setLdPb(4,'Preparing Flora-style session...');
-  const domainSlug=exportSessionBaseSlug(appName);
-  const sessionId=exportSessionId(appName);
-  const sessionTitle=exportTitleSlug(domainSlug,'Session');
-  const sessionFolder=`${domainSlug}/session_${sessionId}_${sessionTitle}`;
+  showLd('Building ZIP…');setLdPb(4,'Preparing…');
   const zip=new JSZip();
-  const sessionRoot=zip.folder(sessionFolder);
-  const flowsRoot=sessionRoot.folder('flows');
-  const untaggedFolder=sessionRoot.folder('untagged');
-  const dbFolder=sessionRoot.folder('_db');
-  const manifestData={session:{id:`session_${sessionId}`,title:appName,url:'',hostname:domainSlug.replace(/_/g,'.'),duration:Math.max(...targetVideos.map(v=>v.duration||0),0),durationFmt:exportDuration(Math.max(...targetVideos.map(v=>v.duration||0),0)),exportedAt:new Date().toISOString()},flows:[],screenshots:[]};
-  const dbScreens=['screenshot_id,video,flow,time,time_sec,image_file,figma_file'];
-  const dbFlows=['flow_id,index,name,folder,screenshot_count,start_sec,end_sec'];
-  const allFlowsIndex=['flow_index,flow_name,folder,screenshot_count,start_sec,end_sec'];
-  const inventory=['path,type,bytes'];
+  const manifestData={exportDate:new Date().toISOString(),flows:flows.map(f=>({id:f.id,name:f.name})),videos:[]};
+  const csvRows=['global_seq,video,filename,flows,timestamp,source'];
   let globalSeq=0;
-  let videoSeq=0;
-  let renderedVideoSeq=0;
-  let sourceFallbackSeq=0;
-  const usedFlowIds=new Set();
-  const exportFlowData={};
   for(const v of targetVideos){
     const baseName=String(v.name||'video').replace(/\.(mp4|webm|mov)$/i,'');
-    const safeName=exportFileStem(baseName,'video');
+    const safeName=baseName.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,'').toLowerCase()||`video_${v.id||globalSeq}`;
+    const vFolder=zip.folder(safeName);
+    const flowsRoot=vFolder.folder('flows');
     const toExport=(expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0));
     const assignedFlows=flows.filter(f=>toExport.some(fr=>fr.flows.includes(f.id)));
-    const flowFolders={};
-    assignedFlows.forEach(f=>{
-      if(!usedFlowIds.has(f.id))usedFlowIds.add(f.id);
-      const idx=[...usedFlowIds].indexOf(f.id);
-      const folderName=flowFolderName(f,idx);
-      if(!exportFlowData[f.id]){
-        exportFlowData[f.id]={folder:flowsRoot.folder(folderName),path:`flows/${folderName}/`,index:idx+1,rows:['index,frame_id,time,time_sec,kind,has_figma,url,image_files,figma_files'],frames:[],flow:f};
-      }
-      flowFolders[f.id]=exportFlowData[f.id];
-    });
+    const flowFolders={};assignedFlows.forEach(f=>{flowFolders[f.id]=flowsRoot.folder(f.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,''));});
+    const unassignedFolder=flowsRoot.folder('unassigned');
+    const vManifest={id:v.id,name:v.name,source:v.source,video:null,frames:[]};
     if(v.file){
-      const ext=(v.file.name.match(/\.(mp4|webm|mov)$/i)?.[1]||'webm').toLowerCase();
-      const videoName=videoSeq?`video_${videoSeq+1}.webm`:`video.webm`;
-      videoSeq++;
-      let wroteEdited=false;
-      if(v.objectURL&&!v.needsTranscode){
-        try{
-          setLdPb(8,`Rendering edited video ${videoSeq} for ZIP...`);
-          const rendered=await exportSourceEditedVideo(v,`${safeName}_edited`,{
-            returnBlob:true,
-            silent:true,
-            format:'webm',
-            includeCuts:true,
-            removeStatusBar,
-            fps:Math.min(30,parseInt(document.getElementById('vex-fps')?.value)||30),
-            videoBitsPerSecond:8_000_000,
-            shouldCancel:()=>zipCancelFlag,
-            onProgress:(done,total,info)=>{
-              const pct=8+Math.round((total?done/total:0)*24);
-              setLdPb(Math.min(32,pct),`Rendering edited video ${videoSeq} for ZIP... ${fmt(done)} / ${fmt(total||0)}`);
-            }
-          });
-          if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
-          if(rendered&&rendered.blob&&rendered.blob.size>5000){
-            sessionRoot.file(videoName,rendered.blob,{binary:true,compression:'STORE'});
-            inventory.push(`${sessionFolder}/${videoName},video/webm,${rendered.blob.size}`);
-            renderedVideoSeq++;
-            wroteEdited=true;
-          }
-        }catch(e){
-          console.warn('ZIP edited video render failed, adding source fallback',e);
-        }
-      }
-      if(!wroteEdited){
-        const fallbackName=videoSeq===1?`source_video.${ext}`:`source_video_${videoSeq}.${ext}`;
-        setLdPb(8,`Adding source fallback video ${videoSeq}...`);
-        sessionRoot.file(fallbackName,v.file,{binary:true,compression:'STORE'});
-        inventory.push(`${sessionFolder}/${fallbackName},video,${v.file.size}`);
-        sourceFallbackSeq++;
-      }
+      const ext=(v.file.name.match(/\.(mp4|webm|mov)$/i)?.[1]||'video').toLowerCase();
+      const videoName=`source_video.${ext}`;
+      vFolder.file(videoName,v.file,{binary:true,compression:'STORE'});
+      vManifest.video={filename:videoName,size:v.file.size,type:v.file.type||''};
     }
-    const ZIP_BATCH=8;
+    const vCsvRows=['global_seq,video,filename,flows,timestamp,source'];
+    const ZIP_BATCH=12;
     for(let zi=0;zi<toExport.length;zi+=ZIP_BATCH){
       if(zipCancelFlag){hideLd();toast('⚠️','Export cancelled');return;}
       const zBatch=toExport.slice(zi,zi+ZIP_BATCH);
       await Promise.all(zBatch.map(async fr=>{
         globalSeq++;
         const seq=globalSeq;
-        const _fc=await frameCanvasForExport(fr,removeStatusBar);
-        const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
-        if(!blob)return;
-        const ts=Number(fr.timestamp??fr.timeSec??0)||0;
-        const snapId=`snap_${Date.now()+seq}_${Math.random().toString(36).slice(2,6)}`;
-        const stem=`${String(seq).padStart(5,'0')}_${exportTimeName(ts)}_figma_${snapId}`;
-        const imgName=`${stem}.png`;
-        const htmlName=`${stem}_figma.html`;
+        let blob=null;
+        if(fr.blobUrl){
+          try{blob=await (await fetch(fr.blobUrl)).blob();}catch(e){}
+        }
+        if(!blob){
+          const _fc=await getFrameCanvas(fr);
+          replaceStatusBarFast(_fc);
+          blob=await new Promise(r=>_fc.toBlob(r,'image/webp',0.86));
+        }
+        const fn=`seq${String(seq).padStart(4,'0')}_${fr.name}.webp`;
         const flowNames=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?fl.name:'';}).filter(Boolean);
-        const targets=fr.flows.length?fr.flows.filter(fid=>flowFolders[fid]).map(fid=>flowFolders[fid]):[{folder:untaggedFolder,path:'untagged/',rows:null,frames:null,flow:null,index:null}];
-        targets.forEach(t=>{
-          t.folder.file(imgName,blob,{binary:true,compression:'STORE'});
-          t.folder.file(htmlName,exportFigmaHtml(appName,imgName,`${exportClock(ts)} · ${flowNames.join(', ')||'untagged'}`),{compression:'STORE'});
-          if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},figma,yes,${csvCell('')},${csvCell(t.path+imgName)},${csvCell(t.path+htmlName)}`);
-          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,imageFile:t.path+imgName,figmaFile:t.path+htmlName});
-          inventory.push(`${sessionFolder}/${t.path}${imgName},image/png,${blob.size}`);
-          inventory.push(`${sessionFolder}/${t.path}${htmlName},text/html,${exportFigmaHtml(appName,imgName,'').length}`);
-        });
-        dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName),csvCell(targets[0].path+htmlName)].join(','));
-        manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,kind:'figma',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,figmaFile:targets[0].path+htmlName});
+        if(fr.flows.length>0){fr.flows.forEach(fid=>{if(flowFolders[fid])flowFolders[fid].file(fn,blob,{binary:true,compression:'STORE'});});}
+        else{unassignedFolder.file(fn,blob,{binary:true,compression:'STORE'});}
+        const csvRow=`${seq},"${String(v.name).replace(/"/g,'""')}","${fn}","${flowNames.join('|').replace(/"/g,'""')}",${fr.timestamp?.toFixed(2)||''},${v.source||'unknown'}`;
+        csvRows.push(csvRow);
+        vCsvRows.push(csvRow);
+        vManifest.frames.push({globalSeq:seq,filename:fn,flows:flowNames,timestamp:fr.timestamp});
       }));
-      setLdPb(34+Math.round(globalSeq/totalFramesToExport*48),'Encoding reference frames…');
+      setLdPb(Math.round(globalSeq/totalFramesToExport*80),'Encoding…');
       await yieldUI();
     }
+    if(expMan)vFolder.file('flow_manifest.json',JSON.stringify(vManifest,null,2),{compression:'STORE'});
+    if(expCsv)vFolder.file('flow_summary.csv',vCsvRows.join('\n'),{compression:'STORE'});
+    manifestData.videos.push(vManifest);
   }
-  const flowInfos=[];
-  Object.values(exportFlowData).sort((a,b)=>a.index-b.index).forEach(data=>{
-    const fl=data.flow,idx=data.index-1,folder=data.folder,path=data.path,shots=data.frames;
-    const start=shots.length?Math.min(...shots.map(s=>s.timeSec)):0,end=shots.length?Math.max(...shots.map(s=>s.timeSec)):0;
-    folder.file('screenshots_index.csv',data.rows.join('\n'),{compression:'STORE'});
-    folder.file('flow_info.txt',`Flow: ${fl.name}\nFlow ID: ${fl.id}\nOriginal Flow ID: ${fl.id}\nIndex: ${idx+1} of ${usedFlowIds.size}\nStart: ${exportClock(start)} (${start.toFixed(1)}s)\nEnd: ${exportClock(end)} (${end.toFixed(1)}s)\nLength: ${exportDuration(end-start)}\nScreenshots: ${shots.length}\nSegment: ${idx+1}\n`,{compression:'STORE'});
-    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,screenshotCount:shots.length,screenshots:shots};
-    manifestData.flows.push(flowMeta);
-    allFlowsIndex.push(`${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
-    dbFlows.push(`${fl.id},${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
-    flowInfos.push(`${String(idx+1).padStart(3,'0')} ${fl.name} (${shots.length})`);
-  });
-  if(expCsv){
-    flowsRoot.file('_all_flows_index.csv',allFlowsIndex.join('\n'),{compression:'STORE'});
-    dbFolder.file('screenshots.csv',dbScreens.join('\n'),{compression:'STORE'});
-    dbFolder.file('flows.csv',dbFlows.join('\n'),{compression:'STORE'});
-    dbFolder.file('sessions.csv','session_id,title,exported_at\n'+`session_${sessionId},${csvCell(appName)},${csvCell(new Date().toISOString())}` ,{compression:'STORE'});
-    dbFolder.file('videos.csv','video_id,name,duration\n'+targetVideos.map(v=>`${v.id},${csvCell(v.name)},${v.duration||0}`).join('\n'),{compression:'STORE'});
-    dbFolder.file('file_inventory.csv',inventory.join('\n'),{compression:'STORE'});
-  }
-  if(expMan){
-    sessionRoot.file('manifest.json',JSON.stringify(manifestData,null,2),{compression:'STORE'});
-    dbFolder.file('session.json',JSON.stringify(manifestData.session,null,2),{compression:'STORE'});
-    dbFolder.file('db_manifest.json',JSON.stringify({tables:['sessions.csv','videos.csv','flows.csv','screenshots.csv','file_inventory.csv'],exportedAt:new Date().toISOString()},null,2),{compression:'STORE'});
-    dbFolder.file('flows.jsonl',manifestData.flows.map(f=>JSON.stringify(f)).join('\n'),{compression:'STORE'});
-    dbFolder.file('screenshots.jsonl',manifestData.screenshots.map(s=>JSON.stringify(s)).join('\n'),{compression:'STORE'});
-  }
-  sessionRoot.file('flows_reference.txt',flowInfos.join('\n'),{compression:'STORE'});
-  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited video export with cuts/redactions/status bar removal baked in when the browser can render it\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots and _figma.html sidecars\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
-  sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nStatus bar removed on export: ${removeStatusBar}\nEdited videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\n`,{compression:'STORE'});
-  setLdPb(94,'Packing Flora-style ZIP...');
+  if(expMan)zip.file('flow_manifest_all.json',JSON.stringify(manifestData,null,2),{compression:'STORE'});
+  if(expCsv)zip.file('flow_summary_all.csv',csvRows.join('\n'),{compression:'STORE'});
+  setLdPb(92,'Compressing…');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
   const a=document.createElement('a');const url=URL.createObjectURL(blob);
-  a.href=url;a.download=`${domainSlug}_session_${sessionId}_uiland.zip`;a.click();
+  const safeApp=appName.replace(/[^a-zA-Z0-9_\-]/g,'_').toLowerCase();
+  a.href=url;a.download=`${safeApp}_export.zip`;a.click();
   setTimeout(()=>URL.revokeObjectURL(url),15000);
   hideLd();
   clearSession();
@@ -6799,7 +6083,6 @@ document.addEventListener('keydown',e=>{
     if(e.key==='j'||e.key==='J'){e.preventDefault();v.currentTime=Math.max(0,(v.currentTime||0)-10);return;}
     if(e.key==='l'||e.key==='L'){e.preventDefault();v.currentTime=Math.min(dur,(v.currentTime||0)+10);return;}
     if(e.key==='s'||e.key==='S'){e.preventDefault();captureStageFrame();return;}
-    if(e.key==='v'||e.key==='V'){e.preventDefault();toggleVideoFullView();return;}
     if(e.key==='i'||e.key==='I'){e.preventDefault();markIn();return;}
     if(e.key==='o'||e.key==='O'){e.preventDefault();markOut();return;}
     if(e.key==='Enter'&&_markIn!==null&&_markOut!==null){e.preventDefault();openFlowConfirmModal();return;}
@@ -6899,7 +6182,7 @@ function renderFad(){
         toast('✓',`Removed "${fl.name}" from ${sel.length} frame${sel.length>1?'s':''}`);
       } else {
         // Assign to all selected
-        sel.forEach(fr=>{if(!fr.flows.includes(fl.id))fr.flows.push(fl.id);});
+        addFlowsToFrames(sel,[fl.id]);
         toast('✓',`"${fl.name}" → ${sel.length} frame${sel.length>1?'s':''}`);
       }
       // Update cards in place
@@ -6907,8 +6190,7 @@ function renderFad(){
         const card=document.querySelector(`.card[data-id="${fr.id}"]`);
         if(card)updateCardBadges(card,fr);
       });
-      saveSession();
-      renderFad();renderFlows();updateFSum();updateStats();
+      renderFad();renderFlows();updateFSum();updateStats();scheduleSaveSession();
     };
     c.appendChild(d);
   });
@@ -6987,103 +6269,7 @@ let _markIn=null, _markOut=null;
 let _stageVid=null;
 let _tlDragging=false;
 let _fsThumbsBuilt=false;
-let _lastVideoUiPaint=0;
-let _lastHighlightedFilmId=null;
 const BAND_COLORS=['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16','#ec4899','#14b8a6'];
-
-function setFrameTrayMode(mode){
-  frameTrayMode=mode==='grid'?'grid':'strip';
-  const fs=document.getElementById('filmstrip');
-  const stripBtn=document.getElementById('tray-strip-btn');
-  const gridBtn=document.getElementById('tray-grid-btn');
-  if(fs)fs.classList.toggle('grid',frameTrayMode==='grid');
-  if(stripBtn)stripBtn.classList.toggle('on',frameTrayMode==='strip');
-  if(gridBtn)gridBtn.classList.toggle('on',frameTrayMode==='grid');
-}
-
-function _videoPreviewRect(video,canvas){
-  const cw=canvas.width,ch=canvas.height,vw=video.videoWidth||0,vh=video.videoHeight||0;
-  if(!cw||!ch||!vw||!vh)return null;
-  const scale=Math.min(cw/vw,ch/vh);
-  const w=vw*scale,h=vh*scale;
-  return {x:(cw-w)/2,y:(ch-h)/2,w,h};
-}
-function _ensurePreviewCanvasSize(canvas){
-  const rect=canvas.getBoundingClientRect();
-  const dpr=Math.max(1,window.devicePixelRatio||1);
-  const w=Math.max(1,Math.round(rect.width*dpr));
-  const h=Math.max(1,Math.round(rect.height*dpr));
-  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-  return {w,h,dpr};
-}
-function clearVideoPreviewOverlay(){
-  const c=document.getElementById('vid-preview-overlay');
-  if(!c)return;
-  const ctx=c.getContext('2d');
-  if(ctx)ctx.clearRect(0,0,c.width,c.height);
-}
-function _previewRedactionEvents(v){
-  if(!v)return[];
-  const totalBoxes=(v.frames||[]).reduce((n,fr)=>n+(fr.redactBoxes?.length||0)+(fr.wordBoxes?.length||0),0);
-  const sig=(v.frames?.length||0)+'|'+totalBoxes;
-  if(v._previewRedactionSig!==sig){
-    v._previewRedactionSig=sig;
-    v._previewRedactionEvents=_videoRedactionEvents(v);
-  }
-  return v._previewRedactionEvents||[];
-}
-function drawVideoPreviewOverlay(){
-  const video=document.getElementById('vid-main');
-  const canvas=document.getElementById('vid-preview-overlay');
-  if(!video||!canvas||!_stageVid||!video.videoWidth){clearVideoPreviewOverlay();return;}
-  _ensurePreviewCanvasSize(canvas);
-  const ctx=canvas.getContext('2d');
-  if(!ctx)return;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(canvasCompositionEnabled()){
-    drawComposedMediaFrame(ctx,video,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight});
-    return;
-  }
-  const r=_videoPreviewRect(video,canvas);if(!r)return;
-  if(!showVideoRedactions)return;
-  const events=_previewRedactionEvents(_stageVid);
-  const t=video.currentTime||0;
-  ctx.save();
-  ctx.fillStyle='#050505';
-  events.forEach(ev=>{
-    if(t<ev.start||t>ev.end)return;
-    (ev.boxes||[]).forEach(b=>{
-      const nx=Math.abs(b.x)<=1&&Math.abs(b.w)<=1;
-      const x=r.x+(nx?b.x*r.w:b.x*(r.w/(video.videoWidth||r.w)));
-      const y=r.y+(nx?b.y*r.h:b.y*(r.h/(video.videoHeight||r.h)));
-      const w=nx?b.w*r.w:b.w*(r.w/(video.videoWidth||r.w));
-      const h=nx?b.h*r.h:b.h*(r.h/(video.videoHeight||r.h));
-      ctx.fillRect(Math.max(r.x,x),Math.max(r.y,y),Math.max(1,w),Math.max(1,h));
-    });
-  });
-  ctx.restore();
-}
-function _applyPreviewCut(video){
-  if(!video||!_stageVid||_previewCutJumping)return;
-  const cuts=(_stageVid.cutRanges||[]).filter(c=>c&&c.end>c.start).sort((a,b)=>a.start-b.start);
-  const cur=video.currentTime||0;
-  const hit=cuts.find(c=>cur>=c.start&&cur<c.end-0.025);
-  if(!hit)return;
-  _previewCutJumping=true;
-  video.currentTime=Math.min((video.duration||hit.end),hit.end+0.015);
-  setTimeout(()=>{_previewCutJumping=false;},80);
-}
-function _startPreviewOverlayLoop(){
-  cancelAnimationFrame(_previewOverlayRaf);
-  const tick=()=>{
-    const v=document.getElementById('vid-main');
-    if(!v||v.paused||v.ended){drawVideoPreviewOverlay();return;}
-    _applyPreviewCut(v);
-    drawVideoPreviewOverlay();
-    _previewOverlayRaf=requestAnimationFrame(tick);
-  };
-  tick();
-}
 
 function setCenterView(mode){
   if(!mode) mode=(_cvMode==='video'?'grid':'video');
@@ -7106,29 +6292,24 @@ function loadVideoStage(vid){
   const empty=document.getElementById('vid-empty-msg');
   const ctrlBar=document.getElementById('vid-ctrl-bar');
   const markBar=document.getElementById('mark-bar');
-  const canvasPanel=document.getElementById('canvas-panel');
   const tlArea=document.getElementById('tl-area');
   const filmstrip=document.getElementById('filmstrip');
   if(!vmain)return;
   _stageVid=vid||null;
   _markIn=null;_markOut=null;_fsThumbsBuilt=false;
-  _lastHighlightedFilmId=null;
   if(!vid||!vid.objectURL){
     if(wrap)wrap.style.display='none';
     if(empty)empty.style.display='flex';
     if(ctrlBar)ctrlBar.style.display='none';
-    if(canvasPanel)canvasPanel.style.display='none';
     if(markBar)markBar.style.display='none';
     if(tlArea)tlArea.style.display='none';
     if(filmstrip)filmstrip.style.display='none';
-    clearVideoPreviewOverlay();
     return;
   }
   vid.frames.forEach(normalizeFrameTiming);
   if(empty)empty.style.display='none';
   if(wrap)wrap.style.display='flex';
   if(ctrlBar)ctrlBar.style.display='flex';
-  if(canvasPanel)canvasPanel.style.display='flex';
   if(markBar)markBar.style.display='flex';
   if(tlArea)tlArea.style.display='flex';
   if(filmstrip)filmstrip.style.display='flex';
@@ -7140,7 +6321,6 @@ function loadVideoStage(vid){
     vmain.style.width='100%';vmain.style.height='100%';
     vmain.style.objectFit='contain';
   }
-  updateCanvasControls();
   // Swap source only if changed
   if(vmain.dataset.vidId!==vid.id){
     vmain.dataset.vidId=vid.id;
@@ -7148,17 +6328,11 @@ function loadVideoStage(vid){
     vmain.load();
   }
   vmain.ontimeupdate=()=>{ _onVidTimeUpdate(vmain); };
-  vmain.onloadedmetadata=()=>{ _buildTimeline(vid,vmain.duration||vid.duration||0);drawVideoPreviewOverlay(); };
-  vmain.onplay=()=>{_startPreviewOverlayLoop();};
-  vmain.onpause=()=>{drawVideoPreviewOverlay();};
-  vmain.onseeked=()=>{_applyPreviewCut(vmain);drawVideoPreviewOverlay();};
+  vmain.onloadedmetadata=()=>{ _buildTimeline(vid,vmain.duration||vid.duration||0); };
   renderMarkBar();
   updateMarkFlowSel();
   _buildTimeline(vid,vid.duration||0);
   renderFilmstrip(vid);
-  setFrameTrayMode(frameTrayMode);
-  applyVideoFullView();
-  drawVideoPreviewOverlay();
 }
 
 function _onVidTimeUpdate(vmain){
@@ -7170,13 +6344,7 @@ function _onVidTimeUpdate(vmain){
   if(sk&&!_tlDragging)sk.value=dur>0?(cur/dur*100):0;
   _updatePlayhead(cur,dur);
   _updatePendingMarkTrail(cur,dur);
-  _applyPreviewCut(vmain);
-  const now=performance.now();
-  if(now-_lastVideoUiPaint>250){
-    _lastVideoUiPaint=now;
-    drawVideoPreviewOverlay();
-    _highlightFilmThumb(cur);
-  }
+  _highlightFilmThumb(cur);
 }
 
 function vidTogglePlay(){
@@ -7247,11 +6415,13 @@ function renderMarkBar(){
   if(ol)ol.textContent=_markOut!==null?fmt(_markOut):'—';
 }
 
-function openFlowConfirmModal(){
+function openFlowConfirmModal(prefillFlowId=null){
   if(_markIn===null||_markOut===null){toast('⚠️','Set In and Out first');return;}
   const modal=document.getElementById('flow-confirm-modal');
   if(!modal)return;
-  flowConfirmSelectedIds=new Set();
+  const input=document.getElementById('flow-confirm-input');
+  flowConfirmSelectedIds=prefillFlowId?[prefillFlowId]:[];
+  if(input)input.value='';
   const lo=Math.min(_markIn,_markOut),hi=Math.max(_markIn,_markOut);
   const hits=_stageVid?_stageVid.frames.filter(f=>{const sec=normalizeFrameTiming(f);return sec!=null&&sec>=lo&&sec<=hi;}):[];
   document.getElementById('flow-modal-in').textContent=fmt(lo);
@@ -7259,7 +6429,7 @@ function openFlowConfirmModal(){
   document.getElementById('flow-modal-dur').textContent=fmt(hi-lo);
   document.getElementById('flow-modal-count').textContent=hits.length;
   const hint=document.getElementById('flow-confirm-hint');
-  if(hint)hint.textContent=hits.length?'Click multiple flows · commas create several · Enter confirms':'No extracted frames in this range yet';
+  if(hint)hint.textContent=hits.length?'Click multiple flows · type to create one · Enter confirms':'No extracted frames in this range yet';
   modal.classList.add('on');
   renderFlowConfirmChoices();
   setTimeout(()=>{const input=document.getElementById('flow-confirm-input');if(input){input.focus();input.select();}},30);
@@ -7267,7 +6437,7 @@ function openFlowConfirmModal(){
 function closeFlowConfirmModal(){
   const modal=document.getElementById('flow-confirm-modal');
   if(modal)modal.classList.remove('on');
-  flowConfirmSelectedIds.clear();
+  flowConfirmSelectedIds=[];
 }
 function renderFlowConfirmChoices(){
   const c=document.getElementById('flow-confirm-choices');if(!c)return;
@@ -7283,12 +6453,19 @@ function renderFlowConfirmChoices(){
     const b=document.createElement('button');
     b.type='button';b.className='flow-chip';
     b.dataset.fid=fl.id;
-    b.classList.toggle('on',flowConfirmSelectedIds.has(fl.id));
+    b.classList.toggle('on',flowConfirmSelectedIds.includes(fl.id));
     b.innerHTML=`<span class="flow-chip-dot" style="background:${fl.color}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fl.name)}</span>`;
     b.onclick=()=>{
-      if(flowConfirmSelectedIds.has(fl.id))flowConfirmSelectedIds.delete(fl.id);
-      else flowConfirmSelectedIds.add(fl.id);
-      b.classList.toggle('on',flowConfirmSelectedIds.has(fl.id));
+      if(input)input.value=fl.name;
+      if(flowConfirmSelectedIds.includes(fl.id)){
+        flowConfirmSelectedIds=flowConfirmSelectedIds.filter(id=>id!==fl.id);
+        b.classList.remove('on');
+      }else{
+        flowConfirmSelectedIds.push(fl.id);
+        b.classList.add('on');
+      }
+      const hint=document.getElementById('flow-confirm-hint');
+      if(hint)hint.textContent=`${flowConfirmSelectedIds.length} flow${flowConfirmSelectedIds.length===1?'':'s'} selected · click more to add multiple`;
     };
     c.appendChild(b);
   });
@@ -7302,31 +6479,32 @@ function renderFlowConfirmChoices(){
 function saveFlowConfirm(){
   if(_markIn===null||_markOut===null){toast('⚠️','Set In and Out first');return;}
   const input=document.getElementById('flow-confirm-input');
-  const typedNames=parseFlowNames(input?.value||'');
-  const chosenIds=[...flowConfirmSelectedIds];
-  if(!typedNames.length&&!chosenIds.length){
+  const name=(input?.value||'').trim();
+  const selectedIds=[...flowConfirmSelectedIds];
+  if(!name&&!selectedIds.length){
     if(input){input.style.borderColor='var(--r)';input.focus();setTimeout(()=>input.style.borderColor='',900);}
-    toast('⚠️','Choose or type at least one flow');
+    toast('⚠️','Choose at least one flow');
     return;
   }
-  const chosenFlows=chosenIds.map(id=>flows.find(f=>f.id===id)).filter(Boolean);
-  typedNames.forEach(name=>{
-    const fl=ensureFlow(name,false);
-    if(fl&&!chosenFlows.some(x=>x.id===fl.id))chosenFlows.push(fl);
-  });
-  if(!chosenFlows.length){toast('⚠️','Could not create flow');return;}
+  if(name){
+    let fl=flows.find(f=>f.name.toLowerCase()===name.toLowerCase());
+    if(!fl){
+      const id=addFlow(name,false);
+      fl=flows.find(f=>f.id===id);
+    }
+    if(fl&&!selectedIds.includes(fl.id))selectedIds.push(fl.id);
+  }
+  const chosen=selectedIds.map(id=>flows.find(f=>f.id===id)).filter(Boolean);
+  if(!chosen.length){toast('⚠️','Could not find selected flows');return;}
   const sel=document.getElementById('mk-flow-sel');
-  if(sel)sel.value=chosenFlows[0].id;
+  if(sel)sel.value=chosen[0].id;
   const hits=_framesInMarkRange();if(!hits)return;
-  hits.forEach(fr=>{
-    chosenFlows.forEach(fl=>{if(!fr.flows.includes(fl.id))fr.flows.push(fl.id);});
-  });
-  savePersistentFlows();
+  addFlowsToFrames(hits,chosen.map(f=>f.id));
   renderFlows();renderQFlows();updateFDD();updateMarkFlowSel();
   scheduleRenderFrames();updateFSum();scheduleSaveSession();
   renderFilmstrip(_stageVid);_buildTimeline(_stageVid,document.getElementById('vid-main')?.duration||0);
   closeFlowConfirmModal();
-  toast('✓',`${chosenFlows.length} flow${chosenFlows.length!==1?'s':''} saved · ${hits.length} frame${hits.length>1?'s':''}`);
+  toast('✓',`${chosen.length} flow${chosen.length===1?'':'s'} saved · ${hits.length} frame${hits.length>1?'s':''}`);
 }
 function editFlowAtPlayhead(){
   const v=document.getElementById('vid-main');
@@ -7343,8 +6521,7 @@ function editFlowAtPlayhead(){
   const secs=_stageVid.frames.filter(fr=>fr.flows.includes(inFlow.id)).map(frameSec).filter(s=>s!=null);
   _markIn=Math.min(...secs);_markOut=Math.max(...secs);
   renderMarkBar();_buildTimeline(_stageVid,v.duration||0);
-  const input=document.getElementById('flow-confirm-input');if(input)input.value=inFlow.name;
-  openFlowConfirmModal();
+  openFlowConfirmModal(inFlow.id);
 }
 
 // ─── MARK ACTIONS ─────────────────────────────────────────────────────────────
@@ -7368,23 +6545,32 @@ function applyMarkFlow(){
   toast('🏷',`Tagged ${hits.length} frame${hits.length>1?'s':''} → ${fl?.name||fid}`);
 }
 function cutMarkRange(){
-  const hits=_framesInMarkRange();if(!hits)return;
-  if(!confirm(`Delete ${hits.length} frame(s) in marked range?`))return;
+  if(_markIn===null||_markOut===null){toast('⚠️','Set both In and Out points first');return;}
+  if(!_stageVid){toast('⚠️','No video loaded');return;}
   const lo=Math.min(_markIn,_markOut),hi=Math.max(_markIn,_markOut);
-  _stageVid.cutRanges=Array.isArray(_stageVid.cutRanges)?_stageVid.cutRanges:[];
-  _stageVid.cutRanges.push({start:lo,end:hi});
+  const hits=_stageVid.frames.filter(f=>{const sec=normalizeFrameTiming(f);return sec!=null&&sec>=lo&&sec<=hi;});
+  if(!confirm(`Cut ${fmt(hi-lo)} from the source timeline? ${hits.length} extracted frame(s) will move to bin.`))return;
+  if(_stageVid&&_stageVid.objectURL){
+    _stageVid.cutRanges=_mergeRanges([...(_stageVid.cutRanges||[]),{start:lo,end:hi}],_stageVid.duration||hi);
+  }
   const ids=new Set(hits.map(f=>f.id));
   hits.forEach(fr=>{sendToBin(fr);});
   _stageVid.frames=_stageVid.frames.filter(f=>!ids.has(f.id));
   scheduleRenderFrames();updateStats();scheduleSaveSession();
-  renderFilmstrip(_stageVid);_buildTimeline(_stageVid,document.getElementById('vid-main')?.duration||_stageVid.duration||0);
-  drawVideoPreviewOverlay();
   clearMark();
   toast('✂',`Cut ${hits.length} frame(s) from timeline`);
 }
 async function trimMarkRange(){
-  const hits=_framesInMarkRange();if(!hits)return;
+  if(_markIn===null||_markOut===null){toast('⚠️','Set both In and Out points first');return;}
+  if(!_stageVid){toast('⚠️','No video loaded');return;}
   const lo=Math.min(_markIn,_markOut);
+  const hi=Math.max(_markIn,_markOut);
+  if(_stageVid&&_stageVid.objectURL&&_stageVid.file){
+    const ok=await exportSourceEditedVideo(_stageVid,`trim_${fmt(lo).replace(':','-')}`,{start:lo,end:hi,frames:_stageVid.frames,includeCuts:false});
+    if(ok)return;
+  }
+  const hits=_stageVid.frames.filter(f=>{const sec=normalizeFrameTiming(f);return sec!=null&&sec>=lo&&sec<=hi;});
+  if(!hits.length){toast('ℹ️','No extracted frames in that range');return;}
   await reconstructVideo([...hits].sort((a,b)=>frameSec(a)-frameSec(b)),`trim_${fmt(lo).replace(':','-')}`);
 }
 function hideMarkRange(){
@@ -7416,21 +6602,8 @@ function _buildTimeline(vid,dur){
       scrub.appendChild(lbl);
     }
   }
-  // Cut ranges on scrub
-  (vid.cutRanges||[]).forEach(c=>{
-    const lo=Math.max(0,Math.min(c.start||0,c.end||0));
-    const hi=Math.min(dur,Math.max(c.start||0,c.end||0));
-    if(!(hi>lo))return;
-    const cr=document.createElement('div');
-    cr.className='tl-cut-range';
-    cr.style.left=(lo/dur*100)+'%';
-    cr.style.width=((hi-lo)/dur*100)+'%';
-    scrub.appendChild(cr);
-  });
-  // Frame dots on scrub. Sample large sets so the timeline cannot flood the DOM.
-  const dotStep=Math.max(1,Math.ceil((vid.frames||[]).length/400));
-  vid.frames.forEach((fr,idx)=>{
-    if(idx%dotStep!==0)return;
+  // Frame dots on scrub
+  vid.frames.forEach(fr=>{
     const sec=normalizeFrameTiming(fr);
     if(sec==null)return;
     const dot=document.createElement('div');
@@ -7521,22 +6694,22 @@ function _niceTick(dur){
 function renderFilmstrip(vid){
   const inner=document.getElementById('filmstrip-inner');
   if(!inner||!vid)return;
-  _lastHighlightedFilmId=null;
   inner.innerHTML='';
-  const count=document.getElementById('filmstrip-count');
-  const visibleFrames=vid.frames.slice(Math.max(0,vid.frames.length-FILMSTRIP_MAX_DOM_THUMBS));
-  if(count)count.textContent=vid.frames.length>visibleFrames.length?`${visibleFrames.length}/${vid.frames.length} frames visible`:`${vid.frames.length} frame${vid.frames.length!==1?'s':''}`;
-  setFrameTrayMode(frameTrayMode);
   const colorMap={};
   flows.forEach((fl,i)=>{colorMap[fl.id]=BAND_COLORS[i%BAND_COLORS.length];});
-  visibleFrames.forEach((fr,i)=>{
+  vid.frames.forEach((fr,i)=>{
     const thumb=document.createElement('div');
     thumb.className='fs-thumb';thumb.dataset.fid=fr.id;
     const img=document.createElement('img');
     img.loading='lazy';img.alt='';
-    img.dataset.frameId=fr.id;
-    img.src=_imgPlaceholder();
-    loadThumbIntoImg(img,fr,true);
+    if(fr._thumbBlobUrl)img.src=fr._thumbBlobUrl;
+    else if(fr.blobUrl)img.src=fr.blobUrl;
+    else{
+      (async()=>{
+        await dbLoadFrameBlob(fr);
+        if(img.isConnected)img.src=fr._thumbBlobUrl||fr.blobUrl||'';
+      })();
+    }
     const timeLbl=document.createElement('div');
     timeLbl.className='fs-time';
     const sec=normalizeFrameTiming(fr);
@@ -7562,11 +6735,9 @@ function _highlightFilmThumb(cur){
   if(!frames.length)return;
   let closest=frames[0];
   for(const f of frames){if(Math.abs(frameSec(f)-cur)<Math.abs(frameSec(closest)-cur))closest=f;}
-  if(_lastHighlightedFilmId===closest.id)return;
-  _lastHighlightedFilmId=closest.id;
   inner.querySelectorAll('.fs-thumb.active').forEach(t=>t.classList.remove('active'));
   const el=inner.querySelector(`.fs-thumb[data-fid="${closest.id}"]`);
-  if(el){el.classList.add('active');el.scrollIntoView({behavior:'auto',inline:'nearest',block:'nearest'});}
+  if(el){el.classList.add('active');el.scrollIntoView({behavior:'smooth',inline:'nearest',block:'nearest'});}
 }
 
 // ─── MARK FLOW SELECT ─────────────────────────────────────────────────────────
@@ -7586,24 +6757,11 @@ function updateMarkFlowSel(){
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 async function init(){
   await openDB();
-  try{
-    const p=JSON.parse(localStorage.getItem(LS_PREFS)||'{}');
-    if(p.globalHideStyle)globalHideStyle=p.globalHideStyle;
-    if(p.vexFormat)vexFormat=normalizeVideoFormat(p.vexFormat);
-    if(p.currentView)currentView=p.currentView;
-    if(p.canvasOptions&&typeof p.canvasOptions==='object'){
-      const oldFramePrefs=!p.canvasOptions._frameGeometryV2;
-      canvasOptions={...canvasOptions,...p.canvasOptions};
-      if(oldFramePrefs)canvasOptions.frame='cosmic-orange';
-      canvasOptions._frameGeometryV2=true;
-    }
-    if(typeof p.showVideoRedactions==='boolean')showVideoRedactions=p.showVideoRedactions;
-  }catch(e){}
+  try{const p=JSON.parse(localStorage.getItem(LS_PREFS)||'{}');if(p.globalHideStyle)globalHideStyle=p.globalHideStyle;if(p.vexFormat)vexFormat=p.vexFormat;if(p.currentView)currentView=p.currentView;}catch(e){}
   initFlows();
   initWords();
   try{const th=localStorage.getItem(LS_THEME);if(th==='light'){darkMode=false;document.body.classList.add('light');document.getElementById('theme-btn').textContent='☀️';}}catch(e){}
   renderFlows();renderQFlows();renderWordList();updateFDD();
-  syncVexFormatControls();
   document.getElementById('nfi').addEventListener('keydown',e=>{if(e.key==='Enter')addFlowCustom();});
   document.getElementById('nwi').addEventListener('keydown',e=>{if(e.key==='Enter')addWordG();});
   document.getElementById('ocr-wi').addEventListener('keydown',e=>{if(e.key==='Enter')ocrAddW();});
@@ -7611,15 +6769,32 @@ async function init(){
   document.getElementById('qflow-search').addEventListener('keydown',e=>{if(e.key==='Enter')filterQFlows();});
   setView(currentView);
   setCenterView('video');
-  updateCanvasControls();
   initTrimmer();
-  setTimeout(()=>initOcr(),800);
+  initOcr();
 
-  // Restoring can involve hundreds of blobs, so never do it automatically on startup.
+  // Auto-restore session if saved within last 4 hours, else show banner
   const meta=getSessionMeta();
   if(meta&&meta.videos?.length){
+    const ageMs=Date.now()-meta.savedAt;
     const total=meta.videos.reduce((s,v)=>s+v.frames.length,0);
-    showSessionBanner(meta.savedAt,total);
+    if(ageMs<4*60*60*1000){
+      // Recent session — restore automatically, no prompt needed
+      showLd('Restoring your session…');
+      restoreSession._fn().then(ok=>{
+        if(ok==='cancelled'){
+          return;
+        }
+        if(!ok){
+          hideLd();
+          toast('⚠️','Session data missing — please re-upload your images');
+        } else {
+          toast('✓',`Session restored · ${total} frames · ${allFrames().filter(f=>f.flows.length).length} tagged`);
+        }
+      });
+    } else {
+      // Older session — let user decide
+      showSessionBanner(meta.savedAt,total);
+    }
   }
 }
 
@@ -7650,7 +6825,7 @@ restoreSession._fn=async function(){
   };
   for(const vm of meta.videos){
     if(restoreCancelFlag)return abortRestore();
-    const v={...vm,objectURL:null,file:null,frames:[]};
+    const v={...vm,objectURL:null,file:null,frames:[],cutRanges:vm.cutRanges||[]};
     for(const fm of vm.frames){
       if(restoreCancelFlag)return abortRestore();
       const fr={...fm,canvas:null,blobUrl:null,_thumbBlobUrl:null,selected:false};
@@ -7671,6 +6846,8 @@ restoreSession._fn=async function(){
   renderVideoList();updateVDD();renderFrames();updateStats();
   renderFlows();renderQFlows();toggleExpBtns();
   toast('✓',`Session restored · ${total} frames`);
+  // Re-queue any frames that weren't processed before session was saved
+  bgQueueFrames(allFrames());
   return true;
 };
 
