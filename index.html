@@ -855,8 +855,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <div class="sec">
       <div class="sl">Hide Style</div>
       <div class="sg" id="sg">
-        <div class="sc on" data-v="fill" onclick="setGs('fill',this)"><span class="sc-i">■</span><span class="sc-l">Solid Fill</span></div>
-        <div class="sc" data-v="blur" onclick="setGs('blur',this)"><span class="sc-i">⬡</span><span class="sc-l">Pixelate</span></div>
+        <div class="sc" data-v="fill" onclick="setGs('fill',this)"><span class="sc-i">■</span><span class="sc-l">Solid Fill</span></div>
+        <div class="sc on" data-v="blur" onclick="setGs('blur',this)"><span class="sc-i">⬡</span><span class="sc-l">Pixelate</span></div>
         <div class="sc" data-v="box" onclick="setGs('box',this)"><span class="sc-i">□</span><span class="sc-l">Outline</span></div>
         <div class="sc" data-v="bf" onclick="setGs('bf',this)"><span class="sc-i">▨</span><span class="sc-l">Pixel+Fill</span></div>
       </div>
@@ -1365,7 +1365,7 @@ let wordList=[];
 let activeVideoId=null;
 let currentView='g', cancelFlag=false, restoreCancelFlag=false;
 let frameTrayMode='strip', _previewOverlayRaf=0, _previewCutJumping=false;
-let globalHideStyle='fill', vexFormat='webm';
+let globalHideStyle='blur', vexFormat='webm';
 let showVideoRedactions=true;
 let videoFullView=false;
 let canvasOptions={
@@ -2680,8 +2680,15 @@ function parseFlowNames(raw){
 function delFlow(id){
   flows=flows.filter(f=>f.id!==id);
   allFrames().forEach(fr=>{fr.flows=fr.flows.filter(x=>x!==id);});
+  const ffl=document.getElementById('ffl');if(ffl&&ffl.value===id)ffl.value='';
+  const mk=document.getElementById('mk-flow-sel');if(mk&&mk.value===id)mk.value='';
   savePersistentFlows();
-  renderFlows();renderQFlows();renderFrames();updateFSum();updateFDD();
+  renderFlows();renderQFlows();renderFrames();updateFSum();updateFDD();updateMarkFlowSel();
+  if(_stageVid){
+    renderFilmstrip(_stageVid);
+    _buildTimeline(_stageVid,document.getElementById('vid-main')?.duration||_stageVid.duration||0);
+  }
+  scheduleSaveSession();
 }
 function addFlowCustom(){
   const i=document.getElementById('nfi');
@@ -2711,6 +2718,11 @@ function removeFlowFromFrame(frId,fid,evt){
     if(cfoot)updateCardBadges(card,fr);
   }
   updateFSum();renderFlows();
+  if(_stageVid&&fr.videoId===_stageVid.id){
+    renderFilmstrip(_stageVid);
+    _buildTimeline(_stageVid,document.getElementById('vid-main')?.duration||_stageVid.duration||0);
+  }
+  scheduleSaveSession();
 }
 function updateCardBadges(card,fr){
   const cfoot=card.querySelector('.cfoot');
@@ -5814,18 +5826,36 @@ function _videoRedactionEvents(v){
     return [{start:Math.max(0,sec-step),end:sec+step,boxes}];
   });
 }
+function blurCanvasRect(ctx,x,y,w,h,amount=10){
+  x=Math.max(0,Math.floor(x));y=Math.max(0,Math.floor(y));
+  w=Math.max(1,Math.min(ctx.canvas.width-x,Math.ceil(w)));
+  h=Math.max(1,Math.min(ctx.canvas.height-y,Math.ceil(h)));
+  if(!w||!h)return;
+  const tmp=document.createElement('canvas');
+  tmp.width=w;tmp.height=h;
+  const tctx=tmp.getContext('2d',{alpha:true});
+  try{tctx.drawImage(ctx.canvas,x,y,w,h,0,0,w,h);}catch(e){return;}
+  ctx.save();
+  ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
+  ctx.filter=`blur(${amount}px)`;
+  const pad=Math.ceil(amount*2);
+  try{ctx.drawImage(tmp,x-pad,y-pad,w+pad*2,h+pad*2);}catch(e){ctx.drawImage(tmp,x,y,w,h);}
+  ctx.filter='none';
+  ctx.globalAlpha=.18;
+  ctx.fillStyle='rgba(255,255,255,.35)';
+  ctx.fillRect(x,y,w,h);
+  ctx.restore();
+}
 function _drawVideoRedactions(ctx,t,events,W,H){
   if(!events?.length)return;
-  ctx.save();ctx.fillStyle='#050505';
   events.forEach(ev=>{
     if(t<ev.start||t>ev.end)return;
     (ev.boxes||[]).forEach(b=>{
       const nx=Math.abs(b.x)<=1&&Math.abs(b.w)<=1;
       const x=nx?b.x*W:b.x,y=nx?b.y*H:b.y,w=nx?b.w*W:b.w,h=nx?b.h*H:b.h;
-      ctx.fillRect(Math.max(0,x),Math.max(0,y),Math.max(1,w),Math.max(1,h));
+      blurCanvasRect(ctx,x,y,w,h,12);
     });
   });
-  ctx.restore();
 }
 const PHONE_FRAME_SRC={
   black:'black-titanium-iphone16pro.png',
@@ -6019,7 +6049,6 @@ function getPhoneScreenRect(phone){
 }
 function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
   if(!showVideoRedactions||!events?.length)return;
-  ctx.save();ctx.fillStyle='#050505';
   events.forEach(ev=>{
     if(t<ev.start||t>ev.end)return;
     (ev.boxes||[]).forEach(b=>{
@@ -6028,10 +6057,9 @@ function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
       const y=rect.y+(nx?b.y*rect.h:b.y*(rect.h/Math.max(1,sourceH||rect.h)));
       const w=nx?b.w*rect.w:b.w*(rect.w/Math.max(1,sourceW||rect.w));
       const h=nx?b.h*rect.h:b.h*(rect.h/Math.max(1,sourceH||rect.h));
-      ctx.fillRect(Math.max(rect.x,x),Math.max(rect.y,y),Math.max(1,w),Math.max(1,h));
+      blurCanvasRect(ctx,Math.max(rect.x,x),Math.max(rect.y,y),Math.max(1,w),Math.max(1,h),12);
     });
   });
-  ctx.restore();
 }
 function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const W=ctx.canvas.width,H=ctx.canvas.height;
@@ -7048,20 +7076,27 @@ function drawVideoPreviewOverlay(){
   if(!showVideoRedactions)return;
   const events=_previewRedactionEvents(_stageVid);
   const t=video.currentTime||0;
-  ctx.save();
-  ctx.fillStyle='#050505';
   events.forEach(ev=>{
     if(t<ev.start||t>ev.end)return;
     (ev.boxes||[]).forEach(b=>{
       const nx=Math.abs(b.x)<=1&&Math.abs(b.w)<=1;
-      const x=r.x+(nx?b.x*r.w:b.x*(r.w/(video.videoWidth||r.w)));
-      const y=r.y+(nx?b.y*r.h:b.y*(r.h/(video.videoHeight||r.h)));
-      const w=nx?b.w*r.w:b.w*(r.w/(video.videoWidth||r.w));
-      const h=nx?b.h*r.h:b.h*(r.h/(video.videoHeight||r.h));
-      ctx.fillRect(Math.max(r.x,x),Math.max(r.y,y),Math.max(1,w),Math.max(1,h));
+      const sx=nx?b.x*(video.videoWidth||r.w):b.x;
+      const sy=nx?b.y*(video.videoHeight||r.h):b.y;
+      const sw=nx?b.w*(video.videoWidth||r.w):b.w;
+      const sh=nx?b.h*(video.videoHeight||r.h):b.h;
+      const x=r.x+sx*(r.w/(video.videoWidth||r.w));
+      const y=r.y+sy*(r.h/(video.videoHeight||r.h));
+      const w=sw*(r.w/(video.videoWidth||r.w));
+      const h=sh*(r.h/(video.videoHeight||r.h));
+      ctx.save();
+      ctx.beginPath();ctx.rect(Math.max(r.x,x),Math.max(r.y,y),Math.max(1,w),Math.max(1,h));ctx.clip();
+      ctx.filter='blur(12px)';
+      try{ctx.drawImage(video,Math.max(0,sx),Math.max(0,sy),Math.max(1,sw),Math.max(1,sh),x,y,w,h);}catch(e){}
+      ctx.filter='none';
+      ctx.globalAlpha=.18;ctx.fillStyle='rgba(255,255,255,.35)';ctx.fillRect(x,y,w,h);
+      ctx.restore();
     });
   });
-  ctx.restore();
 }
 function _applyPreviewCut(video){
   if(!video||!_stageVid||_previewCutJumping)return;
@@ -7465,6 +7500,7 @@ function _buildTimeline(vid,dur){
     const sec=normalizeFrameTiming(fr);
     if(sec==null)return;
     fr.flows.forEach(fid=>{
+      if(!flows.some(f=>f.id===fid))return;
       if(!flMap[fid]){flMap[fid]={min:sec,max:sec};}
       else{flMap[fid].min=Math.min(flMap[fid].min,sec);flMap[fid].max=Math.max(flMap[fid].max,sec);}
     });
@@ -7476,16 +7512,16 @@ function _buildTimeline(vid,dur){
     band.style.left=(min/dur*100)+'%';
     band.style.width=Math.max(0.5,(max-min)/dur*100)+'%';
     band.style.background=colorMap[fid]||BAND_COLORS[rowIdx%BAND_COLORS.length];
-    band.style.top=(2+rowIdx*30)+'px';
+    band.style.top='2px';
+    band.style.zIndex=String(2+rowIdx);
     band.title=(fl?.name||fid)+' · '+fmt(min)+' → '+fmt(max);
     band.onclick=()=>{const v=document.getElementById('vid-main');if(v)v.currentTime=min;};
     const lbl=document.createElement('div');lbl.className='tl-band-lbl';lbl.textContent=fl?.name||fid;
     band.appendChild(lbl);
     bands.appendChild(band);
   });
-  // Adjust bands row height to fit bands
-  const nBands=Object.keys(flMap).length;
-  bands.style.height=Math.max(32,nBands*30+4)+'px';
+  // Keep all flow bands on one horizontal lane.
+  bands.style.height='32px';
   // Scrub click/drag to seek
   const seekFn=(e)=>{
     const rect=scrub.getBoundingClientRect();
@@ -7588,7 +7624,7 @@ async function init(){
   await openDB();
   try{
     const p=JSON.parse(localStorage.getItem(LS_PREFS)||'{}');
-    if(p.globalHideStyle)globalHideStyle=p.globalHideStyle;
+    if(p.globalHideStyle)globalHideStyle=p.globalHideStyle==='fill'?'blur':p.globalHideStyle;
     if(p.vexFormat)vexFormat=normalizeVideoFormat(p.vexFormat);
     if(p.currentView)currentView=p.currentView;
     if(p.canvasOptions&&typeof p.canvasOptions==='object'){
@@ -7603,6 +7639,7 @@ async function init(){
   initWords();
   try{const th=localStorage.getItem(LS_THEME);if(th==='light'){darkMode=false;document.body.classList.add('light');document.getElementById('theme-btn').textContent='☀️';}}catch(e){}
   renderFlows();renderQFlows();renderWordList();updateFDD();
+  document.querySelectorAll('#sg .sc').forEach(c=>c.classList.toggle('on',c.dataset.v===globalHideStyle));
   syncVexFormatControls();
   document.getElementById('nfi').addEventListener('keydown',e=>{if(e.key==='Enter')addFlowCustom();});
   document.getElementById('nwi').addEventListener('keydown',e=>{if(e.key==='Enter')addWordG();});
