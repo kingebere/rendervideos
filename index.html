@@ -1824,6 +1824,20 @@ function get2dCtx(canvas, willRead = false, alpha = true) {
   ) || canvas.getContext('2d');
 }
 function allFrames(){return videos.flatMap(v=>v.frames);}
+function allFramesInVideoOrder(){
+  return videos.flatMap(v=>
+    [...(v.frames||[])].sort((a,b)=>(frameSec(a)??0)-(frameSec(b)??0))
+  );
+}
+function sortFramesInSessionOrder(frameList){
+  const videoOrder=new Map(videos.map((v,i)=>[v.id,i]));
+  return [...(frameList||[])].sort((a,b)=>{
+    const av=videoOrder.has(a.videoId)?videoOrder.get(a.videoId):Number.MAX_SAFE_INTEGER;
+    const bv=videoOrder.has(b.videoId)?videoOrder.get(b.videoId):Number.MAX_SAFE_INTEGER;
+    if(av!==bv)return av-bv;
+    return (frameSec(a)??0)-(frameSec(b)??0);
+  });
+}
 function getFrame(id){for(const v of videos){const f=v.frames.find(fr=>fr.id===id);if(f)return f;}return null;}
 function getVideo(id){return videos.find(v=>v.id===id)||null;}
 function activeVideo(){return getVideo(activeVideoId);}
@@ -1835,6 +1849,30 @@ function normalizeFrameTiming(fr){
   const sec=frameSec(fr);
   if(sec!=null){fr.timeSec=sec;fr.timestamp=sec;}
   return sec;
+}
+function mergeCutRanges(ranges,duration=Infinity){
+  const clean=(ranges||[])
+    .map(c=>({start:Math.max(0,Number(c.start)||0),end:Math.min(Number.isFinite(duration)?duration:Infinity,Math.max(0,Number(c.end)||0))}))
+    .filter(c=>c.end>c.start)
+    .sort((a,b)=>a.start-b.start);
+  const merged=[];
+  clean.forEach(c=>{
+    const last=merged[merged.length-1];
+    if(last&&c.start<=last.end+0.001)last.end=Math.max(last.end,c.end);
+    else merged.push({...c});
+  });
+  return merged;
+}
+function effectiveVideoDuration(v,start=0,end=null){
+  if(!v)return 0;
+  const lo=Math.max(0,Number(start)||0);
+  const hi=Math.max(lo,Number(end??v.duration??0)||0);
+  if(!(hi>lo))return 0;
+  const segs=typeof _sourceSegments==='function'?_sourceSegments(v,lo,hi,true):[{start:lo,end:hi}];
+  return segs.reduce((sum,s)=>sum+Math.max(0,s.end-s.start),0);
+}
+function totalEffectiveDuration(list=videos){
+  return (list||[]).reduce((sum,v)=>sum+effectiveVideoDuration(v),0);
 }
 function yieldUI(ms=0){return new Promise(r=>setTimeout(r,ms));}
 function safeCanvasSize(w,h,maxEdge=FRAME_MAX_EDGE,maxPixels=FRAME_MAX_PIXELS){
@@ -2438,13 +2476,53 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH){
   }catch(e){return null;}
 }
 
+function detectDynamicIslandRect(canvas){
+  const W=canvas.width,H=canvas.height;
+  if(!W||!H||W/H>0.82)return null;
+  const sx=Math.round(W*.34),sy=Math.round(H*.014),sw=Math.round(W*.32),sh=Math.round(H*.07);
+  if(sw<12||sh<6)return null;
+  try{
+    const ctx=get2dCtx(canvas,true,true);
+    const data=ctx.getImageData(sx,sy,sw,sh).data;
+    let dark=0,opaque=0,totalL=0;
+    for(let i=0;i<data.length;i+=4){
+      if(data[i+3]<24)continue;
+      opaque++;
+      const l=.2126*data[i]+.7152*data[i+1]+.0722*data[i+2];
+      totalL+=l;
+      if(l<42)dark++;
+    }
+    if(!opaque)return null;
+    const darkRatio=dark/opaque;
+    const avg=totalL/opaque;
+    if(darkRatio<.18||avg>125)return null;
+    return {
+      x:Math.round(W*.34),
+      y:Math.round(H*.012),
+      w:Math.round(W*.32),
+      h:Math.round(H*.082)
+    };
+  }catch(e){return null;}
+}
+
 function replaceStatusBarFast(canvas){
   const W=canvas.width,H=canvas.height;
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
+  const island=detectDynamicIslandRect(canvas);
+  let islandCopy=null;
+  if(island){
+    islandCopy=document.createElement('canvas');
+    islandCopy.width=island.w;islandCopy.height=island.h;
+    islandCopy.getContext('2d',{alpha:true}).drawImage(canvas,island.x,island.y,island.w,island.h,0,0,island.w,island.h);
+  }
   const bg=applyStatusBarRemoval(ctx,0,0,W,H);
   if(!bg)return false;
-  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
+  if(island&&islandCopy){
+    try{ctx.drawImage(islandCopy,island.x,island.y);}catch(e){}
+  }else{
+    try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
+  }
   return true;
 }
 function exportStatusBarEnabled(scope='zip'){
@@ -3161,14 +3239,8 @@ async function addImages(filesInput){
   const rawFolder=unique[0]?.webkitRelativePath?unique[0].webkitRelativePath.split('/')[0]:'Screenshots';
   const folderName=rawFolder.replace(/[_\s]*[\(\[]\d+[\)\]]$/,'').replace(/_\d+$/,'').replace(/_/g,' ').trim()||'Screenshots';
 
-  // Replace ALL existing frames + clear session when a new folder is uploaded
-  const oldIds=allFrames().map(f=>f.id);
-  allFrames().forEach(releaseFrameBlobs);
-  videos=[];activeVideoId=null;
-  await dbDeleteFrameBlobs(oldIds);
-  clearSession();
-  dismissSessionBanner();
-  bgReset();
+  // Add each image batch after existing videos/images. Export uses video order,
+  // so later uploads never jump ahead of earlier work.
 
   const vid={
     id:'img_'+Date.now(),name:folderName+` (${unique.length})`,
@@ -3854,6 +3926,15 @@ function updateStatsQuick(){
   document.getElementById('st-s').textContent=s;
   document.getElementById('seln').textContent=s;
   document.getElementById('st-v').textContent=videos.length;
+  const slbl=document.getElementById('slbl');
+  if(slbl&&videos.length){
+    const raw=videos.reduce((sum,v)=>sum+(Number(v.duration)||0),0);
+    const eff=totalEffectiveDuration(videos);
+    const cuts=videos.reduce((sum,v)=>sum+(v.cutRanges||[]).length,0);
+    slbl.textContent=cuts?`Total ${fmt(eff)} after cuts (${fmt(raw)} raw)`:`Total ${fmt(raw)}`;
+  }else if(slbl){
+    slbl.textContent='-';
+  }
 }
 function updateStats(){updateStatsQuick();updateFSum();}
 function toggleExpBtns(){
@@ -3864,11 +3945,15 @@ function toggleExpBtns(){
 // ─── VIDEO LIST ──────────────────────────────────────────────────────────────
 function removeVideo(id){
   const v=getVideo(id);if(!v)return;
+  const removedIds=(v.frames||[]).map(fr=>fr.id);
   v.frames.forEach(releaseFrameBlobs);
   if(v.objectURL)URL.revokeObjectURL(v.objectURL);
   videos=videos.filter(x=>x.id!==id);
   if(activeVideoId===id)activeVideoId=videos[0]?.id||null;
   renderVideoList();updateVDD();renderFrames();updateStats();toggleExpBtns();
+  loadVideoStage(activeVideo()||null);
+  if(removedIds.length)dbDeleteFrameBlobs(removedIds);
+  scheduleSaveSession();
 }
 function setActiveVideo(id){
   activeVideoId=id;renderVideoList();renderFrames();updateStats();
@@ -3887,10 +3972,14 @@ function renderVideoList(){
     const d=document.createElement('div');d.className='vi'+(isAct?' on':'');
     const thumbSrc=v.frames[0]?(v.frames[0]._thumbBlobUrl||v.frames[0].blobUrl||''):'';
     const src=SRC_LABELS[v.source]||'?';const srcCls=SRC_COLORS[v.source]||'';
+    const rawDur=Number(v.duration)||0;
+    const effDur=effectiveVideoDuration(v);
+    const cutCount=(v.cutRanges||[]).length;
+    const durText=cutCount?`${fmt(effDur)} after cuts (${fmt(rawDur)} raw)`:fmtDur(rawDur);
     d.innerHTML=`${thumbSrc?`<img class="vt" src="${thumbSrc}" alt=""/>`:`<div class="vt" style="display:flex;align-items:center;justify-content:center;font-size:12px">📹</div>`}
       <div style="flex:1;min-width:0">
         <div class="vi-n" title="${esc(v.name)}">${esc(v.name)}</div>
-        <div class="vi-m">${fmtDur(v.duration)} · ${v.sizeMB}MB · ${v.frames.length}fr</div>
+        <div class="vi-m">${durText} · ${v.sizeMB}MB · ${v.frames.length}fr</div>
         <div style="margin-top:2px;display:flex;gap:3px;align-items:center">
           <span class="vsrc ${srcCls}">${src}</span>
           ${v.needsTranscode&&!v.transcoded?'<span style="font-size:8px;color:var(--a2)">⚠️HEVC</span>':''}
@@ -5736,7 +5825,9 @@ function syncVexFormatControls(){
 }
 function openVexModal(){
   if(!allFrames().length){toast('⚠️','Extract frames first');return;}
-  document.getElementById('full-fc').textContent=`${allFrames().length} frames`;
+  const raw=videos.reduce((sum,v)=>sum+(Number(v.duration)||0),0);
+  const eff=totalEffectiveDuration(videos);
+  document.getElementById('full-fc').textContent=`${allFrames().length} frames · ${fmt(eff)}${eff<raw-0.05?' after cuts':''}`;
   syncVexFormatControls();renderVexFlows();document.getElementById('vex-prog').style.display='none';
   document.getElementById('vex-modal').classList.add('on');
 }
@@ -5753,7 +5844,7 @@ function renderVexFlows(){
   });
 }
 async function exportFullEditedVideo(){
-  const sorted=[...allFrames()].sort((a,b)=>a.timestamp-b.timestamp);
+  const sorted=allFramesInVideoOrder();
   const _appN=(document.getElementById('exp-appname')?.value||'').trim()||'export';
   disableVexBtns(true);
   const src=_sourceVideoForFrames(sorted);
@@ -5765,7 +5856,7 @@ async function exportFullEditedVideo(){
 }
 async function exportOneFlowVideo(fid){
   const fl=flows.find(f=>f.id===fid);
-  const frs=[...allFrames()].filter(fr=>fr.flows.includes(fid)).sort((a,b)=>a.timestamp-b.timestamp);
+  const frs=sortFramesInSessionOrder(allFrames().filter(fr=>fr.flows.includes(fid)));
   const _appNf=(document.getElementById('exp-appname')?.value||'').trim()||'export';
   disableVexBtns(true);
   const src=_sourceVideoForFrames(frs);
@@ -5788,7 +5879,7 @@ async function exportAllFlowVideos(){
   if(!active.length){toast('⚠️','No flows assigned');return;}
   disableVexBtns(true);
   for(const fl of active){
-    const frs=[...af].filter(fr=>fr.flows.includes(fl.id)).sort((a,b)=>a.timestamp-b.timestamp);
+    const frs=sortFramesInSessionOrder(af.filter(fr=>fr.flows.includes(fl.id)));
     const src=_sourceVideoForFrames(frs);
     if(src&&frs.length){
       const secs=frs.map(frameSec).filter(s=>s!=null);
@@ -6183,7 +6274,7 @@ function addRedactionAtCurrent(){
 function _sourceSegments(v,start=0,end=null,includeCuts=true){
   const hi=end==null?(v.duration||0):end;
   let segs=[{start:Math.max(0,start||0),end:Math.max(0,hi)}];
-  const cuts=includeCuts?(v.cutRanges||[]):[];
+  const cuts=includeCuts?mergeCutRanges(v.cutRanges||[],hi):[];
   cuts.forEach(cut=>{
     const cs=Math.max(segs[0]?.start??0,cut.start||0),ce=Math.min(hi,cut.end||0);
     if(!(ce>cs))return;
@@ -6592,7 +6683,8 @@ async function exportZip(vid){
   const flowsRoot=sessionRoot.folder('flows');
   const untaggedFolder=sessionRoot.folder('untagged');
   const dbFolder=sessionRoot.folder('_db');
-  const manifestData={session:{id:`session_${sessionId}`,title:appName,url:'',hostname:domainSlug.replace(/_/g,'.'),duration:Math.max(...targetVideos.map(v=>v.duration||0),0),durationFmt:exportDuration(Math.max(...targetVideos.map(v=>v.duration||0),0)),exportedAt:new Date().toISOString()},flows:[],screenshots:[]};
+  const sessionDuration=totalEffectiveDuration(targetVideos);
+  const manifestData={session:{id:`session_${sessionId}`,title:appName,url:'',hostname:domainSlug.replace(/_/g,'.'),duration:sessionDuration,durationFmt:exportDuration(sessionDuration),exportedAt:new Date().toISOString()},flows:[],screenshots:[]};
   const dbScreens=['screenshot_id,video,flow,time,time_sec,image_file,figma_file'];
   const dbFlows=['flow_id,index,name,folder,screenshot_count,start_sec,end_sec'];
   const allFlowsIndex=['flow_index,flow_name,folder,screenshot_count,start_sec,end_sec'];
@@ -6708,7 +6800,7 @@ async function exportZip(vid){
     dbFolder.file('screenshots.csv',dbScreens.join('\n'),{compression:'STORE'});
     dbFolder.file('flows.csv',dbFlows.join('\n'),{compression:'STORE'});
     dbFolder.file('sessions.csv','session_id,title,exported_at\n'+`session_${sessionId},${csvCell(appName)},${csvCell(new Date().toISOString())}` ,{compression:'STORE'});
-    dbFolder.file('videos.csv','video_id,name,duration\n'+targetVideos.map(v=>`${v.id},${csvCell(v.name)},${v.duration||0}`).join('\n'),{compression:'STORE'});
+    dbFolder.file('videos.csv','video_id,name,duration_raw,duration_effective,cuts\n'+targetVideos.map(v=>`${v.id},${csvCell(v.name)},${v.duration||0},${effectiveVideoDuration(v).toFixed(3)},${(v.cutRanges||[]).length}`).join('\n'),{compression:'STORE'});
     dbFolder.file('file_inventory.csv',inventory.join('\n'),{compression:'STORE'});
   }
   if(expMan){
@@ -6958,6 +7050,8 @@ async function clearAllImages(){
   recyclebin=[];
   // Clear in-memory state
   videos=[];activeVideoId=null;
+  _stageVid=null;_markIn=null;_markOut=null;
+  clearVideoPreviewOverlay();
   // Await full IndexedDB wipe + localStorage clear
   await clearSession();
   dismissSessionBanner();
@@ -7148,7 +7242,9 @@ function loadVideoStage(vid){
   _stageVid=vid||null;
   _markIn=null;_markOut=null;_fsThumbsBuilt=false;
   _lastHighlightedFilmId=null;
-  if(!vid||!vid.objectURL){
+  const hasFrames=!!(vid&&vid.frames&&vid.frames.length);
+  const hasSource=!!(vid&&vid.objectURL);
+  if(!vid||(!hasSource&&!hasFrames)){
     if(wrap)wrap.style.display='none';
     if(empty)empty.style.display='flex';
     if(ctrlBar)ctrlBar.style.display='none';
@@ -7160,9 +7256,12 @@ function loadVideoStage(vid){
     return;
   }
   vid.frames.forEach(normalizeFrameTiming);
-  if(empty)empty.style.display='none';
-  if(wrap)wrap.style.display='flex';
-  if(ctrlBar)ctrlBar.style.display='flex';
+  if(empty){
+    empty.style.display=hasSource?'none':'flex';
+    empty.innerHTML=hasSource?empty.innerHTML:'<div style="font-size:13px;font-weight:700;color:var(--t)">Restored frames loaded</div><div style="font-size:10px;line-height:1.6;max-width:300px">The original video file is not stored in browser session restore. Re-upload the source video to preview/export source playback; timeline frames and tags are available below.</div>';
+  }
+  if(wrap)wrap.style.display=hasSource?'flex':'none';
+  if(ctrlBar)ctrlBar.style.display=hasSource?'flex':'none';
   if(canvasPanel)canvasPanel.style.display='flex';
   if(markBar)markBar.style.display='flex';
   if(tlArea)tlArea.style.display='flex';
@@ -7177,10 +7276,15 @@ function loadVideoStage(vid){
   }
   updateCanvasControls();
   // Swap source only if changed
-  if(vmain.dataset.vidId!==vid.id){
+  if(hasSource&&vmain.dataset.vidId!==vid.id){
     vmain.dataset.vidId=vid.id;
     vmain.src=vid.objectURL;
     vmain.load();
+  }else if(!hasSource){
+    vmain.pause();
+    vmain.removeAttribute('src');
+    vmain.dataset.vidId='';
+    try{vmain.load();}catch(e){}
   }
   vmain.ontimeupdate=()=>{ _onVidTimeUpdate(vmain); };
   vmain.onloadedmetadata=()=>{ _buildTimeline(vid,vmain.duration||vid.duration||0);drawVideoPreviewOverlay(); };
@@ -7189,11 +7293,12 @@ function loadVideoStage(vid){
   vmain.onseeked=()=>{_applyPreviewCut(vmain);drawVideoPreviewOverlay();};
   renderMarkBar();
   updateMarkFlowSel();
-  _buildTimeline(vid,vid.duration||0);
+  const fallbackDur=vid.duration||Math.max(0,...(vid.frames||[]).map(fr=>frameSec(fr)||0));
+  _buildTimeline(vid,fallbackDur);
   renderFilmstrip(vid);
   setFrameTrayMode(frameTrayMode);
   applyVideoFullView();
-  drawVideoPreviewOverlay();
+  if(hasSource)drawVideoPreviewOverlay();else clearVideoPreviewOverlay();
 }
 
 function _onVidTimeUpdate(vmain){
@@ -7411,7 +7516,7 @@ function cutMarkRange(){
   const ids=new Set(hits.map(f=>f.id));
   hits.forEach(fr=>{sendToBin(fr);});
   _stageVid.frames=_stageVid.frames.filter(f=>!ids.has(f.id));
-  scheduleRenderFrames();updateStats();scheduleSaveSession();
+  scheduleRenderFrames();updateStats();renderVideoList();scheduleSaveSession();
   renderFilmstrip(_stageVid);_buildTimeline(_stageVid,document.getElementById('vid-main')?.duration||_stageVid.duration||0);
   drawVideoPreviewOverlay();
   clearMark();
@@ -7706,7 +7811,10 @@ restoreSession._fn=async function(){
   activeVideoId=meta.activeVideoId||videos[0]?.id||null;
   hideLd();
   renderVideoList();updateVDD();renderFrames();updateStats();
+  loadVideoStage(null);
   renderFlows();renderQFlows();toggleExpBtns();
+  const restoredActive=activeVideoId?getVideo(activeVideoId):null;
+  if(restoredActive)loadVideoStage(restoredActive);
   toast('✓',`Session restored · ${total} frames`);
   return true;
 };
