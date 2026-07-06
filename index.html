@@ -1156,7 +1156,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 </div>
 </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 'use strict';
@@ -1838,6 +1838,15 @@ function sortFramesInSessionOrder(frameList){
     return (frameSec(a)??0)-(frameSec(b)??0);
   });
 }
+function frameIsInCutRange(fr){
+  const v=fr&&fr.videoId?getVideo(fr.videoId):null;
+  const sec=frameSec(fr);
+  if(!v||sec==null)return false;
+  return mergeCutRanges(v.cutRanges||[],v.duration||Infinity).some(c=>sec>=c.start&&sec<=c.end);
+}
+function exportableFramesInVideoOrder(frameList){
+  return sortFramesInSessionOrder(frameList||allFrames()).filter(fr=>!frameIsInCutRange(fr));
+}
 function getFrame(id){for(const v of videos){const f=v.frames.find(fr=>fr.id===id);if(f)return f;}return null;}
 function getVideo(id){return videos.find(v=>v.id===id)||null;}
 function activeVideo(){return getVideo(activeVideoId);}
@@ -2510,17 +2519,9 @@ function replaceStatusBarFast(canvas){
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
   const island=detectDynamicIslandRect(canvas);
-  let islandCopy=null;
-  if(island){
-    islandCopy=document.createElement('canvas');
-    islandCopy.width=island.w;islandCopy.height=island.h;
-    islandCopy.getContext('2d',{alpha:true}).drawImage(canvas,island.x,island.y,island.w,island.h,0,0,island.w,island.h);
-  }
   const bg=applyStatusBarRemoval(ctx,0,0,W,H);
   if(!bg)return false;
-  if(island&&islandCopy){
-    try{ctx.drawImage(islandCopy,island.x,island.y);}catch(e){}
-  }else{
+  if(!island){
     try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
   }
   return true;
@@ -2551,7 +2552,7 @@ async function frameCanvasForExport(fr,removeStatusBar){
     const out=document.createElement('canvas');
     out.width=size.w;out.height=size.h;
     const ctx=get2dCtx(out,false,false);
-    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height});
+    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height,hideNotch:removeStatusBar});
     return out;
   }
   return canvas;
@@ -5844,7 +5845,7 @@ function renderVexFlows(){
   });
 }
 async function exportFullEditedVideo(){
-  const sorted=allFramesInVideoOrder();
+  const sorted=exportableFramesInVideoOrder(allFrames());
   const _appN=(document.getElementById('exp-appname')?.value||'').trim()||'export';
   disableVexBtns(true);
   const src=_sourceVideoForFrames(sorted);
@@ -5856,7 +5857,7 @@ async function exportFullEditedVideo(){
 }
 async function exportOneFlowVideo(fid){
   const fl=flows.find(f=>f.id===fid);
-  const frs=sortFramesInSessionOrder(allFrames().filter(fr=>fr.flows.includes(fid)));
+  const frs=exportableFramesInVideoOrder(allFrames().filter(fr=>fr.flows.includes(fid)));
   const _appNf=(document.getElementById('exp-appname')?.value||'').trim()||'export';
   disableVexBtns(true);
   const src=_sourceVideoForFrames(frs);
@@ -5879,7 +5880,7 @@ async function exportAllFlowVideos(){
   if(!active.length){toast('⚠️','No flows assigned');return;}
   disableVexBtns(true);
   for(const fl of active){
-    const frs=sortFramesInSessionOrder(af.filter(fr=>fr.flows.includes(fl.id)));
+    const frs=exportableFramesInVideoOrder(af.filter(fr=>fr.flows.includes(fl.id)));
     const src=_sourceVideoForFrames(frs);
     if(src&&frs.length){
       const secs=frs.map(frameSec).filter(s=>s!=null);
@@ -6197,6 +6198,18 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     ctx.save();ctx.strokeStyle=phoneFrameColor(frameKey);ctx.lineWidth=Math.max(6,phone.w*.035);
     roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.stroke();ctx.restore();
   }
+  if(opts.hideNotch&&mediaHasContent(media)){
+    try{
+      ctx.save();
+      roundedRectPath(ctx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
+      ctx.clip();
+      ctx.beginPath();
+      ctx.rect(screen.x+screen.w*.32,screen.y,screen.w*.36,screen.h*.075);
+      ctx.clip();
+      ctx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
+      ctx.restore();
+    }catch(e){}
+  }
   return {phone,screen,mediaRect:screen};
 }
 function updateCanvasPreviewStyle(){
@@ -6369,7 +6382,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
         safeApplyExportStatusBar(sourceCleanCanvas);
         media=sourceCleanCanvas;
       }
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight});
+      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar});
     }else{
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       if(removeStatusBar)safeApplyExportStatusBar(canvas);
@@ -6587,6 +6600,88 @@ function _triggerDownload(blob,label,ext){
 }
 
 // ─── ZIP EXPORT (FULL QUALITY - PNG) ─────────────────────────────────────────
+async function renderCombinedZipVideo(frameList,label,opts={}){
+  const frames=exportableFramesInVideoOrder(frameList||[]);
+  if(!frames.length||typeof MediaRecorder==='undefined')return null;
+  const removeStatusBar=!!opts.removeStatusBar;
+  const targetDuration=Math.max(0,Number(opts.duration)||0);
+  const timelineFps=targetDuration>0?Math.max(0.05,Math.min(60,frames.length/targetDuration)):Math.max(1,Math.min(24,Number(opts.fps)||18));
+  const recorderFps=Math.max(6,Math.min(24,Number(opts.fps)||18));
+  const first=await frameCanvasForExport(frames[0],removeStatusBar);
+  const canvas=document.createElement('canvas');
+  canvas.width=first.width;canvas.height=first.height;
+  const ctx=get2dCtx(canvas,false,false);
+  const drawZipFrame=(fc)=>{
+    if(fc.width!==canvas.width||fc.height!==canvas.height){
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      const r=containRect(fc.width,fc.height,0,0,canvas.width,canvas.height);
+      ctx.drawImage(fc,r.x,r.y,r.w,r.h);
+    }else{
+      ctx.drawImage(fc,0,0,canvas.width,canvas.height);
+    }
+  };
+  drawZipFrame(first);
+  if(typeof VideoEncoder!=='undefined'){
+    try{
+      const chunks=[];
+      let encErr=null;
+      const encoder=new VideoEncoder({
+        output:(chunk)=>{
+          const buf=new ArrayBuffer(chunk.byteLength);chunk.copyTo(buf);
+          chunks.push({buf,type:chunk.type,timestamp:chunk.timestamp});
+        },
+        error:e=>{encErr=e;}
+      });
+      const cfg={codec:'vp8',width:canvas.width,height:canvas.height,bitrate:opts.videoBitsPerSecond||3_500_000,framerate:Math.max(1,Math.min(30,timelineFps))};
+      const sup=await VideoEncoder.isConfigSupported(cfg);
+      if(!sup.supported)throw new Error('vp8 unsupported');
+      encoder.configure(cfg);
+      for(let i=0;i<frames.length;i++){
+        if(opts.shouldCancel&&opts.shouldCancel())break;
+        const fc=i===0?first:await frameCanvasForExport(frames[i],removeStatusBar);
+        drawZipFrame(fc);
+        const vf=new VideoFrame(canvas,{timestamp:Math.round(i*1_000_000/timelineFps),duration:Math.round(1_000_000/timelineFps)});
+        encoder.encode(vf,{keyFrame:i%30===0});vf.close();
+        if(encErr)throw encErr;
+        if(opts.onProgress)opts.onProgress(i+1,frames.length);
+        if(i%12===0){await encoder.flush();await yieldUI();}
+      }
+      await encoder.flush();encoder.close();
+      if(chunks.length){
+        const blob=_chunksToWebM(chunks,canvas.width,canvas.height,timelineFps);
+        if(blob.size>2048)return {blob,mime:'video/webm',ext:'webm',frames:frames.length,fps:timelineFps};
+      }
+    }catch(e){console.warn('ZIP WebCodecs video render failed, trying MediaRecorder',e);}
+  }
+  const stream=canvas.captureStream(recorderFps);
+  const recCfg=mediaRecorderConfig('webm',false);
+  const chunks=[];
+  let mr;
+  try{mr=new MediaRecorder(stream,{mimeType:recCfg.mime,videoBitsPerSecond:opts.videoBitsPerSecond||3_500_000});}
+  catch(e){try{stream.getTracks().forEach(t=>t.stop());}catch(_e){}return null;}
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  const stopped=new Promise(resolve=>{
+    mr.onstop=()=>{
+      try{stream.getTracks().forEach(t=>t.stop());}catch(e){}
+      const blob=new Blob(chunks,{type:recCfg.mime});
+      resolve(blob.size>2048?{blob,mime:recCfg.mime,ext:recCfg.ext,frames:frames.length,fps:recorderFps}:null);
+    };
+  });
+  const frameDelay=1000/recorderFps;
+  mr.start(500);
+  for(let i=0;i<frames.length;i++){
+    if(opts.shouldCancel&&opts.shouldCancel())break;
+    const fc=i===0?first:await frameCanvasForExport(frames[i],removeStatusBar);
+    drawZipFrame(fc);
+    try{stream.getVideoTracks()[0]?.requestFrame?.();}catch(e){}
+    if(opts.onProgress)opts.onProgress(i+1,frames.length);
+    await yieldUI(frameDelay);
+  }
+  try{mr.requestData();}catch(e){}
+  setTimeout(()=>{try{if(mr.state!=='inactive')mr.stop();}catch(e){}},Math.max(120,frameDelay*3));
+  return await Promise.race([stopped,new Promise(resolve=>setTimeout(()=>resolve(null),Math.max(10000,frames.length*frameDelay+8000)))]);
+}
+
 let zipCancelFlag=false;
 
 function openExpModal(){
@@ -6671,7 +6766,8 @@ async function exportZip(vid){
       ? [getVideo(vid)].filter(Boolean)
       : videos.filter(v=>v.frames.length>0);
   if(!targetVideos.length){toast('⚠️','No frames to export');return;}
-  const totalFramesToExport=targetVideos.reduce((sum,v)=>sum+((expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0)).length),0);
+  const selectedFramesForZip=exportableFramesInVideoOrder(targetVideos.flatMap(v=>expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0)));
+  const totalFramesToExport=selectedFramesForZip.length;
   if(!totalFramesToExport){toast('⚠️','No matching frames');return;}
   showLd('Building ZIP...');setLdPb(4,'Preparing Flora-style session...');
   const domainSlug=exportSessionBaseSlug(appName);
@@ -6695,10 +6791,27 @@ async function exportZip(vid){
   let sourceFallbackSeq=0;
   const usedFlowIds=new Set();
   const exportFlowData={};
+  setLdPb(8,'Rendering combined video for ZIP...');
+  const combinedVideo=await renderCombinedZipVideo(selectedFramesForZip,'video',{
+    removeStatusBar,
+    fps:Math.min(24,parseInt(document.getElementById('vex-fps')?.value)||18),
+    duration:sessionDuration,
+    shouldCancel:()=>zipCancelFlag,
+    onProgress:(done,total)=>{
+      const pct=8+Math.round((total?done/total:0)*22);
+      setLdPb(Math.min(30,pct),`Rendering combined video for ZIP... ${done} / ${total} frames`);
+    }
+  });
+  if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
+  if(combinedVideo&&combinedVideo.blob){
+    sessionRoot.file('video.webm',combinedVideo.blob,{binary:true,compression:'STORE'});
+    inventory.push(`${sessionFolder}/video.webm,video/webm,${combinedVideo.blob.size}`);
+    renderedVideoSeq=1;
+  }
   for(const v of targetVideos){
     const baseName=String(v.name||'video').replace(/\.(mp4|webm|mov)$/i,'');
     const safeName=exportFileStem(baseName,'video');
-    const toExport=(expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0));
+    const toExport=exportableFramesInVideoOrder(expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0));
     const assignedFlows=flows.filter(f=>toExport.some(fr=>fr.flows.includes(f.id)));
     const flowFolders={};
     assignedFlows.forEach(f=>{
@@ -6710,7 +6823,7 @@ async function exportZip(vid){
       }
       flowFolders[f.id]=exportFlowData[f.id];
     });
-    if(v.file){
+    if(false&&v.file){
       const ext=(v.file.name.match(/\.(mp4|webm|mov)$/i)?.[1]||'webm').toLowerCase();
       const videoName=videoSeq?`video_${videoSeq+1}.webm`:`video.webm`;
       videoSeq++;
