@@ -2573,26 +2573,34 @@ function sourceIslandRectForCanvas(v,canvas){
   return null;
 }
 
+function paddedStatusIslandRect(rect,W,H){
+  if(!rect||!W||!H)return null;
+  const padX=Math.max(42,Math.round(W*.05));
+  const padY=Math.max(8,Math.round(H*.006));
+  const x=Math.max(0,Math.round(rect.x-padX));
+  const y=Math.max(0,Math.round(rect.y-padY));
+  const r=Math.min(W,Math.round(rect.x+rect.w+padX));
+  const b=Math.min(H,Math.round(rect.y+rect.h+padY));
+  return {x,y,w:Math.max(1,r-x),h:Math.max(1,b-y)};
+}
+
 function replaceStatusBarFast(canvas,opts={}){
   const W=canvas.width,H=canvas.height;
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
   const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
+  const islandPatch=island&&opts.preserveIsland?paddedStatusIslandRect(island,W,H):null;
   let islandCopy=null;
-  if(island&&opts.preserveIsland){
+  if(islandPatch){
     islandCopy=document.createElement('canvas');
-    islandCopy.width=island.w;islandCopy.height=island.h;
-    islandCopy.getContext('2d',{alpha:true}).drawImage(canvas,island.x,island.y,island.w,island.h,0,0,island.w,island.h);
+    islandCopy.width=islandPatch.w;islandCopy.height=islandPatch.h;
+    islandCopy.getContext('2d',{alpha:true}).drawImage(canvas,islandPatch.x,islandPatch.y,islandPatch.w,islandPatch.h,0,0,islandPatch.w,islandPatch.h);
   }
-  const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:island&&opts.preserveIsland?island:null});
+  const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch});
   if(!bg)return false;
-  if(island&&islandCopy){
+  if(islandPatch&&islandCopy){
     try{
-      ctx.save();
-      roundedRectPath(ctx,island.x,island.y,island.w,island.h,island.h/2);
-      ctx.clip();
-      ctx.drawImage(islandCopy,island.x,island.y);
-      ctx.restore();
+      ctx.drawImage(islandCopy,islandPatch.x,islandPatch.y);
     }catch(e){}
   }
   try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:island});}catch(e){console.warn('status bar icons failed',e);}
