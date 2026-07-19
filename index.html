@@ -6638,6 +6638,29 @@ function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
     });
   });
 }
+function defaultFrameIslandRect(screen){
+  return {
+    x:screen.x+screen.w*.322,
+    y:screen.y+screen.h*.017,
+    w:screen.w*.356,
+    h:screen.h*.043
+  };
+}
+function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland){
+  if(!hideDefaultIsland){
+    ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
+    return;
+  }
+  const ex=defaultFrameIslandRect(screen);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(phone.x,phone.y,phone.w,phone.h);
+  ctx.rect(ex.x,ex.y,ex.w,ex.h);
+  try{ctx.clip('evenodd');}
+  catch(e){ctx.clip();}
+  ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
+  ctx.restore();
+}
 function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const W=ctx.canvas.width,H=ctx.canvas.height;
   const srcW=opts.sourceW||media.videoWidth||media.naturalWidth||media.width||W;
@@ -6676,24 +6699,12 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     try{
       ctx.save();
       applyPhoneShadow(ctx,W,H);
-      ctx.drawImage(frameImg,phone.x,phone.y,phone.w,phone.h);
+      drawPhoneFrameImage(ctx,frameImg,phone,screen,!!opts.hideNotch);
       ctx.restore();
     }catch(e){}
   }else if(frameKey!=='none'){
     ctx.save();ctx.strokeStyle=phoneFrameColor(frameKey);ctx.lineWidth=Math.max(6,phone.w*.035);
     roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.stroke();ctx.restore();
-  }
-  if(opts.hideNotch&&mediaHasContent(media)){
-    try{
-      ctx.save();
-      roundedRectPath(ctx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
-      ctx.clip();
-      ctx.beginPath();
-      ctx.rect(screen.x+screen.w*.32,screen.y,screen.w*.36,screen.h*.075);
-      ctx.clip();
-      ctx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
-      ctx.restore();
-    }catch(e){}
   }
   return {phone,screen,mediaRect:screen};
 }
