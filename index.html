@@ -3543,7 +3543,7 @@ async function addFiles(files){
     const vid={
       id:'v_'+Date.now()+'_'+Math.random().toString(36).slice(2),name:f.name,
       sizeMB:(f.size/1024/1024).toFixed(1),duration:dur||0,
-      source:'unknown',objectURL:url,frames:[],extracted:false,cutRanges:[],
+      source:'unknown',objectURL:url,originalObjectURL:url,frames:[],extracted:false,cutRanges:[],
       mimeType:f.type,file:f,codec,needsTranscode:codec==='hevc'&&!canDecode
     };
     videos.push(vid);
@@ -3802,6 +3802,52 @@ async function extractFFmpegFrames(v,fps,maxFrames,onFrame,onProgress,cancelChec
     }
   }
 }
+async function ensureFallbackPreviewVideo(v){
+  if(!v?.file)return false;
+  if(v.previewObjectURL)return true;
+  const kit=await ensureFFmpegFallback();
+  const ffmpeg=kit.ffmpeg;
+  const fetchFile=kit.fetchFile;
+  const seq=++_ffmpegSeq;
+  const inName=`uiland_${seq}_${(v.name||'input.mov').replace(/[^\w.-]+/g,'_')}`;
+  const outName=`uiland_${seq}_preview.webm`;
+  const written=[];
+  try{
+    document.getElementById('ex-lbl').textContent='Creating playable MOV preview...';
+    ffmpeg.FS('writeFile',inName,await fetchFile(v.file));
+    written.push(inName,outName);
+    await ffmpeg.run(
+      '-i',inName,
+      '-vf',`scale='min(720,iw)':-2,fps=24`,
+      '-an',
+      '-c:v','libvpx',
+      '-deadline','realtime',
+      '-cpu-used','8',
+      '-b:v','1200k',
+      '-auto-alt-ref','0',
+      outName
+    );
+    const data=ffmpeg.FS('readFile',outName);
+    if(!data||data.byteLength<2048)return false;
+    const blob=new Blob([data],{type:'video/webm'});
+    const url=URL.createObjectURL(blob);
+    if(v.previewObjectURL)try{URL.revokeObjectURL(v.previewObjectURL);}catch(e){}
+    if(v.objectURL&&v.objectURL!==v.originalObjectURL)try{URL.revokeObjectURL(v.objectURL);}catch(e){}
+    v.previewObjectURL=url;
+    v.objectURL=url;
+    v.mimeType='video/webm';
+    v.transcoded=true;
+    v.needsTranscode=false;
+    const previewDur=await probeDuration(url);
+    if(previewDur&&isFinite(previewDur))v.duration=previewDur;
+    updateCodecWarning();
+    return true;
+  }finally{
+    for(const name of written){
+      try{ffmpeg.FS('unlink',name);}catch(e){}
+    }
+  }
+}
 async function extractVideo(v){
   if(v?.needsTranscode&&!v.transcoded){
     updateCodecWarning();
@@ -3837,6 +3883,7 @@ async function extractVideo(v){
   let total=0,prevData=null;
   const keepExtractedFrame=async(fc,ts,pd,w,h)=>{
     prevData=pd;total++;
+    if(total===1)v._previewFallbackCanvas=fc;
     if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
     const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,timeSec:ts,videoId:v.id,source:v.source};
     const island=detectDynamicIslandRect(fc);
@@ -3896,6 +3943,9 @@ async function extractVideo(v){
         updateChunkPb(0,Math.min(98,Math.round(done/Math.max(1,target)*100)));
       },()=>cancelFlag);
       dur=Number(v.duration)||dur;
+      if(total>0){
+        try{await ensureFallbackPreviewVideo(v);}catch(e){console.warn('MOV fallback preview failed',e);}
+      }
     }catch(e){
       console.warn('MOV fallback decoder failed',e);
       updateChunkLabel(0,'Fallback decoder failed');
@@ -3915,7 +3965,7 @@ async function extractVideo(v){
   document.getElementById('ex-pb').style.width='100%';
   document.getElementById('ex-lbl').textContent=`Done · ${v.frames.length} frames`;
   renderFrames();updateStats();renderFlows();renderVideoList();toggleExpBtns();
-  if(_stageVid&&_stageVid.id===v.id){renderFilmstrip(v);_buildTimeline(v,v.duration||0);}
+  if(_stageVid&&_stageVid.id===v.id){loadVideoStage(v);renderFilmstrip(v);_buildTimeline(v,v.duration||0);}
   else if(!_stageVid){loadVideoStage(v);}
   if(!cancelFlag)toast('✓',`${v.frames.length} frames from "${v.name}"`);
   else toast('⚠️',`Stopped · ${v.frames.length} frames kept`);
@@ -4337,6 +4387,8 @@ function removeVideo(id){
   const removedIds=(v.frames||[]).map(fr=>fr.id);
   v.frames.forEach(releaseFrameBlobs);
   if(v.objectURL)URL.revokeObjectURL(v.objectURL);
+  if(v.originalObjectURL&&v.originalObjectURL!==v.objectURL)URL.revokeObjectURL(v.originalObjectURL);
+  if(v.previewObjectURL&&v.previewObjectURL!==v.objectURL)URL.revokeObjectURL(v.previewObjectURL);
   videos=videos.filter(x=>x.id!==id);
   if(activeVideoId===id)activeVideoId=videos[0]?.id||null;
   renderVideoList();updateVDD();renderFrames();updateStats();toggleExpBtns();
@@ -7710,20 +7762,25 @@ function _previewRedactionEvents(v){
 function drawVideoPreviewOverlay(){
   const video=document.getElementById('vid-main');
   const canvas=document.getElementById('vid-preview-overlay');
-  if(!video||!canvas||!_stageVid||!video.videoWidth){clearVideoPreviewOverlay();return;}
+  if(!video||!canvas||!_stageVid){clearVideoPreviewOverlay();return;}
   _ensurePreviewCanvasSize(canvas);
   const ctx=canvas.getContext('2d');
   if(!ctx)return;
   ctx.clearRect(0,0,canvas.width,canvas.height);
   if(canvasCompositionEnabled()){
-    const sourceIsland=detectDynamicIslandInMedia(video,video.videoWidth,video.videoHeight);
+    const media=video.videoWidth?video:_stageVid._previewFallbackCanvas;
+    if(!media){clearVideoPreviewOverlay();return;}
+    const sourceW=video.videoWidth||media.width;
+    const sourceH=video.videoHeight||media.height;
+    const sourceIsland=video.videoWidth?detectDynamicIslandInMedia(video,video.videoWidth,video.videoHeight):null;
     if(sourceIsland){
       const probeScale=Math.min(1,260/Math.max(video.videoWidth,video.videoHeight));
       rememberSourceIsland(_stageVid,sourceIsland,Math.max(1,Math.round(video.videoWidth*probeScale)),Math.max(1,Math.round(video.videoHeight*probeScale)));
     }
-    drawComposedMediaFrame(ctx,video,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:!!sourceIsland||!!_stageVid?._hasSourceIsland});
+    drawComposedMediaFrame(ctx,media,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW,sourceH,hideNotch:!!sourceIsland||!!_stageVid?._hasSourceIsland});
     return;
   }
+  if(!video.videoWidth){clearVideoPreviewOverlay();return;}
   const r=_videoPreviewRect(video,canvas);if(!r)return;
   if(!showVideoRedactions)return;
   const events=_previewRedactionEvents(_stageVid);
