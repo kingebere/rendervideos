@@ -3616,11 +3616,39 @@ function updateCodecWarning(){const w=document.getElementById('codec-warn');if(w
 
 // ─── EXTRACTION ─────────────────────────────────────────────────────────────
 async function extractActive(){const v=activeVideo();if(!v){toast('⚠️','Select a video first');return;}await extractVideo(v);}
+async function extractEmergencyFrame(url,dur){
+  const video=document.createElement('video');
+  video.muted=true;video.playsInline=true;video.preload='auto';video.src=url;
+  try{
+    await new Promise(res=>{
+      if(video.readyState>=1){res();return;}
+      video.onloadedmetadata=res;video.onerror=res;setTimeout(res,12000);
+    });
+    const vd=Number(video.duration)||Number(dur)||0;
+    const times=[0,Math.min(.25,vd*.15||.25),vd*.5,Math.max(0,vd-.12)].filter(t=>Number.isFinite(t)&&t>=0);
+    for(const rawT of times){
+      const t=Math.max(0,Math.min(rawT,Math.max(0,(video.duration||vd||1)-.001)));
+      await _seekVideo(video,t,5000);
+      try{await video.play();await yieldUI(120);video.pause();}catch(e){}
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      const W=video.videoWidth,H=video.videoHeight;
+      if(!W||!H)continue;
+      const fc=document.createElement('canvas');fc.width=W;fc.height=H;
+      const fctx=fc.getContext('2d',{alpha:true});
+      try{fctx.drawImage(video,0,0,W,H);}catch(e){continue;}
+      return {canvas:fc,ts:+t.toFixed(3),w:W,h:H};
+    }
+  }catch(e){
+    console.warn('Emergency extraction failed',e);
+  }finally{
+    try{video.pause();video.removeAttribute('src');video.load();}catch(e){}
+  }
+  return null;
+}
 async function extractVideo(v){
   if(v?.needsTranscode&&!v.transcoded){
     updateCodecWarning();
-    toast('âš ï¸','HEVC video needs H.264/WebM conversion before extraction');
-    return;
+    toast('MOV','Trying browser MOV extraction before conversion');
   }
   const requestedFps=parseFloat(document.getElementById('o-fps').value)||1;
   const dedup=document.getElementById('o-dedup').checked;
@@ -3646,6 +3674,18 @@ async function extractVideo(v){
   const chunks=[];for(let t=0;t<dur;t+=chunkSecs)chunks.push({start:t,end:Math.min(t+chunkSecs,dur)});
   renderChunkList(chunks);
   let total=0,prevData=null;
+  const keepExtractedFrame=async(fc,ts,pd,w,h)=>{
+    prevData=pd;total++;
+    if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
+    const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,timeSec:ts,videoId:v.id,source:v.source};
+    const island=detectDynamicIslandRect(fc);
+    if(island)rememberSourceIsland(v,island,fc.width,fc.height);
+    await storeFrameAsBlob(fr, fc);
+    v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
+    document.getElementById('live-ct').textContent=total;
+    document.getElementById('live-txt').textContent=`${esc(v.name)} · ${fmt(ts)} / ${fmtDur(dur)}`;
+    bgQueueFrames([fr]);
+  };
   for(let ci=0;ci<chunks.length;ci++){
     if(cancelFlag)break;
     setChunkState(ci,'run');
@@ -3654,19 +3694,7 @@ async function extractVideo(v){
         url:v.objectURL,fps,dedup,sens,
         start:chunks[ci].start,end:chunks[ci].end,prevData,
         onFrame:async(fc,ts,pd,w,h)=>{
-          prevData=pd;total++;
-          if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
-          const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,timeSec:ts,videoId:v.id,source:v.source};
-          const island=detectDynamicIslandRect(fc);
-          if(island)rememberSourceIsland(v,island,fc.width,fc.height);
-          // Convert to blob immediately, release the canvas 
-          await storeFrameAsBlob(fr, fc);
-          // fc is now unreferenced — GC can collect it
-          v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
-          document.getElementById('live-ct').textContent=total;
-          document.getElementById('live-txt').textContent=`${esc(v.name)} · ${fmt(ts)} / ${fmtDur(dur)}`;
-          // Queue BG redaction per frame as it arrives — same as image upload
-          bgQueueFrames([fr]);
+          await keepExtractedFrame(fc,ts,pd,w,h);
         },
         onProgress:(pct,msg)=>{
           updateChunkLabel(ci,msg);updateChunkPb(ci,pct);
@@ -3676,6 +3704,15 @@ async function extractVideo(v){
       });
       setChunkState(ci,'done');
     }catch(e){if(e.message==='cancelled'){setChunkState(ci,'err');break;}console.error(e);setChunkState(ci,'err');}
+  }
+  if(!cancelFlag&&total===0){
+    document.getElementById('ex-lbl').textContent='Retrying MOV extraction...';
+    const fallback=await extractEmergencyFrame(v.objectURL,dur);
+    if(fallback){
+      await keepExtractedFrame(fallback.canvas,fallback.ts,null,fallback.w,fallback.h);
+      updateChunkLabel(0,'Recovered 1 frame');
+      updateChunkPb(0,100);
+    }
   }
   v.extracted=true;resetExBtn();
   document.getElementById('live-bar').classList.remove('on');
