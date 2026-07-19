@@ -6569,6 +6569,14 @@ function roundedRectPath(ctx,x,y,w,h,r){
   ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);
   ctx.closePath();
 }
+function roundedRectSubPath(ctx,x,y,w,h,r){
+  r=Math.max(0,Math.min(r,w/2,h/2));
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
 function containRect(srcW,srcH,x,y,w,h){
   const sw=Math.max(1,srcW||w),sh=Math.max(1,srcH||h);
   const scale=Math.min(w/sw,h/sh);
@@ -6640,10 +6648,20 @@ function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
 }
 function defaultFrameIslandRect(screen){
   return {
-    x:screen.x+screen.w*.322,
-    y:screen.y+screen.h*.017,
-    w:screen.w*.356,
-    h:screen.h*.043
+    x:screen.x+screen.w*.305,
+    y:screen.y+screen.h*.014,
+    w:screen.w*.39,
+    h:screen.h*.052
+  };
+}
+function sourceIslandScreenClip(screen,hideDefaultIsland){
+  if(!hideDefaultIsland)return screen;
+  return {
+    x:screen.x,
+    y:screen.y,
+    w:screen.w,
+    h:screen.h,
+    r:Math.max(screen.r||0,screen.w*.14)
   };
 }
 function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland){
@@ -6655,7 +6673,7 @@ function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland){
   ctx.save();
   ctx.beginPath();
   ctx.rect(phone.x,phone.y,phone.w,phone.h);
-  ctx.rect(ex.x,ex.y,ex.w,ex.h);
+  roundedRectSubPath(ctx,ex.x,ex.y,ex.w,ex.h,ex.h/2);
   try{ctx.clip('evenodd');}
   catch(e){ctx.clip();}
   ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
@@ -6687,7 +6705,14 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     const smoothing={enabled:ctx.imageSmoothingEnabled,quality:ctx.imageSmoothingQuality};
     ctx.imageSmoothingEnabled=true;
     try{ctx.imageSmoothingQuality='high';}catch(e){}
-    try{ctx.drawImage(media,dr.x,dr.y,dr.w,dr.h);}catch(e){}
+    try{
+      const mediaClip=sourceIslandScreenClip(screen,!!opts.hideNotch);
+      ctx.save();
+      roundedRectPath(ctx,mediaClip.x,mediaClip.y,mediaClip.w,mediaClip.h,mediaClip.r||Math.max(12,mediaClip.w*.065));
+      ctx.clip();
+      ctx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
+      ctx.restore();
+    }catch(e){}
     ctx.imageSmoothingEnabled=smoothing.enabled;
     try{ctx.imageSmoothingQuality=smoothing.quality;}catch(e){}
   }else if(!mediaIsPresent(media)){
