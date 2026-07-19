@@ -7325,15 +7325,42 @@ document.addEventListener('keydown',e=>{
 });
 
 // ─── DRAG & DROP ──────────────────────────────────────────────────────────────
+function droppedFiles(dt){
+  const out=[];
+  const seen=new Set();
+  const push=f=>{
+    if(!f||!f.name)return;
+    const key=[f.name,f.size,f.lastModified,f.type].join('|');
+    if(seen.has(key))return;
+    seen.add(key);out.push(f);
+  };
+  try{
+    [...(dt?.items||[])].forEach(item=>{
+      if(item.kind==='file')push(item.getAsFile());
+    });
+  }catch(e){}
+  try{[...(dt?.files||[])].forEach(push);}catch(e){}
+  return out.filter(f=>f&&f.size>0);
+}
 const dz=document.getElementById('dz');
 dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
 dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
-dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');addFiles([...e.dataTransfer.files]);});
+dz.addEventListener('drop',async e=>{
+  e.preventDefault();dz.classList.remove('over');
+  const files=droppedFiles(e.dataTransfer);
+  if(!files.length){toast('Drop','No dropped video files found');return;}
+  await addFiles(files);
+});
 document.getElementById('fi').addEventListener('change',e=>{addFiles([...e.target.files]);e.target.value='';});
 const dzImg=document.getElementById('dz-img');
 dzImg.addEventListener('dragover',e=>{e.preventDefault();dzImg.classList.add('over');});
 dzImg.addEventListener('dragleave',()=>dzImg.classList.remove('over'));
-dzImg.addEventListener('drop',e=>{e.preventDefault();dzImg.classList.remove('over');addImages([...e.dataTransfer.files]);});
+dzImg.addEventListener('drop',async e=>{
+  e.preventDefault();dzImg.classList.remove('over');
+  const files=droppedFiles(e.dataTransfer);
+  if(!files.length){toast('Drop','No dropped image files found');return;}
+  await addImages(files);
+});
 // FIX: Use 'change' event only ONCE per file pick to prevent double-loading
 document.getElementById('fi-img').addEventListener('change',e=>{
   if(e.target.files.length)addImages([...e.target.files]);
