@@ -3559,8 +3559,7 @@ async function addFiles(files){
     loadVideoStage(vid);
     await yieldUI(80);
     if(vid.needsTranscode&&!vid.transcoded){
-      toast('âš ï¸',`"${vid.name}" needs H.264/WebM conversion before extraction`);
-      continue;
+      toast('MOV',`Using fallback decoder if Chrome cannot read "${vid.name}"`);
     }
     await extractVideo(vid);
   }
@@ -3688,6 +3687,121 @@ async function extractEmergencyFrame(url,dur){
   }
   return null;
 }
+
+let _ffmpegKit=null;
+let _ffmpegLoading=null;
+let _ffmpegSeq=0;
+function loadExternalScript(src){
+  return new Promise((resolve,reject)=>{
+    const existing=[...document.scripts].find(s=>s.src===src);
+    if(existing){
+      if(existing.dataset.loaded==='1')resolve();
+      else{existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',reject,{once:true});}
+      return;
+    }
+    const s=document.createElement('script');
+    s.src=src;s.async=true;s.crossOrigin='anonymous';
+    s.onload=()=>{s.dataset.loaded='1';resolve();};
+    s.onerror=()=>reject(new Error('Could not load '+src));
+    document.head.appendChild(s);
+  });
+}
+async function loadFirstScript(urls){
+  let lastErr=null;
+  for(const src of urls){
+    try{await loadExternalScript(src);return src;}catch(e){lastErr=e;}
+  }
+  throw lastErr||new Error('Could not load script');
+}
+async function ensureFFmpegFallback(){
+  if(_ffmpegKit)return _ffmpegKit;
+  if(!_ffmpegLoading){
+    _ffmpegLoading=(async()=>{
+      if(!window.FFmpeg){
+        await loadFirstScript([
+          'https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js',
+          'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js'
+        ]);
+      }
+      if(!window.FFmpeg?.createFFmpeg)throw new Error('ffmpeg.wasm unavailable');
+      const {createFFmpeg,fetchFile}=window.FFmpeg;
+      const ffmpeg=createFFmpeg({
+        log:false,
+        corePath:'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+      });
+      await ffmpeg.load();
+      _ffmpegKit={ffmpeg,fetchFile};
+      return _ffmpegKit;
+    })().catch(e=>{_ffmpegLoading=null;throw e;});
+  }
+  return _ffmpegLoading;
+}
+async function blobToCanvas(blob){
+  const url=URL.createObjectURL(blob);
+  try{
+    const img=new Image();
+    img.decoding='async';
+    img.src=url;
+    await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;});
+    const c=document.createElement('canvas');
+    c.width=img.naturalWidth||img.width;
+    c.height=img.naturalHeight||img.height;
+    c.getContext('2d',{alpha:true}).drawImage(img,0,0);
+    return c;
+  }finally{
+    URL.revokeObjectURL(url);
+  }
+}
+async function extractFFmpegFrames(v,fps,maxFrames,onFrame,onProgress,cancelCheck){
+  if(!v?.file)return 0;
+  const kit=await ensureFFmpegFallback();
+  const ffmpeg=kit.ffmpeg;
+  const fetchFile=kit.fetchFile;
+  const seq=++_ffmpegSeq;
+  const inName=`uiland_${seq}_${(v.name||'input.mov').replace(/[^\w.-]+/g,'_')}`;
+  const outPrefix=`uiland_${seq}_frame_`;
+  const outPattern=`${outPrefix}%04d.jpg`;
+  const targetFps=Math.max(0.1,Math.min(2,Number(fps)||1));
+  const frameLimit=Math.max(1,Math.min(250,Number(maxFrames)||25));
+  const written=[];
+  let count=0;
+  try{
+    document.getElementById('ex-lbl').textContent='Loading MOV fallback decoder...';
+    ffmpeg.FS('writeFile',inName,await fetchFile(v.file));
+    written.push(inName);
+    if(onProgress)onProgress(2,frameLimit,0);
+    document.getElementById('ex-lbl').textContent='Extracting MOV with fallback decoder...';
+    await ffmpeg.run(
+      '-i',inName,
+      '-vf',`fps=${targetFps},scale='min(1080,iw)':-2`,
+      '-frames:v',String(frameLimit),
+      '-q:v','3',
+      outPattern
+    );
+    const files=ffmpeg.FS('readdir','/')
+      .filter(name=>name.startsWith(outPrefix)&&name.endsWith('.jpg'))
+      .sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+    for(let i=0;i<files.length;i++){
+      if(cancelCheck&&cancelCheck())break;
+      const name=files[i];
+      written.push(name);
+      const data=ffmpeg.FS('readFile',name);
+      const blob=new Blob([data],{type:'image/jpeg'});
+      const canvas=await blobToCanvas(blob);
+      const ts=+(i/targetFps).toFixed(3);
+      await onFrame(canvas,ts,null,canvas.width,canvas.height);
+      count++;
+      if(onProgress)onProgress(count,Math.max(1,files.length),ts);
+      if(i%4===0)await yieldUI(20);
+    }
+    if(count&&(!v.duration||!isFinite(v.duration)))v.duration=count/targetFps;
+    return count;
+  }finally{
+    for(const name of written){
+      try{ffmpeg.FS('unlink',name);}catch(e){}
+    }
+  }
+}
 async function extractVideo(v){
   if(v?.needsTranscode&&!v.transcoded){
     updateCodecWarning();
@@ -3705,8 +3819,12 @@ async function extractVideo(v){
   document.getElementById('chunk-list').innerHTML='';
   document.getElementById('live-bar').classList.add('on');
   renderFrames();
-  if(!v.duration||!isFinite(v.duration)){const dur=await probeDuration(v.objectURL);v.duration=dur||0;}
-  const dur=v.duration;
+  if(!v.duration||!isFinite(v.duration)){const probedDur=await probeDuration(v.objectURL);v.duration=probedDur||0;}
+  let dur=Number(v.duration)||0;
+  if(!dur||!isFinite(dur)){
+    document.getElementById('ex-lbl').textContent='Browser could not read MOV metadata - trying fallback decoder...';
+    dur=1;
+  }
   if(!dur||!isFinite(dur)){toast('❌','Could not read duration');resetExBtn();return;}
   const adaptiveFps=Math.max(0.02,maxFrames/dur);
   const fps=Math.min(requestedFps,adaptiveFps);
@@ -3767,13 +3885,29 @@ async function extractVideo(v){
       updateChunkPb(0,100);
     }
   }
+  if(!cancelFlag&&total===0&&v.file&&(/\.mov$/i.test(v.name||'')||v.mimeType==='video/quicktime'||v.codec==='hevc')){
+    try{
+      document.getElementById('ex-lbl').textContent='Retrying MOV with fallback decoder...';
+      await extractFFmpegFrames(v,requestedFps,maxFrames,async(fc,ts,pd,w,h)=>{
+        await keepExtractedFrame(fc,ts,pd,w,h);
+      },(done,target,t)=>{
+        document.getElementById('ex-pb').style.width=Math.min(98,Math.round(done/Math.max(1,target)*100))+'%';
+        updateChunkLabel(0,`Fallback decoder ${done} / ${target}`);
+        updateChunkPb(0,Math.min(98,Math.round(done/Math.max(1,target)*100)));
+      },()=>cancelFlag);
+      dur=Number(v.duration)||dur;
+    }catch(e){
+      console.warn('MOV fallback decoder failed',e);
+      updateChunkLabel(0,'Fallback decoder failed');
+    }
+  }
   if(!cancelFlag&&total===0){
     v.extracted=false;resetExBtn();
     document.getElementById('live-bar').classList.remove('on');
     document.getElementById('ex-pb').style.width='0%';
-    document.getElementById('ex-lbl').textContent='No frames extracted - browser could not decode this MOV';
+    document.getElementById('ex-lbl').textContent='No frames extracted - this MOV codec could not be decoded';
     renderFrames();updateStats();renderFlows();renderVideoList();toggleExpBtns();
-    toast('MOV','Chrome could not decode frames from this MOV. Try updating Chrome or exporting H.264 from the phone.');
+    toast('MOV','Could not decode this MOV even with fallback extraction.');
     return;
   }
   v.extracted=true;resetExBtn();
