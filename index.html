@@ -6661,25 +6661,8 @@ function sourceIslandScreenClip(screen,hideDefaultIsland){
     y:screen.y,
     w:screen.w,
     h:screen.h,
-    r:Math.max(screen.r||0,screen.w*.16)
+    r:Math.max(screen.r||0,screen.w*.14)
   };
-}
-function drawSourceIslandInnerBezelGuard(ctx,screen,hideDefaultIsland){
-  if(!hideDefaultIsland)return;
-  const lw=Math.max(4,screen.w*.02);
-  const inset=lw*.48;
-  const r=Math.max(screen.r||0,screen.w*.105)-inset;
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(screen.x-lw,screen.y-lw,screen.w+lw*2,screen.h*.14+lw);
-  ctx.clip();
-  ctx.strokeStyle='rgba(5,5,5,.98)';
-  ctx.lineWidth=lw;
-  ctx.lineJoin='round';
-  ctx.lineCap='round';
-  roundedRectPath(ctx,screen.x+inset,screen.y+inset,screen.w-inset*2,screen.h-inset*2,r);
-  ctx.stroke();
-  ctx.restore();
 }
 function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland){
   if(!hideDefaultIsland){
@@ -6748,7 +6731,6 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     ctx.save();ctx.strokeStyle=phoneFrameColor(frameKey);ctx.lineWidth=Math.max(6,phone.w*.035);
     roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.stroke();ctx.restore();
   }
-  drawSourceIslandInnerBezelGuard(ctx,screen,!!opts.hideNotch);
   return {phone,screen,mediaRect:screen};
 }
 function updateCanvasPreviewStyle(){
