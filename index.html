@@ -2487,9 +2487,8 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
     readCtx.putImageData(imgData,0,0);
     const protect=opts.protectRect;
     if(protect){
-      const pad=Math.round(W2*.035);
-      const leftW=Math.max(0,Math.round(protect.x-X-pad));
-      const rightX=Math.min(W2,Math.round(protect.x+protect.w-X+pad));
+      const leftW=Math.max(0,Math.round(protect.x-X));
+      const rightX=Math.min(W2,Math.round(protect.x+protect.w-X));
       if(leftW>0)ctx.drawImage(readCanvas,0,0,leftW,sbH,X,Y,leftW,sbH);
       if(rightX<W2)ctx.drawImage(readCanvas,rightX,0,W2-rightX,sbH,X+rightX,Y,W2-rightX,sbH);
     }else{
