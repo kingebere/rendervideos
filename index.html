@@ -2514,14 +2514,38 @@ function detectDynamicIslandRect(canvas){
   }catch(e){return null;}
 }
 
-function replaceStatusBarFast(canvas){
+let _islandProbeCanvas=null;
+function detectDynamicIslandInMedia(media,sourceW,sourceH){
+  if(!mediaHasContent(media)||!sourceW||!sourceH)return null;
+  try{
+    const scale=Math.min(1,260/Math.max(sourceW,sourceH));
+    const w=Math.max(1,Math.round(sourceW*scale));
+    const h=Math.max(1,Math.round(sourceH*scale));
+    const c=_islandProbeCanvas||(_islandProbeCanvas=document.createElement('canvas'));
+    if(c.width!==w)c.width=w;
+    if(c.height!==h)c.height=h;
+    const ctx=get2dCtx(c,true,false);
+    ctx.drawImage(media,0,0,w,h);
+    return detectDynamicIslandRect(c);
+  }catch(e){return null;}
+}
+
+function replaceStatusBarFast(canvas,opts={}){
   const W=canvas.width,H=canvas.height;
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
   const island=detectDynamicIslandRect(canvas);
+  let islandCopy=null;
+  if(island&&opts.preserveIsland){
+    islandCopy=document.createElement('canvas');
+    islandCopy.width=island.w;islandCopy.height=island.h;
+    islandCopy.getContext('2d',{alpha:true}).drawImage(canvas,island.x,island.y,island.w,island.h,0,0,island.w,island.h);
+  }
   const bg=applyStatusBarRemoval(ctx,0,0,W,H);
   if(!bg)return false;
-  if(!island){
+  if(island&&islandCopy){
+    try{ctx.drawImage(islandCopy,island.x,island.y);}catch(e){}
+  }else if(!island){
     try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
   }
   return true;
@@ -2531,8 +2555,8 @@ function exportStatusBarEnabled(scope='zip'){
   const el=document.getElementById(id);
   return el?el.checked!==false:true;
 }
-function safeApplyExportStatusBar(canvas){
-  try{return replaceStatusBarFast(canvas);}
+function safeApplyExportStatusBar(canvas,opts={}){
+  try{return replaceStatusBarFast(canvas,opts);}
   catch(e){console.warn('status bar export removal failed',e);return false;}
 }
 function cloneCanvasForExport(src){
@@ -2545,14 +2569,15 @@ function cloneCanvasForExport(src){
 async function frameCanvasForExport(fr,removeStatusBar){
   const base=await getFrameCanvas(fr);
   const canvas=removeStatusBar?cloneCanvasForExport(base):base;
-  if(removeStatusBar)safeApplyExportStatusBar(canvas);
+  const sourceIsland=removeStatusBar?detectDynamicIslandRect(canvas):null;
+  if(removeStatusBar)safeApplyExportStatusBar(canvas,{preserveIsland:!!sourceIsland});
   if(canvasCompositionEnabled()){
     await waitPhoneFrameReady();
     const size=getCanvasExportSize();
     const out=document.createElement('canvas');
     out.width=size.w;out.height=size.h;
     const ctx=get2dCtx(out,false,false);
-    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height,hideNotch:removeStatusBar});
+    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height,hideNotch:removeStatusBar&&!!sourceIsland});
     return out;
   }
   return canvas;
@@ -3383,7 +3408,7 @@ async function addImages(filesInput){
 }
 
 async function addFiles(files){
-  const valid=files.filter(f=>f.type.match(/^video\//)&&f.name.match(/\.(mp4|webm|mov)$/i));
+  const valid=files.filter(f=>(f.type.match(/^video\//)||f.name.match(/\.(mp4|webm|mov)$/i))&&f.name.match(/\.(mp4|webm|mov)$/i));
   if(!valid.length){toast('❌','No valid video files (MP4, WebM, MOV)');return;}
   const added=[];
   for(const f of valid){
@@ -3391,11 +3416,12 @@ async function addFiles(files){
     const url=URL.createObjectURL(f);
     const dur=await probeDuration(url);
     const codec=await detectCodec(f,url);
+    const canDecode=!!(dur&&isFinite(dur));
     const vid={
       id:'v_'+Date.now()+'_'+Math.random().toString(36).slice(2),name:f.name,
       sizeMB:(f.size/1024/1024).toFixed(1),duration:dur||0,
       source:'unknown',objectURL:url,frames:[],extracted:false,cutRanges:[],
-      mimeType:f.type,file:f,codec,needsTranscode:codec==='hevc'
+      mimeType:f.type,file:f,codec,needsTranscode:codec==='hevc'&&!canDecode
     };
     videos.push(vid);
     added.push(vid);
@@ -6379,13 +6405,14 @@ async function exportSourceEditedVideo(v,label,opts={}){
           sourceCleanCanvas.width=video.videoWidth;sourceCleanCanvas.height=video.videoHeight;
         }
         sourceCleanCtx.drawImage(video,0,0,sourceCleanCanvas.width,sourceCleanCanvas.height);
-        safeApplyExportStatusBar(sourceCleanCanvas);
+        var sourceIsland=detectDynamicIslandRect(sourceCleanCanvas);
+        safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland});
         media=sourceCleanCanvas;
       }
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar});
+      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland});
     }else{
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
-      if(removeStatusBar)safeApplyExportStatusBar(canvas);
+      if(removeStatusBar)safeApplyExportStatusBar(canvas,{preserveIsland:!!detectDynamicIslandRect(canvas)});
       if(showVideoRedactions)_drawVideoRedactions(ctx,video.currentTime,redactions,canvas.width,canvas.height);
     }
     requestCanvasFrame();
@@ -7276,7 +7303,8 @@ function drawVideoPreviewOverlay(){
   if(!ctx)return;
   ctx.clearRect(0,0,canvas.width,canvas.height);
   if(canvasCompositionEnabled()){
-    drawComposedMediaFrame(ctx,video,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight});
+    const sourceIsland=detectDynamicIslandInMedia(video,video.videoWidth,video.videoHeight);
+    drawComposedMediaFrame(ctx,video,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:!!sourceIsland});
     return;
   }
   const r=_videoPreviewRect(video,canvas);if(!r)return;
