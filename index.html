@@ -3616,6 +3616,49 @@ function updateCodecWarning(){const w=document.getElementById('codec-warn');if(w
 
 // ─── EXTRACTION ─────────────────────────────────────────────────────────────
 async function extractActive(){const v=activeVideo();if(!v){toast('⚠️','Select a video first');return;}await extractVideo(v);}
+async function extractPlaybackFrames(url,dur,fps,maxFrames,onFrame,onProgress,cancelCheck){
+  const video=document.createElement('video');
+  video.muted=true;video.playsInline=true;video.preload='auto';video.src=url;
+  try{
+    await new Promise(res=>{
+      if(video.readyState>=1){res();return;}
+      video.onloadedmetadata=res;video.onerror=res;setTimeout(res,15000);
+    });
+    const vd=Number(video.duration)||Number(dur)||0;
+    const W=video.videoWidth,H=video.videoHeight;
+    if(!W||!H||!vd)return 0;
+    const targetFps=Math.max(.25,Math.min(2,Number(fps)||1));
+    const targetCount=Math.max(1,Math.min(Math.max(1,Number(maxFrames)||25),Math.ceil(vd*targetFps)));
+    const interval=vd/targetCount;
+    const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;
+    const ctx=canvas.getContext('2d',{alpha:true,willReadFrequently:true});
+    let count=0,lastCapture=-Infinity;
+    await _seekVideo(video,0,5000);
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    try{await video.play();}catch(e){}
+    const started=performance.now();
+    while(!cancelCheck()&&count<targetCount&&performance.now()-started<Math.max(12000,vd*3500)){
+      const t=Math.max(0,Math.min(video.currentTime||0,vd));
+      if(t-lastCapture>=interval*.78||count===0||video.ended){
+        try{ctx.drawImage(video,0,0,W,H);}catch(e){break;}
+        const fc=document.createElement('canvas');fc.width=W;fc.height=H;
+        fc.getContext('2d',{alpha:true}).drawImage(canvas,0,0);
+        count++;lastCapture=t;
+        await onFrame(fc,+t.toFixed(3),null,W,H);
+        if(onProgress)onProgress(count,targetCount,t);
+      }
+      if(video.ended||t>=vd-.04)break;
+      await new Promise(r=>requestAnimationFrame(r));
+    }
+    try{video.pause();}catch(e){}
+    return count;
+  }catch(e){
+    console.warn('Playback extraction failed',e);
+    return 0;
+  }finally{
+    try{video.pause();video.removeAttribute('src');video.load();}catch(e){}
+  }
+}
 async function extractEmergencyFrame(url,dur){
   const video=document.createElement('video');
   video.muted=true;video.playsInline=true;video.preload='auto';video.src=url;
@@ -3706,13 +3749,32 @@ async function extractVideo(v){
     }catch(e){if(e.message==='cancelled'){setChunkState(ci,'err');break;}console.error(e);setChunkState(ci,'err');}
   }
   if(!cancelFlag&&total===0){
-    document.getElementById('ex-lbl').textContent='Retrying MOV extraction...';
+    document.getElementById('ex-lbl').textContent='Retrying MOV playback extraction...';
+    await extractPlaybackFrames(v.objectURL,dur,fps,maxFrames,async(fc,ts,pd,w,h)=>{
+      await keepExtractedFrame(fc,ts,pd,w,h);
+    },(done,target,t)=>{
+      document.getElementById('ex-pb').style.width=Math.min(98,Math.round(done/Math.max(1,target)*100))+'%';
+      updateChunkLabel(0,`Playback recovery ${done} / ${target}`);
+      updateChunkPb(0,Math.min(98,Math.round(done/Math.max(1,target)*100)));
+    },()=>cancelFlag);
+  }
+  if(!cancelFlag&&total===0){
+    document.getElementById('ex-lbl').textContent='Retrying MOV single-frame extraction...';
     const fallback=await extractEmergencyFrame(v.objectURL,dur);
     if(fallback){
       await keepExtractedFrame(fallback.canvas,fallback.ts,null,fallback.w,fallback.h);
       updateChunkLabel(0,'Recovered 1 frame');
       updateChunkPb(0,100);
     }
+  }
+  if(!cancelFlag&&total===0){
+    v.extracted=false;resetExBtn();
+    document.getElementById('live-bar').classList.remove('on');
+    document.getElementById('ex-pb').style.width='0%';
+    document.getElementById('ex-lbl').textContent='No frames extracted - browser could not decode this MOV';
+    renderFrames();updateStats();renderFlows();renderVideoList();toggleExpBtns();
+    toast('MOV','Chrome could not decode frames from this MOV. Try updating Chrome or exporting H.264 from the phone.');
+    return;
   }
   v.extracted=true;resetExBtn();
   document.getElementById('live-bar').classList.remove('on');
