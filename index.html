@@ -2391,7 +2391,7 @@ function statusAssetsReady(set){
   return !!(icons&&icons.time?.complete&&icons.time.naturalWidth&&icons.signal?.complete&&icons.signal.naturalWidth&&icons.wifi?.complete&&icons.wifi.naturalWidth&&icons.battery?.complete&&icons.battery.naturalWidth);
 }
 
-function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg){
+function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg,opts={}){
   const sbH=Math.round(sH*.055);
   if(sbH<2||sW<12)return false;
   const br=bg?.avgR??bg?.r, bgc=bg?.avgG??bg?.g, bb=bg?.avgB??bg?.b;
@@ -2399,13 +2399,17 @@ function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg){
   const set=lum>140?'black':'white';
   if(!statusAssetsReady(set))return false;
   const icons=SB_SVG[set];
-  const iconH=sbH*.32;
+  const island=opts?.islandRect;
+  const anchorH=island?.h&&island.h>0?island.h:sbH;
+  const iconH=Math.max(8,Math.min(sbH*.265,anchorH*.305,sW*.03));
   const scale=iconH/13;
-  const iconY=sY+(sbH-iconH)/1.2;
-  const hPad=sW*.05;
-  const gap=sW*.018;
-  ctx.drawImage(icons.time,sX+hPad+sW*.10,iconY,STATUS_NAVBAR_W.time*scale,iconH);
-  let rx=sX+sW-hPad;
+  const centerY=island?.h?island.y+island.h*.50:sY+sbH*.61;
+  const iconY=Math.round(centerY-iconH*.5);
+  const leftX=Math.round(sX+sW*.087);
+  const rightPad=Math.round(sW*.071);
+  const gap=Math.max(4,sW*.011);
+  ctx.drawImage(icons.time,leftX,iconY,STATUS_NAVBAR_W.time*scale,iconH);
+  let rx=sX+sW-rightPad;
   rx-=STATUS_NAVBAR_W.battery*scale;ctx.drawImage(icons.battery,rx,iconY,STATUS_NAVBAR_W.battery*scale,iconH);
   rx-=gap+STATUS_NAVBAR_W.wifi*scale;ctx.drawImage(icons.wifi,rx,iconY,STATUS_NAVBAR_W.wifi*scale,iconH);
   rx-=gap+STATUS_NAVBAR_W.signal*scale;ctx.drawImage(icons.signal,rx,iconY,STATUS_NAVBAR_W.signal*scale,iconH);
@@ -2591,7 +2595,7 @@ function replaceStatusBarFast(canvas,opts={}){
       ctx.restore();
     }catch(e){}
   }
-  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
+  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:island});}catch(e){console.warn('status bar icons failed',e);}
   return true;
 }
 function exportStatusBarEnabled(scope='zip'){
