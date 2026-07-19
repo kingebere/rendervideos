@@ -1254,6 +1254,8 @@ function saveSession(){
         id:v.id,name:v.name,sizeMB:v.sizeMB,duration:v.duration,
         source:v.source,extracted:v.extracted,mimeType:v.mimeType,
         codec:v.codec,needsTranscode:v.needsTranscode,
+        _hasSourceIsland:!!v._hasSourceIsland,
+        _sourceIslandRect:v._sourceIslandRect||null,
         cutRanges:v.cutRanges||[],
         _gridSrc:v._gridSrc,
         frames:v.frames.map(fr=>({
@@ -2412,7 +2414,7 @@ function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg){
 
 loadStatusBarSVGs().catch(err=>console.warn('Status bar SVG preload failed',err));
 
-function applyStatusBarRemoval(ctx,sX,sY,sW,sH){
+function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
   try{
     const sbH=Math.round(sH*0.055);
     const X=Math.round(sX),Y=Math.round(sY),W2=Math.round(sW);
@@ -2479,7 +2481,16 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH){
       }
     }
     readCtx.putImageData(imgData,0,0);
-    ctx.drawImage(readCanvas,X,Y);
+    const protect=opts.protectRect;
+    if(protect){
+      const pad=Math.round(W2*.035);
+      const leftW=Math.max(0,Math.round(protect.x-X-pad));
+      const rightX=Math.min(W2,Math.round(protect.x+protect.w-X+pad));
+      if(leftW>0)ctx.drawImage(readCanvas,0,0,leftW,sbH,X,Y,leftW,sbH);
+      if(rightX<W2)ctx.drawImage(readCanvas,rightX,0,W2-rightX,sbH,X+rightX,Y,W2-rightX,sbH);
+    }else{
+      ctx.drawImage(readCanvas,X,Y);
+    }
     const total=sbH*W2;
     return {avgR:sumR/total,avgG:sumG/total,avgB:sumB/total};
   }catch(e){return null;}
@@ -2534,18 +2545,42 @@ function detectDynamicIslandInMedia(media,sourceW,sourceH){
   }catch(e){return null;}
 }
 
+function rememberSourceIsland(v,rect,w,h){
+  if(!v||!rect||!w||!h)return;
+  v._hasSourceIsland=true;
+  v._sourceIslandRect={x:rect.x/w,y:rect.y/h,w:rect.w/w,h:rect.h/h};
+}
+function sourceIslandRectForCanvas(v,canvas){
+  if(!canvas)return null;
+  const found=detectDynamicIslandRect(canvas);
+  if(found){
+    rememberSourceIsland(v,found,canvas.width,canvas.height);
+    return found;
+  }
+  if(v&&v._hasSourceIsland&&v._sourceIslandRect){
+    const r=v._sourceIslandRect;
+    return {
+      x:Math.round(r.x*canvas.width),
+      y:Math.round(r.y*canvas.height),
+      w:Math.round(r.w*canvas.width),
+      h:Math.round(r.h*canvas.height)
+    };
+  }
+  return null;
+}
+
 function replaceStatusBarFast(canvas,opts={}){
   const W=canvas.width,H=canvas.height;
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
-  const island=detectDynamicIslandRect(canvas);
+  const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
   let islandCopy=null;
   if(island&&opts.preserveIsland){
     islandCopy=document.createElement('canvas');
     islandCopy.width=island.w;islandCopy.height=island.h;
     islandCopy.getContext('2d',{alpha:true}).drawImage(canvas,island.x,island.y,island.w,island.h,0,0,island.w,island.h);
   }
-  const bg=applyStatusBarRemoval(ctx,0,0,W,H);
+  const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:island&&opts.preserveIsland?island:null});
   if(!bg)return false;
   if(island&&islandCopy){
     try{
@@ -2555,9 +2590,8 @@ function replaceStatusBarFast(canvas,opts={}){
       ctx.drawImage(islandCopy,island.x,island.y);
       ctx.restore();
     }catch(e){}
-  }else if(!island){
-    try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
   }
+  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg);}catch(e){console.warn('status bar icons failed',e);}
   return true;
 }
 function exportStatusBarEnabled(scope='zip'){
@@ -2579,8 +2613,8 @@ function cloneCanvasForExport(src){
 async function frameCanvasForExport(fr,removeStatusBar){
   const base=await getFrameCanvas(fr);
   const canvas=removeStatusBar?cloneCanvasForExport(base):base;
-  const sourceIsland=removeStatusBar?detectDynamicIslandRect(canvas):null;
-  if(removeStatusBar)safeApplyExportStatusBar(canvas,{preserveIsland:!!sourceIsland});
+  const sourceIsland=removeStatusBar?sourceIslandRectForCanvas(getVideo(fr.videoId),canvas):null;
+  if(removeStatusBar)safeApplyExportStatusBar(canvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
   if(canvasCompositionEnabled()){
     await waitPhoneFrameReady();
     const size=getCanvasExportSize();
@@ -3540,6 +3574,8 @@ async function extractVideo(v){
           prevData=pd;total++;
           if(total===1)v.source=detectSource(w,h,v.name,v.mimeType);
           const fr={id:'fr_'+Date.now()+'_'+total,canvas:null,name:`frame_${String(total).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:ts,timeSec:ts,videoId:v.id,source:v.source};
+          const island=detectDynamicIslandRect(fc);
+          if(island)rememberSourceIsland(v,island,fc.width,fc.height);
           // Convert to blob immediately, release the canvas 
           await storeFrameAsBlob(fr, fc);
           // fc is now unreferenced — GC can collect it
@@ -6415,8 +6451,8 @@ async function exportSourceEditedVideo(v,label,opts={}){
           sourceCleanCanvas.width=video.videoWidth;sourceCleanCanvas.height=video.videoHeight;
         }
         sourceCleanCtx.drawImage(video,0,0,sourceCleanCanvas.width,sourceCleanCanvas.height);
-        var sourceIsland=detectDynamicIslandRect(sourceCleanCanvas);
-        safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland});
+        var sourceIsland=sourceIslandRectForCanvas(v,sourceCleanCanvas);
+        safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
         media=sourceCleanCanvas;
       }
       drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland});
@@ -7314,7 +7350,11 @@ function drawVideoPreviewOverlay(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   if(canvasCompositionEnabled()){
     const sourceIsland=detectDynamicIslandInMedia(video,video.videoWidth,video.videoHeight);
-    drawComposedMediaFrame(ctx,video,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:!!sourceIsland});
+    if(sourceIsland){
+      const probeScale=Math.min(1,260/Math.max(video.videoWidth,video.videoHeight));
+      rememberSourceIsland(_stageVid,sourceIsland,Math.max(1,Math.round(video.videoWidth*probeScale)),Math.max(1,Math.round(video.videoHeight*probeScale)));
+    }
+    drawComposedMediaFrame(ctx,video,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:!!sourceIsland||!!_stageVid?._hasSourceIsland});
     return;
   }
   const r=_videoPreviewRect(video,canvas);if(!r)return;
