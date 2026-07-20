@@ -2767,9 +2767,9 @@ function removeRecordingIndicator(canvas,islandRect=null){
   const rightExpand=Math.max(0,Math.round(rect.h*.22));
   const topExpand=Math.max(1,Math.round(rect.h*.12));
   const bottomExpand=Math.max(1,Math.round(rect.h*.12));
-  const drawX=Math.max(0,Math.floor(rect.x-leftExpand));
+  const drawX=Math.max(0,Math.floor(rect.x));
   const drawY=Math.max(0,Math.floor(rect.y));
-  const drawW=Math.min(canvas.width-drawX,Math.ceil(rect.w+leftExpand+rightExpand));
+  const drawW=Math.min(canvas.width-drawX,Math.ceil(rect.w));
   const drawH=Math.min(canvas.height-drawY,Math.ceil(rect.h));
   const scanX=Math.max(0,Math.floor(rect.x-leftExpand));
   const scanY=Math.max(0,Math.floor(rect.y-topExpand));
@@ -3907,6 +3907,9 @@ async function ensureFFmpegFallback(){
   if(_ffmpegKit)return _ffmpegKit;
   if(!_ffmpegLoading){
     _ffmpegLoading=(async()=>{
+      if(typeof SharedArrayBuffer==='undefined'&&!window.crossOriginIsolated){
+        throw new Error('MOV fallback decoder needs COOP/COEP headers so SharedArrayBuffer is available');
+      }
       if(!window.FFmpeg){
         await loadFirstScript([
           'https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js',
@@ -4141,14 +4144,20 @@ async function extractVideo(v){
       }
     }catch(e){
       console.warn('MOV fallback decoder failed',e);
+      window.__lastFfmpegError=String(e&&e.message||e||'MOV fallback decoder failed');
       updateChunkLabel(0,'Fallback decoder failed');
+      document.getElementById('ex-lbl').textContent=window.__lastFfmpegError.includes('COOP/COEP')
+        ? 'No frames extracted - MOV fallback needs COOP/COEP headers'
+        : 'No frames extracted - MOV fallback decoder failed';
     }
   }
   if(!cancelFlag&&total===0){
     v.extracted=false;resetExBtn();
     document.getElementById('live-bar').classList.remove('on');
     document.getElementById('ex-pb').style.width='0%';
-    document.getElementById('ex-lbl').textContent='No frames extracted - this MOV codec could not be decoded';
+    document.getElementById('ex-lbl').textContent=window.__lastFfmpegError?.includes('COOP/COEP')
+      ? 'No frames extracted - MOV fallback needs COOP/COEP headers'
+      : 'No frames extracted - this MOV codec could not be decoded';
     renderFrames();updateStats();renderFlows();renderVideoList();toggleExpBtns();
     toast('MOV','Could not decode this MOV even with fallback extraction.');
     return;
@@ -6542,7 +6551,9 @@ async function exportOneFlowVideo(fid){
       end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),
       frames:src.frames,
       includeCuts:true,
-      removeStatusBar:exportStatusBarEnabled('video')
+      removeStatusBar:exportStatusBarEnabled('video'),
+      format:'webm',
+      transparentBackground:true
     });
     if(!ok)await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
   }else await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
@@ -6558,7 +6569,7 @@ async function exportAllFlowVideos(){
     if(src&&frs.length){
       const secs=frs.map(frameSec).filter(s=>s!=null);
       const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
-      const ok=await exportSourceEditedVideo(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video')});
+      const ok=await exportSourceEditedVideo(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),format:'webm',transparentBackground:true});
       if(!ok)await reconstructVideo(frs,fl.name);
     }else await reconstructVideo(frs,fl.name);
     await yieldUI(300);
@@ -6698,7 +6709,8 @@ function _canvasColor(hex,fallback='#ffffff'){
   const v=String(hex||'').trim();
   return /^#[0-9a-f]{6}$/i.test(v)?v:fallback;
 }
-function applyCanvasBackground(ctx,W,H){
+function applyCanvasBackground(ctx,W,H,opts={}){
+  if(opts.transparent)return;
   const bg=canvasOptions||{};
   ctx.save();
   ctx.globalAlpha=Math.max(0,Math.min(1,bg.bgOpacity==null?1:+bg.bgOpacity));
@@ -6836,10 +6848,10 @@ function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
 }
 function defaultFrameIslandRect(screen){
   return {
-    x:screen.x+screen.w*.305,
-    y:screen.y+screen.h*.014,
-    w:screen.w*.39,
-    h:screen.h*.052
+    x:screen.x+screen.w*.255,
+    y:screen.y+screen.h*.006,
+    w:screen.w*.49,
+    h:screen.h*.072
   };
 }
 function sourceIslandScreenClip(screen,hideDefaultIsland){
@@ -6872,7 +6884,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const srcW=opts.sourceW||media.videoWidth||media.naturalWidth||media.width||W;
   const srcH=opts.sourceH||media.videoHeight||media.naturalHeight||media.height||H;
   ctx.clearRect(0,0,W,H);
-  applyCanvasBackground(ctx,W,H);
+  applyCanvasBackground(ctx,W,H,{transparent:!!opts.transparentBackground});
   const phone=getPhoneRect(W,H);
   const screen=getPhoneScreenRect(phone);
   const frameKey=canvasOptions.frame||'black';
@@ -7018,10 +7030,21 @@ function _seekVideo(video,t,timeout=4000){
     try{video.currentTime=t;}catch(e){done();}
   });
 }
+function _playVideoBounded(video,timeout=3000){
+  if(!video||typeof video.play!=='function')return Promise.resolve(false);
+  let p;
+  try{p=video.play();}
+  catch(e){return Promise.resolve(false);}
+  return Promise.race([
+    Promise.resolve(p).then(()=>true).catch(()=>false),
+    new Promise(resolve=>setTimeout(()=>resolve(false),timeout))
+  ]);
+}
 async function exportSourceEditedVideo(v,label,opts={}){
   if(!v||!v.objectURL)return false;
   if(typeof MediaRecorder==='undefined')return false;
-  const format=normalizeVideoFormat(opts.format||vexFormat);
+  const transparentBackground=!!opts.transparentBackground&&canvasCompositionEnabled();
+  const format=normalizeVideoFormat(transparentBackground?'webm':(opts.format||vexFormat));
   let fps=parseInt(opts.fps??document.getElementById('vex-fps')?.value)||30;
   if(format==='mp4')fps=Math.min(fps,30);
   const removeStatusBar=opts.removeStatusBar!==undefined?!!opts.removeStatusBar:exportStatusBarEnabled('video');
@@ -7035,11 +7058,16 @@ async function exportSourceEditedVideo(v,label,opts={}){
   if(canvasCompositionEnabled())await waitPhoneFrameReady();
   const size=canvasCompositionEnabled()?getCanvasExportSize():safeCanvasSize(video.videoWidth,video.videoHeight,1280,1280*1280*2);
   const canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;
-  const ctx=canvas.getContext('2d',{alpha:false});
+  const ctx=canvas.getContext('2d',{alpha:transparentBackground});
   const sourceCleanCanvas=document.createElement('canvas');
   const sourceCleanCtx=sourceCleanCanvas.getContext('2d',{alpha:false});
-  const stream=canvas.captureStream(Math.max(1,Math.min(60,fps)));
-  const canvasTrack=stream.getVideoTracks()[0];
+  let stream=canvas.captureStream(0);
+  let canvasTrack=stream.getVideoTracks()[0];
+  if(!canvasTrack?.requestFrame){
+    try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
+    stream=canvas.captureStream(Math.max(1,Math.min(60,fps)));
+    canvasTrack=stream.getVideoTracks()[0];
+  }
   const sourceStream=(video.captureStream&&video.captureStream())||(video.mozCaptureStream&&video.mozCaptureStream());
   if(sourceStream)sourceStream.getAudioTracks().forEach(t=>stream.addTrack(t));
   let recCfg=mediaRecorderConfig(format,true);
@@ -7073,7 +7101,9 @@ async function exportSourceEditedVideo(v,label,opts={}){
     try{video.load&&video.load();}catch(e){}
   };
   const frameEvery=1000/Math.max(1,fps);
-  const requestCanvasFrame=()=>{};
+  const requestCanvasFrame=()=>{
+    try{canvasTrack?.requestFrame?.();}catch(e){}
+  };
   const pauseRecorder=()=>{
     try{if(mr.state==='recording')mr.pause();}catch(e){}
   };
@@ -7094,7 +7124,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
         if(removeStatusBar)safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
         media=sourceCleanCanvas;
       }
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland});
+      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,transparentBackground});
     }else{
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       const island=detectDynamicIslandRect(canvas);
@@ -7151,7 +7181,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
     startRecorder();
     resumeRecorder();
     drawFrame();
-    const playOk=await video.play().then(()=>true).catch(()=>false);
+    const playOk=await _playVideoBounded(video,3000);
     if(!playOk){aborted=true;break;}
     await new Promise(resolve=>{
       const tick=()=>{
@@ -7191,6 +7221,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
   if(!sourceVideos.length||typeof MediaRecorder==='undefined')return null;
   const fps=Math.max(1,Math.min(60,parseInt(opts.fps)||30));
   const removeStatusBar=!!opts.removeStatusBar;
+  const transparentBackground=!!opts.transparentBackground&&canvasCompositionEnabled();
   const videoEls=[];
   try{
     for(const v of sourceVideos){
@@ -7204,11 +7235,16 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
     const first=videoEls[0].el;
     const size=canvasCompositionEnabled()?getCanvasExportSize():safeCanvasSize(first.videoWidth,first.videoHeight,1280,1280*1280*2);
     const canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;
-    const ctx=canvas.getContext('2d',{alpha:false});
+    const ctx=canvas.getContext('2d',{alpha:transparentBackground});
     const clean=document.createElement('canvas');
     const cleanCtx=clean.getContext('2d',{alpha:false});
-    const stream=canvas.captureStream(fps);
-    const canvasTrack=stream.getVideoTracks()[0];
+    let stream=canvas.captureStream(0);
+    let canvasTrack=stream.getVideoTracks()[0];
+    if(!canvasTrack?.requestFrame){
+      try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
+      stream=canvas.captureStream(fps);
+      canvasTrack=stream.getVideoTracks()[0];
+    }
     let audioCtx=null,audioDest=null,audioNodes=[];
     try{
       const AC=window.AudioContext||window.webkitAudioContext;
@@ -7235,10 +7271,16 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       return null;
     }
     mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
-    const segments=videoEls.flatMap(item=>_sourceSegments(item.v,0,item.v.duration,opts.includeCuts!==false).map(seg=>({...seg,...item})));
+    const rangesByVideoId=opts.rangesByVideoId||null;
+    const segments=videoEls.flatMap(item=>{
+      const ranges=Array.isArray(rangesByVideoId?.[item.v.id])&&rangesByVideoId[item.v.id].length
+        ? rangesByVideoId[item.v.id]
+        : [{start:0,end:item.v.duration}];
+      return ranges.flatMap(range=>_sourceSegments(item.v,Math.max(0,Number(range.start)||0),Math.min(Number(item.v.duration)||0,Number(range.end)||0),opts.includeCuts!==false).map(seg=>({...seg,...item})));
+    });
     const totalDur=segments.reduce((sum,s)=>sum+Math.max(0,s.end-s.start),0);
     if(!segments.length||totalDur<=0)return null;
-    let active=null,raf=0,lastFrameAt=0,doneDur=0,stopped=false,aborted=false;
+    let active=null,raf=0,lastFrameAt=0,doneDur=0,stopped=false,aborted=false,recorderStarted=false;
     const startedAt=performance.now();
     const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
     const drawActiveFrame=()=>{
@@ -7256,7 +7298,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           if(removeStatusBar)safeApplyExportStatusBar(clean,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
           media=clean;
         }
-        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland});
+        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,transparentBackground});
       }else{
         ctx.drawImage(el,0,0,canvas.width,canvas.height);
         const island=detectDynamicIslandRect(canvas);
@@ -7274,6 +7316,18 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       if(now-lastFrameAt>=1000/fps-1){lastFrameAt=now;drawActiveFrame();}
       raf=requestAnimationFrame(drawLoop);
     };
+    const pauseRecorder=()=>{
+      try{if(mr.state==='recording')mr.pause();}catch(e){}
+    };
+    const resumeRecorder=()=>{
+      try{if(mr.state==='paused')mr.resume();}catch(e){}
+    };
+    const startRecorder=()=>{
+      if(recorderStarted){resumeRecorder();return;}
+      recorderStarted=true;
+      mr.start(250);
+      drawLoop();
+    };
     const stoppedPromise=new Promise(resolve=>{
       mr.onstop=()=>{
         stopped=true;
@@ -7286,11 +7340,9 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
         resolve(blob.size>2048?{blob,mime:recCfg.mime,ext:recCfg.ext,frames:null,fps,duration:totalDur,audioTracks:audioDest?.stream?.getAudioTracks?.().length||0}:null);
       };
     });
-    await _seekVideo(segments[0].el,segments[0].start);
     active=segments[0];
+    await _seekVideo(active.el,active.start);
     drawActiveFrame();
-    mr.start(500);
-    drawLoop();
     for(let i=0;i<segments.length;i++){
       const seg=segments[i];
       if(shouldAbort()){aborted=true;break;}
@@ -7298,7 +7350,8 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       await _seekVideo(seg.el,seg.start);
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       drawActiveFrame();
-      const playOk=await seg.el.play().then(()=>true).catch(()=>false);
+      startRecorder();
+      const playOk=await _playVideoBounded(seg.el,3000);
       if(!playOk){aborted=true;break;}
       await new Promise(resolve=>{
         const tick=()=>{
@@ -7311,11 +7364,13 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
         tick();
       });
       if(aborted)break;
+      pauseRecorder();
       doneDur+=seg.end-seg.start;
       try{opts.onProgress&&opts.onProgress(doneDur,totalDur,{segmentIndex:i,segments:segments.length,currentTime:seg.end});}catch(e){}
     }
     stopped=true;
     cancelAnimationFrame(raf);
+    resumeRecorder();
     drawActiveFrame();
     try{mr.requestData();}catch(e){}
     try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
@@ -7689,6 +7744,7 @@ async function exportZip(vid){
   let sourceFallbackSeq=0;
   const usedFlowIds=new Set();
   const exportFlowData={};
+  const exportFlowFrameRefs={};
   setLdPb(8,'Rendering source video for ZIP...');
   let combinedVideo=targetVideos.every(v=>v.objectURL)
     ? await renderCombinedSourceEditedVideo(targetVideos,'video',{
@@ -7732,6 +7788,7 @@ async function exportZip(vid){
       if(!exportFlowData[f.id]){
         exportFlowData[f.id]={folder:flowsRoot.folder(folderName),path:`flows/${folderName}/`,index:idx+1,rows:['index,frame_id,time,time_sec,kind,has_figma,url,image_files,figma_files'],frames:[],flow:f};
       }
+      if(!exportFlowFrameRefs[f.id])exportFlowFrameRefs[f.id]=[];
       flowFolders[f.id]=exportFlowData[f.id];
     });
     if(false&&v.file){
@@ -7798,6 +7855,7 @@ async function exportZip(vid){
           t.folder.file(htmlName,exportFigmaHtml(appName,imgName,`${exportClock(ts)} · ${flowNames.join(', ')||'untagged'}`),{compression:'STORE'});
           if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},figma,yes,${csvCell('')},${csvCell(t.path+imgName)},${csvCell(t.path+htmlName)}`);
           if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName,figmaFile:t.path+htmlName});
+          if(t.flow&&exportFlowFrameRefs[t.flow.id])exportFlowFrameRefs[t.flow.id].push(fr);
           inventory.push(`${sessionFolder}/${t.path}${imgName},image/png,${blob.size}`);
           inventory.push(`${sessionFolder}/${t.path}${htmlName},text/html,${exportFigmaHtml(appName,imgName,'').length}`);
         });
@@ -7816,13 +7874,61 @@ async function exportZip(vid){
       data.rows=[head,...data.rows.slice(1).sort((a,b)=>(parseInt(a,10)||0)-(parseInt(b,10)||0))];
     }
   });
+  const flowVideoData=Object.values(exportFlowData).sort((a,b)=>a.index-b.index);
+  for(let fvi=0;fvi<flowVideoData.length;fvi++){
+    if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
+    const data=flowVideoData[fvi];
+    const refs=exportableFramesInVideoOrder(exportFlowFrameRefs[data.flow.id]||[]);
+    const groups=new Map();
+    refs.forEach(fr=>{
+      if(!fr?.videoId)return;
+      if(!groups.has(fr.videoId))groups.set(fr.videoId,[]);
+      groups.get(fr.videoId).push(fr);
+    });
+    const flowVideos=[];
+    const rangesByVideoId={};
+    groups.forEach((frs,videoId)=>{
+      const src=targetVideos.find(v=>v.id===videoId)||getVideo(videoId);
+      if(!src?.objectURL)return;
+      const secs=frs.map(frameSec).filter(s=>s!=null).sort((a,b)=>a-b);
+      if(!secs.length)return;
+      const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
+      rangesByVideoId[videoId]=[{start:Math.max(0,secs[0]-pad),end:Math.min(src.duration||secs[secs.length-1]+pad,secs[secs.length-1]+pad)}];
+      flowVideos.push({...src,frames:frs});
+    });
+    if(!flowVideos.length)continue;
+    setLdPb(83+Math.round(fvi/Math.max(1,flowVideoData.length)*8),`Rendering flow video ${fvi+1} / ${flowVideoData.length}...`);
+    try{
+      const rendered=await renderCombinedSourceEditedVideo(flowVideos,`${exportFileStem(data.flow.name,'flow')}_flow`,{
+        rangesByVideoId,
+        removeStatusBar,
+        includeCuts:true,
+        transparentBackground:true,
+        fps:Math.min(30,parseInt(document.getElementById('vex-fps')?.value)||30),
+        videoBitsPerSecond:6_000_000,
+        shouldCancel:()=>zipCancelFlag,
+        onProgress:(done,total)=>{
+          const pct=83+Math.round((fvi+(total?done/total:0))/Math.max(1,flowVideoData.length)*8);
+          setLdPb(Math.min(91,pct),`Rendering flow video ${fvi+1} / ${flowVideoData.length}... ${fmt(done)} / ${fmt(total)}`);
+        }
+      });
+      if(rendered?.blob&&rendered.blob.size>2048){
+        const fileName='flow_video.webm';
+        data.folder.file(fileName,rendered.blob,{binary:true,compression:'STORE'});
+        data.flowVideoFile=data.path+fileName;
+        inventory.push(`${sessionFolder}/${data.path}${fileName},video/webm,${rendered.blob.size}`);
+      }
+    }catch(e){
+      console.warn('flow video export failed',data.flow?.name,e);
+    }
+  }
   const flowInfos=[];
   Object.values(exportFlowData).sort((a,b)=>a.index-b.index).forEach(data=>{
     const fl=data.flow,idx=data.index-1,folder=data.folder,path=data.path,shots=data.frames;
     const start=shots.length?Math.min(...shots.map(s=>s.timeSec)):0,end=shots.length?Math.max(...shots.map(s=>s.timeSec)):0;
     folder.file('screenshots_index.csv',data.rows.join('\n'),{compression:'STORE'});
     folder.file('flow_info.txt',`Flow: ${fl.name}\nFlow ID: ${fl.id}\nOriginal Flow ID: ${fl.id}\nIndex: ${idx+1} of ${usedFlowIds.size}\nStart: ${exportClock(start)} (${start.toFixed(1)}s)\nEnd: ${exportClock(end)} (${end.toFixed(1)}s)\nLength: ${exportDuration(end-start)}\nScreenshots: ${shots.length}\nSegment: ${idx+1}\n`,{compression:'STORE'});
-    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,screenshotCount:shots.length,screenshots:shots};
+    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,flowVideoFile:data.flowVideoFile||'',screenshotCount:shots.length,screenshots:shots};
     manifestData.flows.push(flowMeta);
     allFlowsIndex.push(`${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
     dbFlows.push(`${fl.id},${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
@@ -7844,7 +7950,7 @@ async function exportZip(vid){
     dbFolder.file('screenshots.jsonl',manifestData.screenshots.map(s=>JSON.stringify(s)).join('\n'),{compression:'STORE'});
   }
   sessionRoot.file('flows_reference.txt',flowInfos.join('\n'),{compression:'STORE'});
-  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited video export with cuts/redactions/status bar removal baked in when the browser can render it\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots and _figma.html sidecars\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
+  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited video export with cuts/redactions/status bar removal baked in when the browser can render it\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, _figma.html sidecars, and flow_video.webm when the browser can render the flow clip\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
   sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nStatus bar removed on export: ${removeStatusBar}\nEdited videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\n`,{compression:'STORE'});
   setLdPb(94,'Packing Flora-style ZIP...');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
