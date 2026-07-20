@@ -2692,17 +2692,19 @@ function removeRecordingIndicator(canvas,islandRect=null){
   if(!ctx)return false;
   const leftExpand=Math.max(0,Math.round(rect.h*.5));
   const rightExpand=Math.max(0,Math.round(rect.h*.22));
+  const topExpand=Math.max(1,Math.round(rect.h*.12));
+  const bottomExpand=Math.max(1,Math.round(rect.h*.12));
   const x0=Math.max(0,Math.floor(rect.x-leftExpand));
-  const y0=Math.max(0,Math.floor(rect.y));
+  const y0=Math.max(0,Math.floor(rect.y-topExpand));
   const w=Math.min(canvas.width-x0,Math.ceil(rect.w+leftExpand+rightExpand));
-  const h=Math.min(canvas.height-y0,Math.ceil(rect.h));
+  const h=Math.min(canvas.height-y0,Math.ceil(rect.h+topExpand+bottomExpand));
   if(w<=0||h<=0)return false;
   let data;
   try{data=ctx.getImageData(x0,y0,w,h).data;}catch(e){return false;}
-  const searchX=Math.max(0,Math.floor(w*.02));
-  const searchW=Math.max(1,Math.floor(w*.46));
-  const searchY=Math.max(0,Math.floor(h*.08));
-  const searchH=Math.max(1,Math.floor(h*.84));
+  const searchX=Math.max(0,Math.floor(w*.01));
+  const searchW=Math.max(1,Math.floor(w*.98));
+  const searchY=Math.max(0,Math.floor(h*.04));
+  const searchH=Math.max(1,Math.floor(h*.92));
   let minX=w,minY=h,maxX=0,maxY=0,count=0;
   let br=0,bg=0,bb=0,bn=0;
   for(let yy=0;yy<h;yy++){
@@ -2723,11 +2725,6 @@ function removeRecordingIndicator(canvas,islandRect=null){
   }
   if(count<Math.max(8,Math.round(w*h*.0007)))return false;
   const fill=bn?`rgb(${Math.round(br/bn)},${Math.round(bg/bn)},${Math.round(bb/bn)})`:'#050505';
-  const pad=Math.max(4,Math.round(h*.24));
-  const cx=x0+(minX+maxX)/2;
-  const cy=y0+(minY+maxY)/2;
-  const rx=Math.max(4,(maxX-minX+1)/2+pad);
-  const ry=Math.max(4,(maxY-minY+1)/2+pad);
   ctx.save();
   ctx.beginPath();
   if(ctx.roundRect)ctx.roundRect(x0,y0,w,h,h/2);
@@ -2745,11 +2742,7 @@ function removeRecordingIndicator(canvas,islandRect=null){
   }
   ctx.clip();
   ctx.fillStyle=fill;
-  if(minX<w*.28)ctx.fillRect(x0,y0,w,h);
-  else ctx.fillRect(Math.max(x0,cx-rx),Math.max(y0,cy-ry),Math.min(w,rx*2),Math.min(h,ry*2));
-  ctx.beginPath();
-  ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);
-  ctx.fill();
+  ctx.fillRect(x0,y0,w,h);
   ctx.restore();
   return true;
 }
