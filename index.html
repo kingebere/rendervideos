@@ -2663,9 +2663,11 @@ function rememberSourceIsland(v,rect,w,h){
   v._hasSourceIsland=true;
   v._sourceIslandRect={x:rect.x/w,y:rect.y/h,w:rect.w/w,h:rect.h/h};
 }
-function sourceIslandRectForCanvas(v,canvas){
+function sourceIslandRectForCanvas(v,canvas,opts={}){
   if(!canvas)return null;
+  if(opts.useCached&&v&&v._sourceIslandChecked&&!v._hasSourceIsland)return null;
   const found=detectDynamicIslandRect(canvas);
+  if(v)v._sourceIslandChecked=true;
   if(found){
     rememberSourceIsland(v,found,canvas.width,canvas.height);
     return found;
@@ -2731,12 +2733,12 @@ function cloneCanvasForExport(src){
   ctx.drawImage(src,0,0);
   return c;
 }
-async function frameCanvasForExport(fr,removeStatusBar){
+async function frameCanvasForExport(fr,removeStatusBar,opts={}){
   const base=await getFrameCanvas(fr);
   const canvas=removeStatusBar?cloneCanvasForExport(base):base;
   const sourceIsland=removeStatusBar?sourceIslandRectForCanvas(getVideo(fr.videoId),canvas):null;
   if(removeStatusBar)safeApplyExportStatusBar(canvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
-  if(canvasCompositionEnabled()){
+  if(opts.compose!==false&&canvasCompositionEnabled()){
     await waitPhoneFrameReady();
     const size=getCanvasExportSize();
     const out=document.createElement('canvas');
@@ -6334,17 +6336,31 @@ async function exportFullEditedVideo(){
   }else if(multiSourceIds.length>1){
     const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb'),progD=document.getElementById('vex-pd');
     if(prog){prog.style.display='block';progB.style.width='0%';}
-    if(progT)progT.textContent='Rendering combined session video...';
-    const rendered=await renderCombinedZipVideo(sorted,_appN+'_full',{
+    if(progT)progT.textContent='Rendering combined source video...';
+    const sourceVideos=videos.filter(v=>multiSourceIds.includes(v.id));
+    let rendered=await renderCombinedSourceEditedVideo(sourceVideos,_appN+'_full',{
       removeStatusBar:exportStatusBarEnabled('video'),
-      fps:Math.min(24,parseInt(document.getElementById('vex-fps')?.value)||18),
-      duration:totalEffectiveDuration(videos),
-      videoBitsPerSecond:6_000_000,
+      fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
+      includeCuts:true,
+      videoBitsPerSecond:12_000_000,
       onProgress:(done,total)=>{
         if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
-        if(progD)progD.textContent=`${done} / ${total} frames`;
+        if(progD)progD.textContent=`${fmt(done)} / ${fmt(total)}`;
       }
     });
+    if(!rendered){
+      if(progT)progT.textContent='Source renderer unavailable, using extracted frames...';
+      rendered=await renderCombinedZipVideo(sorted,_appN+'_full',{
+        removeStatusBar:exportStatusBarEnabled('video'),
+        fps:Math.min(24,parseInt(document.getElementById('vex-fps')?.value)||18),
+        duration:totalEffectiveDuration(videos),
+        videoBitsPerSecond:6_000_000,
+        onProgress:(done,total)=>{
+          if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
+          if(progD)progD.textContent=`${done} / ${total} frames`;
+        }
+      });
+    }
     if(rendered&&rendered.blob){
       if(progB)progB.style.width='100%';
       if(prog)prog.style.display='none';
@@ -6917,7 +6933,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
           sourceCleanCanvas.width=video.videoWidth;sourceCleanCanvas.height=video.videoHeight;
         }
         sourceCleanCtx.drawImage(video,0,0,sourceCleanCanvas.width,sourceCleanCanvas.height);
-        var sourceIsland=sourceIslandRectForCanvas(v,sourceCleanCanvas);
+        var sourceIsland=sourceIslandRectForCanvas(v,sourceCleanCanvas,{useCached:true});
         safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
         media=sourceCleanCanvas;
       }
@@ -7007,6 +7023,142 @@ async function exportSourceEditedVideo(v,label,opts={}){
   ]);
   cleanup();
   return result;
+}
+
+async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
+  const sourceVideos=(videoList||[]).filter(v=>v&&v.objectURL&&(Number(v.duration)||0)>0);
+  if(!sourceVideos.length||typeof MediaRecorder==='undefined')return null;
+  const fps=Math.max(1,Math.min(60,parseInt(opts.fps)||30));
+  const removeStatusBar=!!opts.removeStatusBar;
+  const videoEls=[];
+  try{
+    for(const v of sourceVideos){
+      const el=document.createElement('video');
+      el.src=v.objectURL;el.preload='auto';el.playsInline=true;el.muted=false;el.volume=1;
+      await new Promise(r=>{el.onloadedmetadata=r;el.onerror=r;setTimeout(r,8000);});
+      if(!el.videoWidth||!el.videoHeight)throw new Error('source metadata unavailable');
+      videoEls.push({v,el,redactions:_videoRedactionEvents(v)});
+    }
+    if(canvasCompositionEnabled())await waitPhoneFrameReady();
+    const first=videoEls[0].el;
+    const size=canvasCompositionEnabled()?getCanvasExportSize():safeCanvasSize(first.videoWidth,first.videoHeight,1280,1280*1280*2);
+    const canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;
+    const ctx=canvas.getContext('2d',{alpha:false});
+    const clean=document.createElement('canvas');
+    const cleanCtx=clean.getContext('2d',{alpha:false});
+    const stream=canvas.captureStream(fps);
+    const canvasTrack=stream.getVideoTracks()[0];
+    let audioCtx=null,audioDest=null,audioNodes=[];
+    try{
+      const AC=window.AudioContext||window.webkitAudioContext;
+      if(AC){
+        audioCtx=new AC();
+        await audioCtx.resume?.();
+        audioDest=audioCtx.createMediaStreamDestination();
+        videoEls.forEach(({el})=>{
+          try{
+            const node=audioCtx.createMediaElementSource(el);
+            node.connect(audioDest);
+            audioNodes.push(node);
+          }catch(e){}
+        });
+        audioDest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+      }
+    }catch(e){console.warn('combined source audio unavailable',e);}
+    const recCfg=mediaRecorderConfig('webm',true);
+    const chunks=[];let mr;
+    try{
+      mr=new MediaRecorder(stream,{mimeType:recCfg.mime,videoBitsPerSecond:opts.videoBitsPerSecond||10_000_000,audioBitsPerSecond:160_000});
+    }catch(e){
+      try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(_e){}
+      return null;
+    }
+    mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    const segments=videoEls.flatMap(item=>_sourceSegments(item.v,0,item.v.duration,opts.includeCuts!==false).map(seg=>({...seg,...item})));
+    const totalDur=segments.reduce((sum,s)=>sum+Math.max(0,s.end-s.start),0);
+    if(!segments.length||totalDur<=0)return null;
+    let active=null,raf=0,lastFrameAt=0,doneDur=0,stopped=false,aborted=false;
+    const startedAt=performance.now();
+    const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
+    const drawActiveFrame=()=>{
+      if(!active)return;
+      const el=active.el,v=active.v;
+      if(canvasCompositionEnabled()){
+        let media=el,sourceIsland=null;
+        if(removeStatusBar){
+          if(clean.width!==el.videoWidth||clean.height!==el.videoHeight){
+            clean.width=el.videoWidth;clean.height=el.videoHeight;
+          }
+          cleanCtx.drawImage(el,0,0,clean.width,clean.height);
+          sourceIsland=sourceIslandRectForCanvas(v,clean,{useCached:true});
+          safeApplyExportStatusBar(clean,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
+          media=clean;
+        }
+        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland});
+      }else{
+        ctx.drawImage(el,0,0,canvas.width,canvas.height);
+        if(removeStatusBar)safeApplyExportStatusBar(canvas,{preserveIsland:!!detectDynamicIslandRect(canvas)});
+        if(showVideoRedactions)_drawVideoRedactions(ctx,el.currentTime,active.redactions,canvas.width,canvas.height);
+      }
+      try{canvasTrack?.requestFrame?.();}catch(e){}
+    };
+    const drawLoop=()=>{
+      if(stopped)return;
+      const now=performance.now();
+      if(now-lastFrameAt>=1000/fps-1){lastFrameAt=now;drawActiveFrame();}
+      raf=requestAnimationFrame(drawLoop);
+    };
+    const stoppedPromise=new Promise(resolve=>{
+      mr.onstop=()=>{
+        stopped=true;
+        cancelAnimationFrame(raf);
+        try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
+        videoEls.forEach(({el})=>{try{el.pause();el.removeAttribute('src');el.load&&el.load();}catch(e){}});
+        try{audioNodes.forEach(n=>n.disconnect());audioCtx&&audioCtx.close&&audioCtx.close();}catch(e){}
+        if(aborted){resolve(null);return;}
+        const blob=new Blob(chunks,{type:recCfg.mime});
+        resolve(blob.size>2048?{blob,mime:recCfg.mime,ext:recCfg.ext,frames:null,fps,duration:totalDur,audioTracks:audioDest?.stream?.getAudioTracks?.().length||0}:null);
+      };
+    });
+    await _seekVideo(segments[0].el,segments[0].start);
+    active=segments[0];
+    drawActiveFrame();
+    mr.start(500);
+    drawLoop();
+    for(let i=0;i<segments.length;i++){
+      const seg=segments[i];
+      if(shouldAbort()){aborted=true;break;}
+      active=seg;lastFrameAt=0;
+      await _seekVideo(seg.el,seg.start);
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      drawActiveFrame();
+      const playOk=await seg.el.play().then(()=>true).catch(()=>false);
+      if(!playOk){aborted=true;break;}
+      await new Promise(resolve=>{
+        const tick=()=>{
+          if(shouldAbort()){aborted=true;seg.el.pause();resolve();return;}
+          if(seg.el.paused||seg.el.ended||seg.el.currentTime>=seg.end-0.015){seg.el.pause();resolve();return;}
+          const inSeg=Math.max(0,seg.el.currentTime-seg.start);
+          try{opts.onProgress&&opts.onProgress(doneDur+inSeg,totalDur,{segmentIndex:i,segments:segments.length,currentTime:seg.el.currentTime});}catch(e){}
+          requestAnimationFrame(tick);
+        };
+        tick();
+      });
+      if(aborted)break;
+      doneDur+=seg.end-seg.start;
+      try{opts.onProgress&&opts.onProgress(doneDur,totalDur,{segmentIndex:i,segments:segments.length,currentTime:seg.end});}catch(e){}
+    }
+    stopped=true;
+    cancelAnimationFrame(raf);
+    drawActiveFrame();
+    try{mr.requestData();}catch(e){}
+    try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
+    return await Promise.race([stoppedPromise,new Promise(resolve=>setTimeout(()=>resolve(null),60000))]);
+  }catch(e){
+    console.warn('combined source video render failed',e);
+    try{videoEls.forEach(({el})=>{el.pause();el.removeAttribute('src');});}catch(_e){}
+    return null;
+  }
 }
 async function reconstructVideo(frameList,label){
   if(!frameList.length){toast('⚠️',`No frames for "${label}"`);return;}
@@ -7371,8 +7523,21 @@ async function exportZip(vid){
   let sourceFallbackSeq=0;
   const usedFlowIds=new Set();
   const exportFlowData={};
-  setLdPb(8,'Rendering combined video for ZIP...');
-  const combinedVideo=await renderCombinedZipVideo(selectedFramesForZip,'video',{
+  setLdPb(8,'Rendering source video for ZIP...');
+  let combinedVideo=targetVideos.every(v=>v.objectURL)
+    ? await renderCombinedSourceEditedVideo(targetVideos,'video',{
+      removeStatusBar,
+      fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
+      includeCuts:true,
+      videoBitsPerSecond:12_000_000,
+      shouldCancel:()=>zipCancelFlag,
+      onProgress:(done,total)=>{
+        const pct=8+Math.round((total?done/total:0)*22);
+        setLdPb(Math.min(30,pct),`Rendering source video for ZIP... ${fmt(done)} / ${fmt(total)}`);
+      }
+    })
+    : null;
+  if(!combinedVideo)combinedVideo=await renderCombinedZipVideo(selectedFramesForZip,'video',{
     removeStatusBar,
     fps:Math.min(24,parseInt(document.getElementById('vex-fps')?.value)||18),
     duration:sessionDuration,
@@ -7451,7 +7616,7 @@ async function exportZip(vid){
       await Promise.all(zBatch.map(async fr=>{
         globalSeq++;
         const seq=globalSeq;
-        const _fc=await frameCanvasForExport(fr,removeStatusBar);
+        const _fc=await frameCanvasForExport(fr,removeStatusBar,{compose:false});
         const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
         if(!blob)return;
         const localTs=Number(fr.timestamp??fr.timeSec??0)||0;
