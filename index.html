@@ -374,6 +374,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 .seg-mini button.on{background:var(--a);color:#fff}
 .bg-swatch{width:22px;height:22px;border-radius:5px;border:1px solid var(--b);cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
 .bg-swatch.on{outline:2px solid var(--a2);outline-offset:1px}
+.checker-swatch{background-color:#fff;background-image:linear-gradient(45deg,#cfd4dc 25%,transparent 25%),linear-gradient(-45deg,#cfd4dc 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#cfd4dc 75%),linear-gradient(-45deg,transparent 75%,#cfd4dc 75%);background-size:10px 10px;background-position:0 0,0 5px,5px -5px,-5px 0}
 .canvas-color{width:28px;height:22px;border:1px solid var(--b);border-radius:5px;background:transparent;padding:0;cursor:pointer}
 .mark-bar{display:flex;align-items:center;gap:7px;padding:5px 12px;background:var(--s);border-top:1px solid var(--b);flex-shrink:0;flex-wrap:wrap}
 .mark-time{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--a2);min-width:42px;text-align:center}
@@ -978,6 +979,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
           <button type="button" id="canvas-bg-solid" onclick="setCanvasBgStyle('solid')">Color</button>
           <button type="button" id="canvas-bg-gradient" onclick="setCanvasBgStyle('gradient')">Gradient</button>
           <button type="button" id="canvas-bg-mesh" onclick="setCanvasBgStyle('mesh')">Mesh</button>
+          <button type="button" id="canvas-bg-transparent" class="checker-swatch" onclick="setCanvasBgStyle('transparent')" title="Transparent preview"></button>
         </span>
         <input class="canvas-color" id="canvas-bg-color" type="color" value="#ffffff" oninput="setCanvasSolidColor(this.value)" title="Background color">
         <span class="canvas-group" id="canvas-bg-swatches"></span>
@@ -1364,6 +1366,7 @@ function savePrefs(){
 let videos=[];
 let flows=[];
 let wordList=[];
+let flowTagSeq=0;
 let activeVideoId=null;
 let currentView='g', cancelFlag=false, restoreCancelFlag=false;
 let frameTrayMode='strip', _previewOverlayRaf=0, _previewCutJumping=false;
@@ -1512,7 +1515,9 @@ const COLS=['#2563eb','#f7c26a','#6af7c2','#f76a6a','#6ab4f7','#f76ac6','#c2f76a
 const PRESET_FLOWS = ["Achievements","Activity","Activity Calendar","Activity Timer","Activity Trends","Add Beneficiary","Add Flight","Add Homework","Add Medication","Add Money","Add New Expense","Add a Place","Add a Podcast","Add address","Add bank account","Add expense","Add to Favourite","Adding Comment to Picture","Adding a video to favorite","Adding effect","Adding friend","Adding music","Adding plants","Ai assistant","Answer questionnaire","Articles","Assessment","Authentication","Avatar Setup","Badges","Betting & gaming","Blog","Book","Book Details","Book Discovery","Book Search","Book an activity","Book an inspection","Booking","Booking flight","Booking show","Browse","Browse by categories","Building a weight loss plan","Buy gift card","Buy show","Calendar","Camera filter","Camera settings","Cancel Reservations","Car details","Certifications","Challenges","Change password","Changing notification settings","Changing playback speed","Charging","Charts","Check Flights","Checkout","Choose Workout","Clip creation","Collections","Comments","Community","Community details","Compare hotels","Competitions","Contact Us","Course detail","Course outline","Courses","Create Account","Create Discount","Create Invoices","Create Island","Create Playlist Widget","Create a group","Create a plan","Create a profile","Create a question","Create a task","Create a trip","Create board","Create card","Create challenge","Create essay","Create first routine","Create image","Create journal","Create kahoot","Create meal","Create meal plan with ai","Create new habit","Create new playlist","Create new reel","Create new routine","Create playlist","Create whiteboard","Creating a Bucket List","Creating a note","Creating a post","Creating a short","Creating a story","Creating a video","Creating a website","Creating dream art","Creating journal entry","Creating new chat","Creating new request","Creating story","Credits","Daily check in","Daily deals","Daily lesson","Daily streak","Delete conversation","Delete post","Delete Roll call","Directions","Discovery","Discussions","Download","Downloading a video","Dream Journal","Edit","Edit Home","Edit Playlist","Edit board info","Edit comment","Edit details","Edit goal","Edit habit","Edit list","Edit profile","Editing and saving a picture","Enable Location","Events","Expense","Explore","Explore Details","Explore Meals","Explore flights","Explore hotels","Explore restaurants","Explore travel deals","Export","Face scan","Faq","Favourites","Feature Highlight","Feed","Feedback","Filtering","Financial report","Fitness","Flight Details","Flight Report","Flight Schedule","Following","Following a user","Food ordering","Friends","Friends Compatibility","Fund wallet","Gaming","Gift","Gift card","Goals","Guide","Habit details","Habit summary","Health","Help and support","History","Home","Hotel booking","Hotel detail","How it works","Hydration Tracking","Identify A Bird","Identify insect","Identify plant","Inbox","Insight","Join challenge","Join competition","Join waitlist","Journaling","Kyc","Language settings","Latest News","Learn","Leaderboard","Liking","Liking a comment","Liking a post","Liking a short","Liking a video","List","Listen","Listening to a podcast","Live matches","Live video","Location details","Log first event","Log habit","Log period","Login","Logout","Loyalty","Make a request","Making Reservations","Market Statistics","Meditations","Members","Menu","Messaging","Mindset","Move item","Music","My courses","My profile","My shows","Navigation settings","New scan","Notification","Notification settings","Onboarding","Order Confirmation","Ordering a delivery","Ordering a pickup","Orders","Overview","Packages","Payment","Plans","Plant details","Plant progress","Playlist","Podcast","Post","Post Details","Price alerts","Privacy settings","Profile","Profile setup","Programs","Purchase","Quitting game","Recipe details","Recipes","Record video","Referral","Reporting","Reservation","Rewards","Running","Saving","Schedule","Scheduling","Search","Search Music","Search cars","Searching","Searching for flights","Security","Send money","Settings","Setup 2fa","Share","Sharing a post","Sharing a story","Sharing music","Shopping Bag","Sign","Sign Up","Single Sign-On","Skin analyzer","Sleep","Sort & filter","Spending/Expenses","Sports live","Start fasting","Start navigation","Starting a course","Starting a lesson","Starting exercise","Stats","Stories","Stream setup","Streaks","Study Plan","Subscriptions","Support","Task","Tips","Tour details","Transactions","Transfer","Trip details","Trips","Tutorial","Upcoming task","User profile","Video call","View Activity","View Map","View Reservations","Voting","Wallet","Wishlist","Workout details","Workout plan","Writing & editing"];
 // ADD immediately after the PRESET_FLOWS closing bracket+semicolon:
 
-const PRESET_WORDS = ["temitope6878@gmailcom","temitope6878gmailcom","instantapply343@gmailcom","miracle","stunner","heywhy","charles","oluwabusayo","0947","fiyinfoluwa","temitope","ajepe","4787","ccaslecreusot","zhonglena","epicerie","traore","temi","place","de","la","molette","le","creusot","71200","banque","miracleibifuba","societe","oluwatobi","tresor","tresorp","oluwatobial67","montceau","0043","8511","fivinfoluwa","dawood","komal","succursalellr","1084","bifubara","agbani","miracleibifubaraa","theodore","petrick","reimmer","theodorepetrickr","2010","3848","09470","fiyinfoluwatemitopea","60-84-64","49044692","26680","38078","44692","fiyinfoluwatemitop","wisecompaymefiyinfoluwatemitopea","be47","9056","3602","6680","gb23","trwi","6084","6449","0446","92","trwigb2lxxx","2347068788511","032029","8833","3941","092028","p94424315","2001","7068788511","2035177955","33745724370","4370","7132","fr76","2823","3000","0198","1886","4448","672","revofrp2","chasdefx","808","490","8211","bro2","fr7626233000019818864448672","ayomide","07102012","abimbola","jinadu","2349022975379","anita","alina","526563497974","2347088579996","revofrp2xxx","ayo","337","4953","33","623636073","umar","44","84","85","qadeem","senior","613","36","09","terryl","58","wale","jrordan","httpsshareweropayeup1crb032uilqj","fiyinfoluwaajepegmailcom","33744822010","33749538442","25000","23-01-20","71726589","chasgb2l","745724379"];
+let PRESET_WORDS = ["temitope6878@gmailcom","temitope6878gmailcom","instantapply343@gmailcom","miracle","stunner","heywhy","charles","oluwabusayo","0947","fiyinfoluwa","temitope","ajepe","4787","ccaslecreusot","zhonglena","epicerie","traore","temi","place","de","la","molette","le","creusot","71200","banque","miracleibifuba","societe","oluwatobi","tresor","tresorp","oluwatobial67","montceau","0043","8511","fivinfoluwa","dawood","komal","succursalellr","1084","bifubara","agbani","miracleibifubaraa","theodore","petrick","reimmer","theodorepetrickr","2010","3848","09470","fiyinfoluwatemitopea","60-84-64","49044692","26680","38078","44692","fiyinfoluwatemitop","wisecompaymefiyinfoluwatemitopea","be47","9056","3602","6680","gb23","trwi","6084","6449","0446","92","trwigb2lxxx","2347068788511","032029","8833","3941","092028","p94424315","2001","7068788511","2035177955","33745724370","4370","7132","fr76","2823","3000","0198","1886","4448","672","revofrp2","chasdefx","808","490","8211","bro2","fr7626233000019818864448672","ayomide","07102012","abimbola","jinadu","2349022975379","anita","alina","526563497974","2347088579996","revofrp2xxx","ayo","337","4953","33","623636073","umar","44","84","85","qadeem","senior","613","36","09","terryl","58","wale","jrordan","httpsshareweropayeup1crb032uilqj","fiyinfoluwaajepegmailcom","33744822010","33749538442","25000","23-01-20","71726589","chasgb2l","745724379"];
+const PRESET_WORDS_RAW = PRESET_WORDS.slice();
+PRESET_WORDS = PRESET_WORDS.filter(isAllowedPresetWord);
 // ─── SENSITIVE DATA PATTERNS ─────────────────────────────────────────────────
 // Matches numbers, IBANs, credit cards, CVV, phone, email, DOB, postcodes, names
 // ─── SENSITIVE DATA PATTERNS ──────────────────────────────────────────────────
@@ -1611,8 +1616,81 @@ const _SAFE_TOKENS=new Set([
 
 // Context words that RAISE sensitivity of nearby short numbers
 const _SENSITIVE_CONTEXT=/\b(?:cvv|cvc|csc|pin|dob|born|birth|expir|card|account|acct|iban|sort|ref|id|no|number|#|passport|licence|license|ssn|nin|nino|postcode|zip|code|swift|bic|routing|transit|aba|balance|amount|total|credit|debit|payment|transfer|send|receive|wallet|fund)\b/i;
+const AUTO_SENSITIVE_LABELS=new Set(['email','email-ocr','phone','iban','swift','card','card-masked','cvv','sort-code','ni','ssn','passport','dl','number','ip','mac']);
+const REDACTION_SOURCES={HIDE_LIST:'hide-list',SENSITIVE:'sensitive-auto',MANUAL:'manual',FACE:'face'};
+
+function isAllowedPresetWord(w){
+  const t=String(w||'').trim().toLowerCase();
+  if(!t)return false;
+  if(t.includes('@'))return true;
+  if(/^(19|20)\d{2}$/.test(t))return false;
+  if(/^\d+$/.test(t))return t.length>=5;
+  if(/^[a-z]+$/i.test(t))return false;
+  if(/[a-z]/i.test(t)&&/\d/.test(t))return t.length>=4;
+  if(/\d/.test(t)&&/[-_.]/.test(t))return t.length>=6;
+  return false;
+}
+
+function sanitizeWordList(list){
+  const seen=new Set();
+  const rawPreset=new Set((PRESET_WORDS_RAW||[]).map(w=>String(w).toLowerCase()));
+  const activePreset=new Set((PRESET_WORDS||[]).map(w=>String(w).toLowerCase()));
+  return (Array.isArray(list)?list:[]).map(w=>String(w||'').trim().toLowerCase())
+    .filter(Boolean)
+    .filter(w=>!(rawPreset.has(w)&&!activePreset.has(w)))
+    .filter(w=>{if(seen.has(w))return false;seen.add(w);return true;});
+}
+
+function classifySensitiveWord(text){
+  const t=String(text||'').trim();
+  if(t.length<2)return null;
+  const lower=t.toLowerCase();
+  if(_SAFE_TOKENS.has(lower))return null;
+  if(/^[a-z][a-z\s&.'-]{1,48}$/i.test(t))return null;
+  if(!/[0-9@•*]/.test(t))return null;
+  if(t.includes('@'))return 'email';
+  if(/^[a-z]{1,3}$/i.test(t))return null;
+  if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(t))return null;
+  if(/^[$£€₦₿¥₹₩฿]\s*[\d,. ]+$/.test(t))return null;
+  if(/^[\d,. ]+\s*[$£€₦₿¥₹₩฿]$/.test(t))return null;
+  if(/^[a-z]+(-[a-z]+)+$/i.test(t))return null;
+  if(/^(19|20)\d{2}$/.test(t))return null;
+  for(const {re,label} of SENSITIVE_PATTERNS){
+    re.lastIndex=0;
+    if(AUTO_SENSITIVE_LABELS.has(label)&&re.test(t))return label;
+  }
+  return null;
+}
+
+function nearbySensitiveContext(word, allWords){
+  if(!word||!Array.isArray(allWords))return false;
+  const wx=(+word.x||0)+(+word.w||0)/2;
+  const wy=(+word.y||0)+(+word.h||0)/2;
+  return allWords.some(other=>{
+    if(!other||other===word)return false;
+    if(!_SENSITIVE_CONTEXT.test(String(other.text||'')))return false;
+    const ox=(+other.x||0)+(+other.w||0)/2;
+    const oy=(+other.y||0)+(+other.h||0)/2;
+    const sameLine=Math.abs(oy-wy)<=Math.max(+word.h||0,+other.h||0,0.02)*2.2;
+    const near=Math.abs(ox-wx)<=0.28;
+    return sameLine&&near;
+  });
+}
+
+function redactionHitForWord(w, allWords){
+  const matched=wordList.find(s=>wordMatches(w.text,s));
+  if(matched)return {...w,source:REDACTION_SOURCES.HIDE_LIST,match:matched};
+  const label=isSensitiveInContext(w,allWords);
+  if(label)return {...w,source:REDACTION_SOURCES.SENSITIVE,reason:label};
+  return null;
+}
+
+function wordHitsForRedaction(words){
+  return (words||[]).map(w=>redactionHitForWord(w,words)).filter(Boolean);
+}
 
 function isSensitiveWord(text){
+  return !!classifySensitiveWord(text);
   if(!text)return false;
   const t=text.trim();
   if(t.length<2)return false;
@@ -1658,6 +1736,10 @@ if (DATE_WITH_MONTH_REGEX.test(t)) return false;
 
 // Call this when you also have the surrounding word list (used in bgProcessFrame)
 function isSensitiveInContext(word, allWords){
+  const direct=classifySensitiveWord(word?.text);
+  if(direct)return direct;
+  if(/^\d{3,4}$/.test(String(word?.text||'').trim())&&nearbySensitiveContext(word,allWords))return 'context-number';
+  return null;
   if(isSensitiveWord(word.text))return true;
   // Bare 3–4 digit number — only flag if a sensitive label is nearby
   if(/^\d{3,4}$/.test(word.text.trim())){
@@ -1739,7 +1821,7 @@ async function bgProcessFrame(fr){
     fr._ocrWords=await runOcr(ocrCanvas);
   }
   fr._bgDone=true; // mark as processed regardless of hits
-  const hits=fr._ocrWords.filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,fr._ocrWords));
+  const hits=wordHitsForRedaction(fr._ocrWords);
   if(!hits.length)return; // nothing to hide — done
   // Bake hits into the frame
   const col=document.getElementById('hc').value;
@@ -1750,7 +1832,7 @@ async function bgProcessFrame(fr){
     applyHide(ctx,globalHideStyle,col,'#ff3366',
       w.x*canvas.width-pad,w.y*canvas.height-pad,
       w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);
-    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});
+    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w,source:w.source||REDACTION_SOURCES.HIDE_LIST});
   });
   fr.redacted=true;
   delete fr._ocrWords; // clear cache — canvas is now baked
@@ -1903,6 +1985,32 @@ function effectiveGlobalFrameSec(fr,list=videos){
   if(sec==null)return 0;
   const v=(list||[]).find(x=>x.id===fr.videoId)||getVideo(fr.videoId);
   return effectiveSessionStartSec(fr.videoId,list)+effectiveVideoTimeAt(v,sec);
+}
+function effectiveGlobalVideoSec(v,sec,list=videos){
+  if(!v)return 0;
+  return effectiveSessionStartSec(v.id,list)+effectiveVideoTimeAt(v,sec);
+}
+function flowMasterClipRanges(refs,targetVideos){
+  const groups=new Map();
+  exportableFramesInVideoOrder(refs||[]).forEach(fr=>{
+    if(!fr?.videoId)return;
+    if(!groups.has(fr.videoId))groups.set(fr.videoId,[]);
+    groups.get(fr.videoId).push(fr);
+  });
+  const ranges=[];
+  groups.forEach((frs,videoId)=>{
+    const src=(targetVideos||videos).find(v=>v.id===videoId)||getVideo(videoId);
+    if(!src)return;
+    const secs=frs.map(frameSec).filter(s=>s!=null).sort((a,b)=>a-b);
+    if(!secs.length)return;
+    const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
+    const rawStart=Math.max(0,secs[0]-pad);
+    const rawEnd=Math.min(src.duration||secs[secs.length-1]+pad,secs[secs.length-1]+pad);
+    const start=effectiveGlobalVideoSec(src,rawStart,targetVideos);
+    const end=effectiveGlobalVideoSec(src,rawEnd,targetVideos);
+    if(end-start>0.03)ranges.push({start,end});
+  });
+  return ranges.sort((a,b)=>a.start-b.start);
 }
 function sessionCurrentSec(){
   const vmain=document.getElementById('vid-main');
@@ -3075,6 +3183,22 @@ function initFlows(){
     });
     savePersistentFlows();
   }
+  flowTagSeq=flows.reduce((m,f)=>Math.max(m,Number(f.tagOrder)||0),0);
+}
+function markFlowTagged(fid){
+  const fl=flows.find(f=>f.id===fid);if(!fl)return;
+  if(!Number.isFinite(Number(fl.tagOrder))||Number(fl.tagOrder)<=0)fl.tagOrder=++flowTagSeq;
+  fl.lastTaggedAt=Date.now();
+}
+function flowSortForTagging(list){
+  return [...list].sort((a,b)=>{
+    const an=!!a._isNew,bn=!!b._isNew;
+    if(an!==bn)return an?-1:1;
+    const ao=Number(a.tagOrder)||0,bo=Number(b.tagOrder)||0;
+    if(ao&&bo&&ao!==bo)return ao-bo;
+    if(ao!==bo)return ao?-1:1;
+    return a.name.localeCompare(b.name);
+  });
 }
 function addFlow(name,re=true){
   const t=name.trim();
@@ -3162,13 +3286,11 @@ function renderFlows(){
   const af=allFrames();
   const srch=(document.getElementById('flow-search')?.value||'').toLowerCase().trim();
   // New flows (just created) pin to top; rest alpha-sorted
-  const newFlows=flows.filter(f=>f._isNew);
-  const oldFlows=[...flows.filter(f=>!f._isNew)].sort((a,b)=>a.name.localeCompare(b.name));
-  const sorted=[...newFlows,...oldFlows];
+  const sorted=flowSortForTagging(flows);
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
   let lastLetter='';
   filtered.forEach(fl=>{
-    if(!srch&&flows.length>8&&!fl._isNew){
+    if(!srch&&flows.length>8&&!fl._isNew&&!fl.tagOrder){
       const letter=fl.name[0].toUpperCase();
       if(letter!==lastLetter){
         lastLetter=letter;
@@ -3201,7 +3323,7 @@ function filterQFlows(){
 function renderQFlows(){
   const c=document.getElementById('qflows');if(!c)return;
   c.innerHTML='';
-  const sorted=[...flows].sort((a,b)=>a.name.localeCompare(b.name));
+  const sorted=flowSortForTagging(flows);
   const filtered=qFlowFilterText?sorted.filter(f=>f.name.toLowerCase().includes(qFlowFilterText)):sorted;
   filtered.forEach(fl=>{
     const b=document.createElement('button');b.className='qfb';b.textContent=fl.name;b._fid=fl.id;
@@ -3213,7 +3335,9 @@ function assignFlow(fid){
   const sel=allFrames().filter(f=>f.selected);
   if(!sel.length){toast('⚠️','Select frames first');return;}
   const fl=flows.find(f=>f.id===fid);
+  markFlowTagged(fid);
   sel.forEach(fr=>{if(!fr.flows.includes(fid))fr.flows.push(fid);});
+  savePersistentFlows();
   saveSession(); // immediate — tagging must never be lost on refresh
   document.querySelectorAll('#qflows .qfb').forEach(b=>{if(b._fid===fid){b.classList.remove('fl');void b.offsetWidth;b.classList.add('fl');}});
   // Update cards in place
@@ -3242,14 +3366,14 @@ function updateVDD(){
 function initWords(){
   const saved=loadPersistentWords();
   if(saved&&saved.length>0){
-    wordList=saved;
+    wordList=sanitizeWordList(saved);
     // Merge any PRESET_WORDS not yet in saved list (silent, no duplicates)
     let added=0;
     PRESET_WORDS.forEach(w=>{
       const t=w.trim().toLowerCase();
       if(t&&!wordList.includes(t)){wordList.push(t);added++;}
     });
-    if(added>0)savePersistentWords();
+    if(added>0||wordList.length!==saved.length)savePersistentWords();
   } else {
     wordList=[];
     PRESET_WORDS.forEach(w=>{
@@ -5289,19 +5413,19 @@ async function applyEdit(){
     applyHide(ctx,ocrLocalStyle,col,'#ff3366',
       w.x*canvas.width-pad,w.y*canvas.height-pad,
       w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);
-    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});wordCount++;
-    const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();
-    if(wd&&!wordList.includes(wd)){wordList.push(wd);}
+    const matched=wordList.find(s=>wordMatches(w.text,s));
+    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w,source:matched?REDACTION_SOURCES.HIDE_LIST:REDACTION_SOURCES.MANUAL,match:matched||null});wordCount++;
+    // Manual OCR hides stay local to this frame; do not silently grow the global hide list.
   });
   // Bake draw boxes — always axis-aligned rects, no polygon needed
   editDrawBoxes.forEach(b=>{
     ctx.fillStyle='#ffffff';
     ctx.fillRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);
-    fr.redactBoxes=(fr.redactBoxes||[]);fr.redactBoxes.push({...b});boxCount++;
+    fr.redactBoxes=(fr.redactBoxes||[]);fr.redactBoxes.push({...b,source:REDACTION_SOURCES.MANUAL});boxCount++;
   });
   if(wordCount>0||boxCount>0){
     fr.redacted=true;delete fr._ocrWords;
-    savePersistentWords();renderWordList();
+    renderWordList();
     releaseFrameBlobs(fr);await storeFrameAsBlob(fr,canvas);fr.canvas=canvas;
     const card=document.querySelector(`.card[data-id="${fr.id}"]`);
     if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
@@ -5334,7 +5458,7 @@ async function applyEdit(){
     const h2=Math.min(det.h*canvas.height+facePad2*2,canvas.height-y);
     applyFaceHide(ctx,editFaceStyle,fillCol2,x,y,w2,h2);
     fr.redactBoxes=(fr.redactBoxes||[]);
-    fr.redactBoxes.push({x:x/canvas.width,y:y/canvas.height,w:w2/canvas.width,h:h2/canvas.height});
+    fr.redactBoxes.push({x:x/canvas.width,y:y/canvas.height,w:w2/canvas.width,h:h2/canvas.height,source:REDACTION_SOURCES.FACE});
     faceCount++;
   });
   editFaceHits=[];
@@ -5380,19 +5504,18 @@ function renderOcrPills(){
   if(!ocrWords.length){c.innerHTML='<span style="font-size:10px;color:var(--m)">None detected</span>';return;}
   ocrWords.forEach((w,i)=>{
     const hi=ocrHidden.has(i);
-    const isWL=wordList.some(s=>wordMatches(w.text,s))||isSensitiveWord(w.text);
+    const isWL=wordList.some(s=>wordMatches(w.text,s));
+    const isAuto=!isWL&&isSensitiveWord(w.text);
     const p=document.createElement('span');p.className='wpill'+(hi?' hi':'');
     const cc=w.conf>75?'#6af7c2':w.conf>50?'#f7c26a':'#f76a6a';
-    const wlBadge=isWL?`<span style="font-size:7px;background:#2563eb;color:#fff;border-radius:3px;padding:0 3px;margin-left:2px;font-family:'DM Mono',monospace" title="In word list">WL</span>`:'';
+    const wlBadge=isWL?`<span style="font-size:7px;background:#2563eb;color:#fff;border-radius:3px;padding:0 3px;margin-left:2px;font-family:'DM Mono',monospace" title="hide-list">HL</span>`:
+      isAuto?`<span style="font-size:7px;background:#f7c26a;color:#1a1000;border-radius:3px;padding:0 3px;margin-left:2px;font-family:'DM Mono',monospace" title="sensitive-auto">AUTO</span>`:'';
     p.innerHTML=`<span class="cdot" style="background:${cc}" title="${w.conf}%"></span>${esc(w.text)}${wlBadge}`;
     p.onclick=()=>{
       if(ocrHidden.has(i)){
         ocrHidden.delete(i);
       } else {
         ocrHidden.add(i);
-        // Auto-save to word list whenever a word is selected/hidden
-        const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();
-        if(wd&&!wordList.includes(wd)){wordList.push(wd);savePersistentWords();renderWordList();renderOcrWList();}
       }
       refreshOcr();
     };
@@ -5434,21 +5557,17 @@ async function applyOcr(){
     const canvas=fr.canvas||(await getFrameCanvas(fr));
     const ctx=get2dCtx(canvas,true,true);
     ocrHidden.forEach(i=>{const w=ocrWords[i];if(!w)return;applyHide(ctx,ocrLocalStyle,col,'#ff3366',w.x*canvas.width-pad,w.y*canvas.height-pad,w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);});
-    fr.wordBoxes=(fr.wordBoxes||[]).concat([...ocrHidden].map(i=>({...ocrWords[i]})));
+    fr.wordBoxes=(fr.wordBoxes||[]).concat([...ocrHidden].map(i=>{
+      const w=ocrWords[i];
+      const matched=w&&wordList.find(s=>wordMatches(w.text,s));
+      return w?{...w,source:matched?REDACTION_SOURCES.HIDE_LIST:REDACTION_SOURCES.MANUAL,match:matched||null}:null;
+    }).filter(Boolean));
     fr.redacted=true;delete fr._ocrWords;
     releaseFrameBlobs(fr);await storeFrameAsBlob(fr,canvas);fr.canvas=canvas;
-    // Auto-save all hidden words to global word list
-    let savedNew=0;
-    ocrHidden.forEach(i=>{
-      const w=ocrWords[i];if(!w)return;
-      const wd=w.text.toLowerCase().replace(/[^a-z0-9\s'\-]/gi,'').trim();
-      if(wd&&!wordList.includes(wd)){wordList.push(wd);savedNew++;}
-    });
-    if(savedNew>0){savePersistentWords();renderWordList();}
     // Update thumb in grid without full re-render
     const card=document.querySelector(`.card[data-id="${fr.id}"]`);
     if(card){const img=card.querySelector('img');if(img){img.dataset.loaded='0';img.classList.remove('is-loaded');loadThumbIntoImg(img,fr);}}
-    toast('✓',`${hiddenCount} word${hiddenCount>1?'s':''} hidden${savedNew>0?' · '+savedNew+' added to list':''}`);
+    toast('✓',`${hiddenCount} word${hiddenCount>1?'s':''} hidden`);
   }
   // STAY on the same frame — reset hidden set and re-scan so user can navigate manually
   // The canvas already has the applied changes baked in, so re-draw the updated image
@@ -5526,8 +5645,6 @@ async function batchApply(targets){
   const lbl=document.getElementById('bp-lbl');
   document.getElementById('bp-title').textContent=`🔤 Hiding words in ${targets.length} frames…`;
   prog.classList.add('on');
-  // Build matcher regex once for speed
-  const matchers=wordList.map(s=>s.toLowerCase());
   const POOL_W=Math.max(1,_ocrPool.length||1);
   for(let i=0;i<targets.length;i+=POOL_W){
     const chunk=targets.slice(i,i+POOL_W);
@@ -5551,11 +5668,12 @@ async function batchApply(targets){
         const scaleY=srcCanvas.height/ocrCanvas.height;
         const ctx=get2dCtx(srcCanvas,true,false);let n=0;
         words.forEach(w=>{
-          if(matchers.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,words)){
+          const hit=redactionHitForWord(w,words);
+          if(hit){
             applyHide(ctx,globalHideStyle,col,bc2,
               (w.x*ocrCanvas.width*scaleX)-pad,(w.y*ocrCanvas.height*scaleY)-pad,
               (w.w*ocrCanvas.width*scaleX)+pad*2,(w.h*ocrCanvas.height*scaleY)+pad*2);
-            fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});n++;
+            fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...hit});n++;
           }
         });
         if(n>0){fr.redacted=true;releaseFrameBlobs(fr);await storeFrameAsBlob(fr,srcCanvas);total+=n;}
@@ -5699,7 +5817,7 @@ async function applyFace(){
     const x=Math.max(0,det.box.x*canvas.width-pad),y=Math.max(0,det.box.y*canvas.height-pad);
     const w=Math.min(det.box.w*canvas.width+pad*2,canvas.width-x),h=Math.min(det.box.h*canvas.height+pad*2,canvas.height-y);
     applyFaceHide(ctx,faceStyle,fillCol,x,y,w,h);
-    fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/canvas.width,y:y/canvas.height,w:w/canvas.width,h:h/canvas.height});
+    fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/canvas.width,y:y/canvas.height,w:w/canvas.width,h:h/canvas.height,source:REDACTION_SOURCES.FACE});
   });
   fr.redacted=true;
   releaseFrameBlobs(fr);
@@ -5763,7 +5881,7 @@ async function batchFaceApply(targets){
         const x=Math.max(0,d.box.x/scale-pad),y=Math.max(0,d.box.y/scale-pad);
         const w=Math.min(d.box.width/scale+pad*2,srcCanvas.width-x),h=Math.min(d.box.height/scale+pad*2,srcCanvas.height-y);
         applyFaceHide(ctx,faceStyle,fillCol,x,y,w,h);
-        fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/srcCanvas.width,y:y/srcCanvas.height,w:w/srcCanvas.width,h:h/srcCanvas.height});
+        fr.redactBoxes=fr.redactBoxes||[];fr.redactBoxes.push({x:x/srcCanvas.width,y:y/srcCanvas.height,w:w/srcCanvas.width,h:h/srcCanvas.height,source:REDACTION_SOURCES.FACE});
         totalFaces++;
       });
       fr.redacted=true;releaseFrameBlobs(fr);await storeFrameAsBlob(fr,srcCanvas);
@@ -5799,9 +5917,7 @@ async function autoScanWordList(frId){
       // Scale word boxes back to normalised coords (already normalised 0-1, no adjustment needed)
     }
     const words=fr._ocrWords||[];
-    return words.filter(w=>
-      wordList.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,words)
-    ).map(w=>({...w}));
+    return wordHitsForRedaction(words);
   }catch(e){return[];}
 }
 
@@ -5921,8 +6037,10 @@ function lbAddFlow(){
   const fid=typeof res==='string'?res:flows[0]?.id;
   if(fid){
     const cur=getFrame(lbFrId);
+    markFlowTagged(fid);
     if(cur&&!cur.flows.includes(fid))cur.flows.push(fid);
     if(!lbStickyFlows.includes(fid))lbStickyFlows.push(fid);
+    savePersistentFlows();
     const card=document.querySelector(`.card[data-id="${cur?.id}"]`);
     if(card&&cur)updateCardBadges(card,cur);
   }
@@ -6015,7 +6133,7 @@ async function _lbPreScan(navId, af, idx){
     }
     if(lbFrId!==navId)return;
     const _words=fr._ocrWords||[];
-    const wordHits=_words.filter(w=>wordList.some(s=>wordMatches(w.text,s))||isSensitiveInContext(w,_words)).map(w=>({...w}));
+    const wordHits=wordHitsForRedaction(_words);
     lbPendingHits=wordHits;
     // Don't overwrite lbPendingFaces here — let renderLb's face promise update it
     renderLbWordBanner(wordHits, lbPendingFaces);
@@ -6143,6 +6261,7 @@ function renderLbWordBanner(wordHits, faceHits){
   }
   html+=`<button onclick="lbRejectAll()" style="background:none;border:1px solid var(--b);color:var(--m);border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer;flex-shrink:0">✕ Skip</button>`;
   bar.innerHTML=html;
+  bar.title=hasWords?Object.entries(wordHits.reduce((m,h)=>{const k=h.source||REDACTION_SOURCES.HIDE_LIST;m[k]=(m[k]||0)+1;return m;},{})).map(([k,n])=>`${k}:${n}`).join(' · '):'';
 }
 
 async function lbApplyHits(wordHits, faceHits){
@@ -6156,7 +6275,7 @@ async function lbApplyHits(wordHits, faceHits){
     applyHide(ctx,globalHideStyle,col,'#ff3366',
       w.x*canvas.width-pad,w.y*canvas.height-pad,
       w.w*canvas.width+pad*2,w.h*canvas.height+pad*2);
-    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w});wc++;
+    fr.wordBoxes=(fr.wordBoxes||[]);fr.wordBoxes.push({...w,source:w.source||REDACTION_SOURCES.HIDE_LIST});wc++;
   });
   const fillCol=document.getElementById('edit-face-col')?document.getElementById('edit-face-col').value:'#000000';
   const facePad=parseInt(document.getElementById('edit-face-pad')?document.getElementById('edit-face-pad').value:'14')||14;
@@ -6167,7 +6286,7 @@ async function lbApplyHits(wordHits, faceHits){
     const h2=Math.min(det.h*canvas.height+facePad*2,canvas.height-y);
     applyFaceHide(ctx,'blur',fillCol,x,y,w2,h2);
     fr.redactBoxes=(fr.redactBoxes||[]);
-    fr.redactBoxes.push({x:x/canvas.width,y:y/canvas.height,w:w2/canvas.width,h:h2/canvas.height});fc++;
+    fr.redactBoxes.push({x:x/canvas.width,y:y/canvas.height,w:w2/canvas.width,h:h2/canvas.height,source:REDACTION_SOURCES.FACE});fc++;
   });
   if(wc||fc){
     fr.redacted=true;delete fr._ocrWords;
@@ -6195,9 +6314,7 @@ function renderLbFlows(){
     return;
   }
   const srch=(document.getElementById('lb-fsp-search')?.value||'').toLowerCase().trim();
-  const newFlows=flows.filter(f=>f._isNew);
-  const oldFlows=[...flows.filter(f=>!f._isNew)].sort((a,b)=>a.name.localeCompare(b.name));
-  const sorted=[...newFlows,...oldFlows];
+  const sorted=flowSortForTagging(flows);
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
   c.innerHTML='';
 
@@ -6243,7 +6360,7 @@ function renderLbFlows(){
   // Visual cue: unassigned=plain, assigned=blue border+✓, sticky=teal outline+📌
   let lastLetter='';
   filtered.forEach(fl=>{
-    if(!srch&&filtered.length>8&&!fl._isNew){
+    if(!srch&&filtered.length>8&&!fl._isNew&&!fl.tagOrder){
       const letter=fl.name[0].toUpperCase();
       if(letter!==lastLetter){
         lastLetter=letter;
@@ -6287,11 +6404,15 @@ function renderLbFlows(){
         toast('✓',`"${esc(fl.name)}" flow ended`);
       } else if(assigned){
         // State 1 → 2: activate auto-tag (sticky)
+        markFlowTagged(fl.id);
         if(!lbStickyFlows.includes(fl.id))lbStickyFlows.push(fl.id);
+        savePersistentFlows();
         toast('📌',`"${esc(fl.name)}" will auto-tag on → nav`);
       } else {
         // State 0 → 1: assign to this frame only
+        markFlowTagged(fl.id);
         cur.flows.push(fl.id);
+        savePersistentFlows();
         const card=document.querySelector(`.card[data-id="${cur.id}"]`);
         if(card)updateCardBadges(card,cur);
         toast('✓',`"${esc(fl.name)}" assigned`);
@@ -6306,7 +6427,9 @@ function renderLbFlows(){
       const cur=getFrame(lbFrId);if(!cur)return;
       // Switch: clear all stickies, set this one, assign to frame
       lbStickyFlows=[];
+      markFlowTagged(fl.id);
       if(!cur.flows.includes(fl.id))cur.flows.push(fl.id);
+      savePersistentFlows();
       lbStickyFlows=[fl.id];
       const card=document.querySelector(`.card[data-id="${cur.id}"]`);
       if(card)updateCardBadges(card,cur);
@@ -6326,7 +6449,9 @@ function renderLbFlows(){
 function lbAssignFlow(fid){
   const fr=getFrame(lbFrId);if(!fr)return;
   const fl=flows.find(f=>f.id===fid);if(!fl)return;
+  markFlowTagged(fid);
   if(!fr.flows.includes(fid))fr.flows.push(fid);
+  savePersistentFlows();
   const card=document.querySelector(`.card[data-id="${fr.id}"]`);
   if(card)updateCardBadges(card,fr);
   renderLb();updateFSum();renderFlows();
@@ -6349,7 +6474,8 @@ function lbNav(d){
   lbFrId=n.id;
   // Apply all active sticky flows to the new frame
   if(lbStickyFlows.length){
-    lbStickyFlows.forEach(fid=>{if(!n.flows.includes(fid))n.flows.push(fid);});
+    lbStickyFlows.forEach(fid=>{markFlowTagged(fid);if(!n.flows.includes(fid))n.flows.push(fid);});
+    savePersistentFlows();
     const card=document.querySelector(`.card[data-id="${n.id}"]`);
     if(card)updateCardBadges(card,n);
   }
@@ -6652,6 +6778,35 @@ function flowFrameKey(flowOrIndex,flowList=null){
   if(idx<0)idx=0;
   return PHONE_FRAME_FLOW_SEQUENCE[idx%PHONE_FRAME_FLOW_SEQUENCE.length];
 }
+function buildFlowFrameKeyMap(flowList,offset=0){
+  const out={};
+  const base=Math.max(0,Number(offset)||0);
+  (flowList||[]).forEach((fl,idx)=>{if(fl?.id)out[fl.id]=PHONE_FRAME_FLOW_SEQUENCE[(idx+base)%PHONE_FRAME_FLOW_SEQUENCE.length];});
+  return out;
+}
+function buildFlowFrameEventsByVideo(videoList,flowList,frameKeyByFlowId){
+  const order=new Map((flowList||[]).map((fl,idx)=>[fl.id,idx]));
+  const byVideo={};
+  (videoList||[]).forEach(v=>{
+    const step=Math.max(0.08,Math.min(1,_medianFrameStep(v.frames||[])/2));
+    const events=[];
+    (v.frames||[]).forEach(fr=>{
+      const sec=frameSec(fr);
+      if(sec==null||!fr.flows?.length)return;
+      const fid=[...fr.flows].sort((a,b)=>(order.get(a)??9999)-(order.get(b)??9999))[0];
+      const frameKey=frameKeyByFlowId?.[fid];
+      if(!frameKey)return;
+      events.push({flowId:fid,frameKey,start:Math.max(0,sec-step),end:sec+step,order:order.get(fid)??9999});
+    });
+    byVideo[v.id]=events.sort((a,b)=>a.start-b.start||a.order-b.order);
+  });
+  return byVideo;
+}
+function flowFrameKeyAtTime(v,t,events){
+  if(!v||!events?.length)return null;
+  const hit=events.find(ev=>t>=ev.start&&t<=ev.end);
+  return hit?.frameKey||null;
+}
 const PHONE_DEVICE={
   frameWidth:629,
   frameHeight:1304,
@@ -6712,21 +6867,41 @@ function applyPhoneShadow(ctx,W,H){
     ctx.shadowOffsetY=0;
   }
 }
-async function waitPhoneFrameReady(){
-  const img=getPhoneFrameImage(canvasOptions.frame||'black');
-  if(!img||img.complete)return;
-  try{if(img.decode)await Promise.race([img.decode(),yieldUI(1200)]);else await yieldUI(250);}catch(e){}
+async function waitPhoneFrameReady(keys=null){
+  const list=[...(Array.isArray(keys)&&keys.length?keys:[canvasOptions.frame||'black'])].filter(Boolean);
+  await Promise.all([...new Set(list)].map(async key=>{
+    const img=getPhoneFrameImage(key);
+    if(!img||img.complete)return;
+    try{if(img.decode)await Promise.race([img.decode(),yieldUI(1200)]);else await yieldUI(250);}catch(e){}
+  }));
 }
 function _canvasColor(hex,fallback='#ffffff'){
   const v=String(hex||'').trim();
   return /^#[0-9a-f]{6}$/i.test(v)?v:fallback;
+}
+function drawTransparencyCheckerboard(ctx,W,H,opts={}){
+  const size=Math.max(8,Math.round(opts.size||32));
+  const light=opts.light||'#ffffff';
+  const dark=opts.dark||'#d1d5db';
+  ctx.save();
+  ctx.fillStyle=light;ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=dark;
+  for(let y=0;y<H;y+=size){
+    for(let x=0;x<W;x+=size){
+      if(((x/size)+(y/size))%2<1)ctx.fillRect(x,y,size,size);
+    }
+  }
+  ctx.restore();
 }
 function applyCanvasBackground(ctx,W,H,opts={}){
   if(opts.transparent)return;
   const bg=canvasOptions||{};
   ctx.save();
   ctx.globalAlpha=Math.max(0,Math.min(1,bg.bgOpacity==null?1:+bg.bgOpacity));
-  if(bg.bgStyle==='gradient'){
+  if(bg.bgStyle==='transparent'){
+    ctx.globalAlpha=1;
+    drawTransparencyCheckerboard(ctx,W,H,{size:32});
+  }else if(bg.bgStyle==='gradient'){
     const g=ctx.createLinearGradient(0,0,W,H);
     const colors=bg.gradient||['#ffffff','#dbeafe'];
     g.addColorStop(0,_canvasColor(colors[0]));
@@ -6997,7 +7172,7 @@ function updateCanvasControls(){
   ['45','916'].forEach(k=>{const el=document.getElementById('canvas-aspect-'+k);if(el)el.classList.toggle('on',(k==='45'?'4:5':'9:16')===canvasOptions.aspect);});
   ['black','natural','cosmic-orange','silver','deep-blue','none'].forEach(k=>{const el=document.getElementById('canvas-frame-'+k);if(el)el.classList.toggle('on',(canvasOptions.frame||'cosmic-orange')===k);});
   ['none','soft','strong'].forEach(k=>{const el=document.getElementById('canvas-shadow-'+k);if(el)el.classList.toggle('on',(canvasOptions.shadow||'none')===k);});
-  ['solid','gradient','mesh'].forEach(k=>{const el=document.getElementById('canvas-bg-'+k);if(el)el.classList.toggle('on',(canvasOptions.bgStyle||'solid')===k);});
+  ['solid','gradient','mesh','transparent'].forEach(k=>{const el=document.getElementById('canvas-bg-'+k);if(el)el.classList.toggle('on',(canvasOptions.bgStyle||'solid')===k);});
   ['none','dots','grid','diagonal'].forEach(k=>{const el=document.getElementById('canvas-overlay-'+k);if(el)el.classList.toggle('on',(canvasOptions.overlay||'none')===k);});
   const c=document.getElementById('canvas-bg-color');if(c)c.value=_canvasColor(canvasOptions.solid,'#ffffff');
   const rb=document.getElementById('redact-reveal-btn');
@@ -7023,7 +7198,7 @@ function toggleVideoFullView(){
 function setCanvasAspect(v){canvasOptions.aspect=v==='9:16'?'9:16':'4:5';savePrefs();updateCanvasControls();}
 function setCanvasFrame(v){canvasOptions.frame=['black','natural','cosmic-orange','silver','deep-blue','none'].includes(v)?v:'cosmic-orange';savePrefs();updateCanvasControls();}
 function setCanvasShadow(v){canvasOptions.shadow=['none','soft','strong'].includes(v)?v:'none';savePrefs();updateCanvasControls();}
-function setCanvasBgStyle(v){canvasOptions.bgStyle=['solid','gradient','mesh'].includes(v)?v:'solid';savePrefs();updateCanvasControls();}
+function setCanvasBgStyle(v){canvasOptions.bgStyle=['solid','gradient','mesh','transparent'].includes(v)?v:'solid';savePrefs();updateCanvasControls();}
 function setCanvasSolidColor(v){canvasOptions.solid=_canvasColor(v,'#ffffff');savePrefs();updateCanvasControls();}
 function setCanvasOverlay(v){canvasOptions.overlay=['none','dots','grid','diagonal'].includes(v)?v:'none';savePrefs();updateCanvasControls();}
 function applyCanvasBgPreset(i){
@@ -7097,13 +7272,8 @@ async function exportSourceEditedVideo(v,label,opts={}){
   const ctx=canvas.getContext('2d',{alpha:transparentBackground});
   const sourceCleanCanvas=document.createElement('canvas');
   const sourceCleanCtx=sourceCleanCanvas.getContext('2d',{alpha:false});
-  let stream=canvas.captureStream(0);
+  let stream=canvas.captureStream(Math.max(1,Math.min(60,fps)));
   let canvasTrack=stream.getVideoTracks()[0];
-  if(!canvasTrack?.requestFrame){
-    try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
-    stream=canvas.captureStream(Math.max(1,Math.min(60,fps)));
-    canvasTrack=stream.getVideoTracks()[0];
-  }
   const sourceStream=(video.captureStream&&video.captureStream())||(video.mozCaptureStream&&video.mozCaptureStream());
   if(sourceStream)sourceStream.getAudioTracks().forEach(t=>stream.addTrack(t));
   let recCfg=mediaRecorderConfig(format,true);
@@ -7267,20 +7437,16 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       if(!el.videoWidth||!el.videoHeight)throw new Error('source metadata unavailable');
       videoEls.push({v,el,redactions:_videoRedactionEvents(v)});
     }
-    if(canvasCompositionEnabled())await waitPhoneFrameReady();
+    const frameEventKeys=[...new Set(Object.values(opts.frameEventsByVideoId||{}).flat().map(ev=>ev.frameKey).filter(Boolean))];
+    if(canvasCompositionEnabled())await waitPhoneFrameReady([...frameEventKeys,opts.frameKey||canvasOptions.frame||'black']);
     const first=videoEls[0].el;
     const size=canvasCompositionEnabled()?getCanvasExportSize():safeCanvasSize(first.videoWidth,first.videoHeight,1280,1280*1280*2);
     const canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;
     const ctx=canvas.getContext('2d',{alpha:transparentBackground});
     const clean=document.createElement('canvas');
     const cleanCtx=clean.getContext('2d',{alpha:false});
-    let stream=canvas.captureStream(0);
+    let stream=canvas.captureStream(fps);
     let canvasTrack=stream.getVideoTracks()[0];
-    if(!canvasTrack?.requestFrame){
-      try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
-      stream=canvas.captureStream(fps);
-      canvasTrack=stream.getVideoTracks()[0];
-    }
     let audioCtx=null,audioDest=null,audioNodes=[];
     try{
       const AC=window.AudioContext||window.webkitAudioContext;
@@ -7334,7 +7500,8 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           if(removeStatusBar)safeApplyExportStatusBar(clean,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
           media=clean;
         }
-        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey:opts.frameKey});
+        const frameKey=flowFrameKeyAtTime(v,el.currentTime,opts.frameEventsByVideoId?.[v.id])||opts.frameKey;
+        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey});
       }else{
         ctx.drawImage(el,0,0,canvas.width,canvas.height);
         const island=detectDynamicIslandRect(canvas);
@@ -7414,6 +7581,115 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
   }catch(e){
     console.warn('combined source video render failed',e);
     try{videoEls.forEach(({el})=>{el.pause();el.removeAttribute('src');});}catch(_e){}
+    return null;
+  }
+}
+async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
+  if(!masterBlob||!ranges?.length||typeof MediaRecorder==='undefined')return null;
+  const fps=Math.max(1,Math.min(60,parseInt(opts.fps)||30));
+  const cleanRanges=(ranges||[])
+    .map(r=>({start:Math.max(0,Number(r.start)||0),end:Math.max(0,Number(r.end)||0)}))
+    .filter(r=>r.end-r.start>0.03)
+    .sort((a,b)=>a.start-b.start);
+  if(!cleanRanges.length)return null;
+  const url=URL.createObjectURL(masterBlob);
+  const video=document.createElement('video');
+  video.src=url;video.preload='auto';video.playsInline=true;video.muted=false;video.volume=1;
+  try{
+    await new Promise(r=>{video.onloadedmetadata=r;video.onerror=r;setTimeout(r,8000);});
+    if(!video.videoWidth||!video.videoHeight)return null;
+    const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+    const ctx=canvas.getContext('2d',{alpha:false});
+    let stream=canvas.captureStream(fps);
+    let canvasTrack=stream.getVideoTracks()[0];
+    let audioCtx=null,audioDest=null,audioNode=null;
+    try{
+      const AC=window.AudioContext||window.webkitAudioContext;
+      if(AC){
+        audioCtx=new AC();await audioCtx.resume?.();
+        audioDest=audioCtx.createMediaStreamDestination();
+        audioNode=audioCtx.createMediaElementSource(video);
+        audioNode.connect(audioDest);
+        audioDest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+      }
+    }catch(e){console.warn('master clip audio unavailable',e);}
+    const recCfg=mediaRecorderConfig('webm',true);
+    const chunks=[];let mr;
+    try{
+      mr=new MediaRecorder(stream,{mimeType:recCfg.mime,videoBitsPerSecond:opts.videoBitsPerSecond||5_000_000,audioBitsPerSecond:128_000});
+    }catch(e){
+      try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(_e){}
+      return null;
+    }
+    mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    let stopped=false,raf=0,lastFrameAt=0,doneDur=0,aborted=false,recorderStarted=false,activeRange=null;
+    const totalDur=cleanRanges.reduce((sum,r)=>sum+r.end-r.start,0);
+    const startedAt=performance.now();
+    const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
+    const drawFrame=()=>{
+      if(!activeRange)return;
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+      try{canvasTrack?.requestFrame?.();}catch(e){}
+    };
+    const drawLoop=()=>{
+      if(stopped)return;
+      const now=performance.now();
+      if(now-lastFrameAt>=1000/fps-1){lastFrameAt=now;drawFrame();}
+      raf=requestAnimationFrame(drawLoop);
+    };
+    const pauseRecorder=()=>{try{if(mr.state==='recording')mr.pause();}catch(e){}};
+    const resumeRecorder=()=>{try{if(mr.state==='paused')mr.resume();}catch(e){}};
+    const startRecorder=()=>{
+      if(recorderStarted){resumeRecorder();return;}
+      recorderStarted=true;mr.start(250);drawLoop();
+    };
+    const stoppedPromise=new Promise(resolve=>{
+      mr.onstop=()=>{
+        stopped=true;cancelAnimationFrame(raf);
+        try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
+        try{audioNode&&audioNode.disconnect();audioCtx&&audioCtx.close&&audioCtx.close();}catch(e){}
+        try{video.pause();video.removeAttribute('src');video.load&&video.load();}catch(e){}
+        URL.revokeObjectURL(url);
+        if(aborted){resolve(null);return;}
+        const blob=new Blob(chunks,{type:recCfg.mime});
+        resolve(blob.size>2048?{blob,mime:recCfg.mime,ext:recCfg.ext,frames:null,fps,duration:totalDur,fromMaster:true}:null);
+      };
+    });
+    activeRange=cleanRanges[0];
+    await _seekVideo(video,activeRange.start);
+    drawFrame();
+    for(let i=0;i<cleanRanges.length;i++){
+      const range=cleanRanges[i];
+      if(shouldAbort()){aborted=true;break;}
+      activeRange=range;lastFrameAt=0;
+      await _seekVideo(video,range.start);
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      drawFrame();startRecorder();
+      const playOk=await _playVideoBounded(video,3000);
+      if(!playOk){aborted=true;break;}
+      await new Promise(resolve=>{
+        const tick=()=>{
+          if(shouldAbort()){aborted=true;video.pause();resolve();return;}
+          if(video.paused||video.ended||video.currentTime>=range.end-0.015){video.pause();resolve();return;}
+          const inRange=Math.max(0,video.currentTime-range.start);
+          try{opts.onProgress&&opts.onProgress(doneDur+inRange,totalDur,{rangeIndex:i,ranges:cleanRanges.length,currentTime:video.currentTime});}catch(e){}
+          requestAnimationFrame(tick);
+        };
+        tick();
+      });
+      if(aborted)break;
+      pauseRecorder();
+      doneDur+=range.end-range.start;
+      try{opts.onProgress&&opts.onProgress(doneDur,totalDur,{rangeIndex:i,ranges:cleanRanges.length,currentTime:range.end});}catch(e){}
+    }
+    stopped=true;cancelAnimationFrame(raf);resumeRecorder();drawFrame();
+    try{mr.requestData();}catch(e){}
+    try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
+    return await Promise.race([stoppedPromise,new Promise(resolve=>setTimeout(()=>resolve(null),60000))]);
+  }catch(e){
+    console.warn('master video clip render failed',e);
+    try{video.pause();video.removeAttribute('src');video.load&&video.load();}catch(_e){}
+    URL.revokeObjectURL(url);
     return null;
   }
 }
@@ -7737,6 +8013,10 @@ async function exportZip(vid){
   if(!targetVideos.length){toast('⚠️','No frames to export');return;}
   const selectedFramesForZip=exportableFramesInVideoOrder(targetVideos.flatMap(v=>expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0)));
   const totalFramesToExport=selectedFramesForZip.length;
+  const zipFlowOrder=flowSortForTagging(flows.filter(f=>selectedFramesForZip.some(fr=>fr.flows.includes(f.id))));
+  const zipFlowFrameOffset=Math.floor(Math.random()*PHONE_FRAME_FLOW_SEQUENCE.length);
+  const zipFlowFrameKeyById=buildFlowFrameKeyMap(zipFlowOrder,zipFlowFrameOffset);
+  const zipFrameEventsByVideoId=buildFlowFrameEventsByVideo(targetVideos,zipFlowOrder,zipFlowFrameKeyById);
   if(!totalFramesToExport){toast('⚠️','No matching frames');return;}
   showLd('Building ZIP...');setLdPb(4,'Preparing Flora-style session...');
   const domainSlug=exportSessionBaseSlug(appName);
@@ -7781,10 +8061,13 @@ async function exportZip(vid){
   const usedFlowIds=new Set();
   const exportFlowData={};
   const exportFlowFrameRefs={};
+  const zipRenderTimings={startedAt:performance.now(),masterRenderMs:0,flowClipMs:0,flowFallbackMs:0,flowFastCount:0,flowFallbackCount:0};
   setLdPb(8,'Rendering source video for ZIP...');
+  const masterRenderStart=performance.now();
   let combinedVideo=targetVideos.every(v=>v.objectURL)
     ? await renderCombinedSourceEditedVideo(targetVideos,'video',{
       removeStatusBar,
+      frameEventsByVideoId:zipFrameEventsByVideoId,
       fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
       includeCuts:true,
       videoBitsPerSecond:12_000_000,
@@ -7805,6 +8088,7 @@ async function exportZip(vid){
       setLdPb(Math.min(30,pct),`Rendering combined video for ZIP... ${done} / ${total} frames`);
     }
   });
+  zipRenderTimings.masterRenderMs=performance.now()-masterRenderStart;
   if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
   if(combinedVideo&&combinedVideo.blob){
     sessionRoot.file('video.webm',combinedVideo.blob,{binary:true,compression:'STORE'});
@@ -7815,7 +8099,7 @@ async function exportZip(vid){
     const baseName=String(v.name||'video').replace(/\.(mp4|webm|mov)$/i,'');
     const safeName=exportFileStem(baseName,'video');
     const toExport=exportableFramesInVideoOrder(expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0));
-    const assignedFlows=flows.filter(f=>toExport.some(fr=>fr.flows.includes(f.id)));
+    const assignedFlows=flowSortForTagging(flows.filter(f=>toExport.some(fr=>fr.flows.includes(f.id))));
     const flowFolders={};
     assignedFlows.forEach(f=>{
       if(!usedFlowIds.has(f.id))usedFlowIds.add(f.id);
@@ -7911,12 +8195,16 @@ async function exportZip(vid){
     }
   });
   const flowVideoData=Object.values(exportFlowData).sort((a,b)=>a.index-b.index);
-  for(let fvi=0;fvi<flowVideoData.length;fvi++){
+  flowVideoData.forEach(data=>{
+    data.frameKey=zipFlowFrameKeyById[data.flow.id]||flowFrameKey(data.index-1,flowVideoData.map(x=>x.flow));
+  });
+  for(let fvi=0;fvi<0;fvi++){
     if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
     const data=flowVideoData[fvi];
     const frameKey=flowFrameKey(fvi,flowVideoData.map(x=>x.flow));
     data.frameKey=frameKey;
     const refs=exportableFramesInVideoOrder(exportFlowFrameRefs[data.flow.id]||[]);
+    const masterRanges=flowMasterClipRanges(refs,targetVideos);
     const groups=new Map();
     refs.forEach(fr=>{
       if(!fr?.videoId)return;
@@ -7934,27 +8222,49 @@ async function exportZip(vid){
       rangesByVideoId[videoId]=[{start:Math.max(0,secs[0]-pad),end:Math.min(src.duration||secs[secs.length-1]+pad,secs[secs.length-1]+pad)}];
       flowVideos.push({...src,frames:frs});
     });
-    if(!flowVideos.length)continue;
-    setLdPb(83+Math.round(fvi/Math.max(1,flowVideoData.length)*8),`Rendering flow video ${fvi+1} / ${flowVideoData.length}...`);
+    if(!flowVideos.length&&!masterRanges.length)continue;
+    setLdPb(83+Math.round(fvi/Math.max(1,flowVideoData.length)*8),`Clipping flow video ${fvi+1} / ${flowVideoData.length} from master...`);
     try{
-      const rendered=await renderCombinedSourceEditedVideo(flowVideos,`${exportFileStem(data.flow.name,'flow')}_flow`,{
-        rangesByVideoId,
-        removeStatusBar,
-        includeCuts:true,
-        transparentBackground:true,
-        frameKey,
-        fps:Math.min(30,parseInt(document.getElementById('vex-fps')?.value)||30),
-        videoBitsPerSecond:6_000_000,
-        shouldCancel:()=>zipCancelFlag,
-        onProgress:(done,total)=>{
-          const pct=83+Math.round((fvi+(total?done/total:0))/Math.max(1,flowVideoData.length)*8);
-          setLdPb(Math.min(91,pct),`Rendering flow video ${fvi+1} / ${flowVideoData.length}... ${fmt(done)} / ${fmt(total)}`);
-        }
-      });
+      const flowStart=performance.now();
+      let rendered=null;
+      if(combinedVideo?.blob&&masterRanges.length){
+        rendered=await renderMasterVideoClip(combinedVideo.blob,`${exportFileStem(data.flow.name,'flow')}_flow`,masterRanges,{
+          fps:Math.min(30,parseInt(document.getElementById('vex-fps')?.value)||30),
+          videoBitsPerSecond:5_000_000,
+          shouldCancel:()=>zipCancelFlag,
+          onProgress:(done,total)=>{
+            const pct=83+Math.round((fvi+(total?done/total:0))/Math.max(1,flowVideoData.length)*8);
+            setLdPb(Math.min(91,pct),`Clipping flow video ${fvi+1} / ${flowVideoData.length} from master... ${fmt(done)} / ${fmt(total)}`);
+          }
+        });
+        if(rendered)zipRenderTimings.flowFastCount++;
+      }
+      if(!rendered&&flowVideos.length){
+        zipRenderTimings.flowFallbackCount++;
+        setLdPb(83+Math.round(fvi/Math.max(1,flowVideoData.length)*8),`Rendering flow video ${fvi+1} / ${flowVideoData.length}...`);
+        const fallbackStart=performance.now();
+        rendered=await renderCombinedSourceEditedVideo(flowVideos,`${exportFileStem(data.flow.name,'flow')}_flow`,{
+          rangesByVideoId,
+          removeStatusBar,
+          includeCuts:true,
+          transparentBackground:true,
+          frameKey,
+          fps:Math.min(30,parseInt(document.getElementById('vex-fps')?.value)||30),
+          videoBitsPerSecond:6_000_000,
+          shouldCancel:()=>zipCancelFlag,
+          onProgress:(done,total)=>{
+            const pct=83+Math.round((fvi+(total?done/total:0))/Math.max(1,flowVideoData.length)*8);
+            setLdPb(Math.min(91,pct),`Rendering flow video ${fvi+1} / ${flowVideoData.length}... ${fmt(done)} / ${fmt(total)}`);
+          }
+        });
+        zipRenderTimings.flowFallbackMs+=performance.now()-fallbackStart;
+      }
+      zipRenderTimings.flowClipMs+=performance.now()-flowStart;
       if(rendered?.blob&&rendered.blob.size>2048){
         const fileName='flow_video.webm';
         data.folder.file(fileName,rendered.blob,{binary:true,compression:'STORE'});
         data.flowVideoFile=data.path+fileName;
+        data.flowVideoSource=rendered.fromMaster?'master-video':'source-render';
         inventory.push(`${sessionFolder}/${data.path}${fileName},video/webm,${rendered.blob.size}`);
       }
     }catch(e){
@@ -7968,15 +8278,24 @@ async function exportZip(vid){
     const fl=data.flow,idx=data.index-1,folder=data.folder,path=data.path,shots=data.frames;
     const start=shots.length?Math.min(...shots.map(s=>s.timeSec)):0,end=shots.length?Math.max(...shots.map(s=>s.timeSec)):0;
     folder.file('screenshots_index.csv',data.rows.join('\n'),{compression:'STORE'});
-    folder.file('flow_info.txt',`Flow: ${fl.name}\nFlow ID: ${fl.id}\nOriginal Flow ID: ${fl.id}\nIndex: ${idx+1} of ${usedFlowIds.size}\nStart: ${exportClock(start)} (${start.toFixed(1)}s)\nEnd: ${exportClock(end)} (${end.toFixed(1)}s)\nLength: ${exportDuration(end-start)}\nScreenshots: ${shots.length}\nSegment: ${idx+1}\n`,{compression:'STORE'});
-    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,iphoneFrame:data.frameKey||flowFrameKey(idx,sortedExportFlows),startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,flowVideoFile:data.flowVideoFile||'',screenshotCount:shots.length,screenshots:shots};
+    folder.file('flow_info.txt',`Flow: ${fl.name}\nFlow ID: ${fl.id}\nOriginal Flow ID: ${fl.id}\nIndex: ${idx+1} of ${usedFlowIds.size}\nStart: ${exportClock(start)} (${start.toFixed(1)}s)\nEnd: ${exportClock(end)} (${end.toFixed(1)}s)\nLength: ${exportDuration(end-start)}\nScreenshots: ${shots.length}\niPhone frame: ${data.frameKey||flowFrameKey(idx,sortedExportFlows)}\nSegment: ${idx+1}\n`,{compression:'STORE'});
+    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,iphoneFrame:data.frameKey||flowFrameKey(idx,sortedExportFlows),startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,flowVideoFile:data.flowVideoFile||'',flowVideoSource:data.flowVideoSource||'',screenshotCount:shots.length,screenshots:shots};
     manifestData.flows.push(flowMeta);
     allFlowsIndex.push(`${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
     dbFlows.push(`${fl.id},${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
     flowInfos.push(`${String(idx+1).padStart(3,'0')} ${fl.name} (${shots.length})`);
   });
+  zipRenderTimings.totalBeforeZipMs=performance.now()-zipRenderTimings.startedAt;
+  const exportTimingReport={
+    ...zipRenderTimings,
+    masterRenderSec:+(zipRenderTimings.masterRenderMs/1000).toFixed(2),
+    flowClipSec:+(zipRenderTimings.flowClipMs/1000).toFixed(2),
+    flowFallbackSec:+(zipRenderTimings.flowFallbackMs/1000).toFixed(2),
+    totalBeforeZipSec:+(zipRenderTimings.totalBeforeZipMs/1000).toFixed(2)
+  };
   if(expCsv){
     flowsRoot.file('_all_flows_index.csv',allFlowsIndex.join('\n'),{compression:'STORE'});
+    dbFolder.file('export_timing.json',JSON.stringify(exportTimingReport,null,2),{compression:'STORE'});
     dbFolder.file('screenshots.csv',dbScreens.join('\n'),{compression:'STORE'});
     dbFolder.file('flows.csv',dbFlows.join('\n'),{compression:'STORE'});
     dbFolder.file('sessions.csv','session_id,title,exported_at\n'+`session_${sessionId},${csvCell(appName)},${csvCell(new Date().toISOString())}` ,{compression:'STORE'});
@@ -7991,8 +8310,8 @@ async function exportZip(vid){
     dbFolder.file('screenshots.jsonl',manifestData.screenshots.map(s=>JSON.stringify(s)).join('\n'),{compression:'STORE'});
   }
   sessionRoot.file('flows_reference.txt',flowInfos.join('\n'),{compression:'STORE'});
-  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited video export with cuts/redactions/status bar removal baked in when the browser can render it\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, _figma.html sidecars, and flow_video.webm when the browser can render the flow clip\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
-  sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nStatus bar removed on export: ${removeStatusBar}\nEdited videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\n`,{compression:'STORE'});
+  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- flow videos are intentionally not exported; cut them later from video.webm using manifest.json flow start/end times\n- each flow has an iphoneFrame value; the master video uses that iPhone mockup asset color over the tagged flow range\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, _figma.html sidecars, flow_info.txt, and timing metadata\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
+  sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nStatus bar removed on export: ${removeStatusBar}\nEdited master videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\nFlow videos exported into ZIP: 0\nMaster render: ${exportTimingReport.masterRenderSec}s\nFlow clip/render stage: ${exportTimingReport.flowClipSec}s\n`,{compression:'STORE'});
   setLdPb(94,'Packing Flora-style ZIP...');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
   const a=document.createElement('a');const url=URL.createObjectURL(blob);
@@ -8195,14 +8514,12 @@ function renderFad(){
   const lbl=document.getElementById('fad-sel-lbl');
   if(lbl)lbl.textContent=sel.length?`${sel.length} frame${sel.length>1?'s':''} selected`:'No frames selected';
   const af=allFrames();
-  const newFlows=flows.filter(f=>f._isNew);
-  const oldFlows=[...flows.filter(f=>!f._isNew)].sort((a,b)=>a.name.localeCompare(b.name));
-  const sorted=[...newFlows,...oldFlows];
+  const sorted=flowSortForTagging(flows);
   const filtered=srch?sorted.filter(fl=>fl.name.toLowerCase().includes(srch)):sorted;
   c.innerHTML='';
   let lastLetter='';
   filtered.forEach(fl=>{
-    if(!srch&&filtered.length>8&&!fl._isNew){
+    if(!srch&&filtered.length>8&&!fl._isNew&&!fl.tagOrder){
       const letter=fl.name[0].toUpperCase();
       if(letter!==lastLetter){
         lastLetter=letter;
@@ -8227,7 +8544,9 @@ function renderFad(){
         toast('✓',`Removed "${fl.name}" from ${sel.length} frame${sel.length>1?'s':''}`);
       } else {
         // Assign to all selected
+        markFlowTagged(fl.id);
         sel.forEach(fr=>{if(!fr.flows.includes(fl.id))fr.flows.push(fl.id);});
+        savePersistentFlows();
         toast('✓',`"${fl.name}" → ${sel.length} frame${sel.length>1?'s':''}`);
       }
       // Update cards in place
@@ -8756,6 +9075,7 @@ function saveFlowConfirm(){
   const sel=document.getElementById('mk-flow-sel');
   if(sel)sel.value=chosenFlows[0].id;
   const hits=_framesInMarkRange();if(!hits)return;
+  chosenFlows.forEach(fl=>markFlowTagged(fl.id));
   hits.forEach(fr=>{
     chosenFlows.forEach(fl=>{if(!fr.flows.includes(fl.id))fr.flows.push(fl.id);});
   });
@@ -8804,7 +9124,9 @@ function applyMarkFlow(){
   if(!fid){toast('⚠️','Select a flow first');return;}
   const hits=_framesInMarkRange();if(!hits)return;
   const fl=flows.find(f=>f.id===fid);
+  markFlowTagged(fid);
   hits.forEach(fr=>{if(!fr.flows.includes(fid))fr.flows.push(fid);});
+  savePersistentFlows();
   scheduleRenderFrames();updateFSum();scheduleSaveSession();
   renderFilmstrip(_stageVid);_buildTimeline(_stageVid,combinedSessionMode()?totalRawVideoDuration():(document.getElementById('vid-main')?.duration||0));
   toast('🏷',`Tagged ${hits.length} frame${hits.length>1?'s':''} → ${fl?.name||fid}`);
