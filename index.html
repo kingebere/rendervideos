@@ -1884,6 +1884,26 @@ function globalFrameSec(fr){
   if(sec==null)return null;
   return videoStartSec(fr.videoId)+sec;
 }
+function effectiveVideoTimeAt(v,sec){
+  if(!v)return 0;
+  const hi=Math.max(0,Math.min(Number(sec)||0,Number(v.duration)||0));
+  return effectiveVideoDuration(v,0,hi);
+}
+function effectiveSessionStartSec(vOrId,list=videos){
+  const id=typeof vOrId==='string'?vOrId:vOrId?.id;
+  let t=0;
+  for(const v of list||[]){
+    if(v.id===id)return t;
+    t+=effectiveVideoDuration(v);
+  }
+  return t;
+}
+function effectiveGlobalFrameSec(fr,list=videos){
+  const sec=frameSec(fr);
+  if(sec==null)return 0;
+  const v=(list||[]).find(x=>x.id===fr.videoId)||getVideo(fr.videoId);
+  return effectiveSessionStartSec(fr.videoId,list)+effectiveVideoTimeAt(v,sec);
+}
 function sessionCurrentSec(){
   const vmain=document.getElementById('vid-main');
   if(!combinedSessionMode()||!_stageVid||!vmain)return vmain?.currentTime||0;
@@ -4515,10 +4535,7 @@ async function applyRd(){
   const canvas=await getFrameCanvas(fr);
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
   fr.redactBoxes.forEach(b=>{
-    ctx.fillStyle='#ffffff';
-    ctx.fillRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);
-    ctx.strokeStyle='rgba(0,0,0,0.2)';ctx.lineWidth=1;
-    ctx.strokeRect(b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height);
+    blurCanvasRect(ctx,b.x*canvas.width,b.y*canvas.height,b.w*canvas.width,b.h*canvas.height,12);
   });
   releaseFrameBlobs(fr);
   await storeFrameAsBlob(fr,canvas);
@@ -7323,7 +7340,27 @@ async function exportZip(vid){
   const untaggedFolder=sessionRoot.folder('untagged');
   const dbFolder=sessionRoot.folder('_db');
   const sessionDuration=totalEffectiveDuration(targetVideos);
-  const manifestData={session:{id:`session_${sessionId}`,title:appName,url:'',hostname:domainSlug.replace(/_/g,'.'),duration:sessionDuration,durationFmt:exportDuration(sessionDuration),exportedAt:new Date().toISOString()},flows:[],screenshots:[]};
+  const manifestVideos=targetVideos.map((v,idx)=>({
+    id:v.id,
+    index:idx+1,
+    name:v.name,
+    durationRaw:Number(v.duration)||0,
+    durationEffective:effectiveVideoDuration(v),
+    startSec:effectiveSessionStartSec(v.id,targetVideos),
+    endSec:effectiveSessionStartSec(v.id,targetVideos)+effectiveVideoDuration(v),
+    cuts:(v.cutRanges||[]).map(c=>({start:Number(c.start)||0,end:Number(c.end)||0}))
+  }));
+  const manifestData={
+    id:`session_${sessionId}`,
+    title:appName,
+    duration:sessionDuration,
+    durationFmt:exportDuration(sessionDuration),
+    exportedAt:new Date().toISOString(),
+    session:{id:`session_${sessionId}`,title:appName,url:'',hostname:domainSlug.replace(/_/g,'.'),duration:sessionDuration,durationFmt:exportDuration(sessionDuration),exportedAt:new Date().toISOString()},
+    videos:manifestVideos,
+    flows:[],
+    screenshots:[]
+  };
   const dbScreens=['screenshot_id,video,flow,time,time_sec,image_file,figma_file'];
   const dbFlows=['flow_id,index,name,folder,screenshot_count,start_sec,end_sec'];
   const allFlowsIndex=['flow_index,flow_name,folder,screenshot_count,start_sec,end_sec'];
@@ -7417,7 +7454,8 @@ async function exportZip(vid){
         const _fc=await frameCanvasForExport(fr,removeStatusBar);
         const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
         if(!blob)return;
-        const ts=Number(fr.timestamp??fr.timeSec??0)||0;
+        const localTs=Number(fr.timestamp??fr.timeSec??0)||0;
+        const ts=effectiveGlobalFrameSec(fr,targetVideos);
         const snapId=`snap_${Date.now()+seq}_${Math.random().toString(36).slice(2,6)}`;
         const stem=`${String(seq).padStart(5,'0')}_${exportTimeName(ts)}_figma_${snapId}`;
         const imgName=`${stem}.png`;
@@ -7428,17 +7466,25 @@ async function exportZip(vid){
           t.folder.file(imgName,blob,{binary:true,compression:'STORE'});
           t.folder.file(htmlName,exportFigmaHtml(appName,imgName,`${exportClock(ts)} · ${flowNames.join(', ')||'untagged'}`),{compression:'STORE'});
           if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},figma,yes,${csvCell('')},${csvCell(t.path+imgName)},${csvCell(t.path+htmlName)}`);
-          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,imageFile:t.path+imgName,figmaFile:t.path+htmlName});
+          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName,figmaFile:t.path+htmlName});
           inventory.push(`${sessionFolder}/${t.path}${imgName},image/png,${blob.size}`);
           inventory.push(`${sessionFolder}/${t.path}${htmlName},text/html,${exportFigmaHtml(appName,imgName,'').length}`);
         });
         dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName),csvCell(targets[0].path+htmlName)].join(','));
-        manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,kind:'figma',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,figmaFile:targets[0].path+htmlName});
+        manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,kind:'figma',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,figmaFile:targets[0].path+htmlName});
       }));
       setLdPb(34+Math.round(globalSeq/totalFramesToExport*48),'Encoding reference frames…');
       await yieldUI();
     }
   }
+  manifestData.screenshots.sort((a,b)=>(a.index??0)-(b.index??0));
+  Object.values(exportFlowData).forEach(data=>{
+    if(data.frames)data.frames.sort((a,b)=>(a.index??0)-(b.index??0));
+    if(data.rows&&data.rows.length>1){
+      const head=data.rows[0];
+      data.rows=[head,...data.rows.slice(1).sort((a,b)=>(parseInt(a,10)||0)-(parseInt(b,10)||0))];
+    }
+  });
   const flowInfos=[];
   Object.values(exportFlowData).sort((a,b)=>a.index-b.index).forEach(data=>{
     const fl=data.flow,idx=data.index-1,folder=data.folder,path=data.path,shots=data.frames;
@@ -7472,11 +7518,12 @@ async function exportZip(vid){
   setLdPb(94,'Packing Flora-style ZIP...');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
   const a=document.createElement('a');const url=URL.createObjectURL(blob);
-  a.href=url;a.download=`${domainSlug}_session_${sessionId}_uiland.zip`;a.click();
-  setTimeout(()=>URL.revokeObjectURL(url),15000);
+  const zipName=`${domainSlug}_session_${sessionId}_uiland.zip`;
+  window.__uilandLastZip={name:zipName,blob,size:blob.size,createdAt:Date.now()};
+  a.href=url;a.download=zipName;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),5*60*1000);
   hideLd();
-  clearSession();
-  dismissSessionBanner();
+  setTimeout(()=>{clearSession();dismissSessionBanner();},2*60*1000);
   toast('⬇',`ZIP ready · ${globalSeq} frames · session cleared`);
 }
 
