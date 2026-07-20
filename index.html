@@ -6557,7 +6557,8 @@ async function exportOneFlowVideo(fid){
       includeCuts:true,
       removeStatusBar:exportStatusBarEnabled('video'),
       format:'webm',
-      transparentBackground:true
+      transparentBackground:true,
+      frameKey:flowFrameKey(fid)
     });
     if(!ok)await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
   }else await reconstructVideo(frs,fl?_appNf+'_'+fl.name:'flow');
@@ -6573,7 +6574,7 @@ async function exportAllFlowVideos(){
     if(src&&frs.length){
       const secs=frs.map(frameSec).filter(s=>s!=null);
       const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
-      const ok=await exportSourceEditedVideo(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),format:'webm',transparentBackground:true});
+      const ok=await exportSourceEditedVideo(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),format:'webm',transparentBackground:true,frameKey:flowFrameKey(fl,active)});
       if(!ok)await reconstructVideo(frs,fl.name);
     }else await reconstructVideo(frs,fl.name);
     await yieldUI(300);
@@ -6644,6 +6645,13 @@ const PHONE_FRAME_SRC={
   silver:'Silver.png',
   'deep-blue':'DeepBlue.png'
 };
+const PHONE_FRAME_FLOW_SEQUENCE=['black','natural','cosmic-orange','silver','deep-blue'];
+function flowFrameKey(flowOrIndex,flowList=null){
+  const list=flowList||flows||[];
+  let idx=typeof flowOrIndex==='number'?flowOrIndex:list.findIndex(f=>f&&f.id===(flowOrIndex?.id||flowOrIndex));
+  if(idx<0)idx=0;
+  return PHONE_FRAME_FLOW_SEQUENCE[idx%PHONE_FRAME_FLOW_SEQUENCE.length];
+}
 const PHONE_DEVICE={
   frameWidth:629,
   frameHeight:1304,
@@ -6914,7 +6922,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   applyCanvasBackground(ctx,W,H,{transparent:!!opts.transparentBackground});
   const phone=getPhoneRect(W,H);
   const screen=getPhoneScreenRect(phone);
-  const frameKey=canvasOptions.frame||'black';
+  const frameKey=opts.frameKey||canvasOptions.frame||'black';
   const frameImg=getPhoneFrameImage(frameKey);
   const frameReady=frameKey!=='none'&&frameImg&&frameImg.complete&&frameImg.naturalWidth;
   if(frameKey!=='none'&&!frameReady){
@@ -7152,7 +7160,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
         if(removeStatusBar)safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
         media=sourceCleanCanvas;
       }
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground});
+      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey:opts.frameKey});
     }else{
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       const island=detectDynamicIslandRect(canvas);
@@ -7326,7 +7334,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           if(removeStatusBar)safeApplyExportStatusBar(clean,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
           media=clean;
         }
-        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground});
+        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey:opts.frameKey});
       }else{
         ctx.drawImage(el,0,0,canvas.width,canvas.height);
         const island=detectDynamicIslandRect(canvas);
@@ -7906,6 +7914,8 @@ async function exportZip(vid){
   for(let fvi=0;fvi<flowVideoData.length;fvi++){
     if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
     const data=flowVideoData[fvi];
+    const frameKey=flowFrameKey(fvi,flowVideoData.map(x=>x.flow));
+    data.frameKey=frameKey;
     const refs=exportableFramesInVideoOrder(exportFlowFrameRefs[data.flow.id]||[]);
     const groups=new Map();
     refs.forEach(fr=>{
@@ -7932,6 +7942,7 @@ async function exportZip(vid){
         removeStatusBar,
         includeCuts:true,
         transparentBackground:true,
+        frameKey,
         fps:Math.min(30,parseInt(document.getElementById('vex-fps')?.value)||30),
         videoBitsPerSecond:6_000_000,
         shouldCancel:()=>zipCancelFlag,
@@ -7951,12 +7962,14 @@ async function exportZip(vid){
     }
   }
   const flowInfos=[];
-  Object.values(exportFlowData).sort((a,b)=>a.index-b.index).forEach(data=>{
+  const sortedExportFlowData=Object.values(exportFlowData).sort((a,b)=>a.index-b.index);
+  const sortedExportFlows=sortedExportFlowData.map(x=>x.flow);
+  sortedExportFlowData.forEach(data=>{
     const fl=data.flow,idx=data.index-1,folder=data.folder,path=data.path,shots=data.frames;
     const start=shots.length?Math.min(...shots.map(s=>s.timeSec)):0,end=shots.length?Math.max(...shots.map(s=>s.timeSec)):0;
     folder.file('screenshots_index.csv',data.rows.join('\n'),{compression:'STORE'});
     folder.file('flow_info.txt',`Flow: ${fl.name}\nFlow ID: ${fl.id}\nOriginal Flow ID: ${fl.id}\nIndex: ${idx+1} of ${usedFlowIds.size}\nStart: ${exportClock(start)} (${start.toFixed(1)}s)\nEnd: ${exportClock(end)} (${end.toFixed(1)}s)\nLength: ${exportDuration(end-start)}\nScreenshots: ${shots.length}\nSegment: ${idx+1}\n`,{compression:'STORE'});
-    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,flowVideoFile:data.flowVideoFile||'',screenshotCount:shots.length,screenshots:shots};
+    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,iphoneFrame:data.frameKey||flowFrameKey(idx,sortedExportFlows),startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,flowVideoFile:data.flowVideoFile||'',screenshotCount:shots.length,screenshots:shots};
     manifestData.flows.push(flowMeta);
     allFlowsIndex.push(`${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
     dbFlows.push(`${fl.id},${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
