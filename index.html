@@ -2767,15 +2767,11 @@ function removeRecordingIndicator(canvas,islandRect=null){
   const rightExpand=Math.max(0,Math.round(rect.h*.22));
   const topExpand=Math.max(1,Math.round(rect.h*.12));
   const bottomExpand=Math.max(1,Math.round(rect.h*.12));
-  const drawX=Math.max(0,Math.floor(rect.x));
-  const drawY=Math.max(0,Math.floor(rect.y));
-  const drawW=Math.min(canvas.width-drawX,Math.ceil(rect.w));
-  const drawH=Math.min(canvas.height-drawY,Math.ceil(rect.h));
   const scanX=Math.max(0,Math.floor(rect.x-leftExpand));
   const scanY=Math.max(0,Math.floor(rect.y-topExpand));
   const scanW=Math.min(canvas.width-scanX,Math.ceil(rect.w+leftExpand+rightExpand));
   const scanH=Math.min(canvas.height-scanY,Math.ceil(rect.h+topExpand+bottomExpand));
-  if(drawW<=0||drawH<=0||scanW<=0||scanH<=0)return false;
+  if(scanW<=0||scanH<=0)return false;
   let data;
   try{data=ctx.getImageData(scanX,scanY,scanW,scanH).data;}catch(e){return false;}
   const searchX=Math.max(0,Math.floor(scanW*.01));
@@ -2801,6 +2797,14 @@ function removeRecordingIndicator(canvas,islandRect=null){
     }
   }
   if(count<Math.max(8,Math.round(scanW*scanH*.0007)))return false;
+  const redW=maxX-minX+1,redH=maxY-minY+1;
+  const borderLike=redW>rect.w*.55&&redH>rect.h*.45;
+  const spotPad=borderLike?Math.max(1,Math.round(rect.h*.02)):Math.max(2,Math.round(rect.h*.18));
+  const drawX=Math.max(0,Math.floor(scanX+minX-spotPad));
+  const drawY=Math.max(0,Math.floor(scanY+minY-spotPad));
+  const drawW=Math.min(canvas.width-drawX,Math.ceil(redW+spotPad*2));
+  const drawH=Math.min(canvas.height-drawY,Math.ceil(redH+spotPad*2));
+  if(drawW<=0||drawH<=0)return false;
   const fill=bn?`rgb(${Math.round(br/bn)},${Math.round(bg/bn)},${Math.round(bb/bn)})`:'#050505';
   ctx.save();
   ctx.beginPath();
@@ -2891,7 +2895,7 @@ async function frameCanvasForExport(fr,removeStatusBar,opts={}){
     const out=document.createElement('canvas');
     out.width=size.w;out.height=size.h;
     const ctx=get2dCtx(out,false,false);
-    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height,hideNotch:removeStatusBar&&!!sourceIsland});
+    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland});
     return out;
   }
   return canvas;
@@ -6848,11 +6852,34 @@ function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
 }
 function defaultFrameIslandRect(screen){
   return {
-    x:screen.x+screen.w*.255,
-    y:screen.y+screen.h*.006,
-    w:screen.w*.49,
-    h:screen.h*.072
+    x:screen.x+screen.w*.305,
+    y:screen.y+screen.h*.014,
+    w:screen.w*.39,
+    h:screen.h*.052
   };
+}
+function sourceIslandFrameCutout(screen,mediaRect,sourceIslandRect,sourceW,sourceH){
+  if(!sourceIslandRect||!mediaRect||!sourceW||!sourceH)return defaultFrameIslandRect(screen);
+  const x=mediaRect.x+(sourceIslandRect.x/sourceW)*mediaRect.w;
+  const y=mediaRect.y+(sourceIslandRect.y/sourceH)*mediaRect.h;
+  const w=(sourceIslandRect.w/sourceW)*mediaRect.w;
+  const h=(sourceIslandRect.h/sourceH)*mediaRect.h;
+  const padX=Math.max(1,Math.round(h*.035));
+  const padTop=Math.max(1,Math.round(h*.08));
+  const padBottom=Math.max(2,Math.round(h*.34));
+  const topLimit=screen.y;
+  const leftLimit=screen.x+screen.w*.18;
+  const rightLimit=screen.x+screen.w*.82;
+  const out={
+    x:Math.max(leftLimit,x-padX),
+    y:Math.max(topLimit,y-padTop),
+    w:w+padX*2,
+    h:h+padTop+padBottom
+  };
+  const maxRight=Math.min(rightLimit,screen.x+screen.w);
+  out.w=Math.max(1,Math.min(out.w,maxRight-out.x));
+  out.h=Math.max(1,Math.min(out.h,screen.y+screen.h*.12-out.y));
+  return out;
 }
 function sourceIslandScreenClip(screen,hideDefaultIsland){
   if(!hideDefaultIsland)return screen;
@@ -6864,12 +6891,12 @@ function sourceIslandScreenClip(screen,hideDefaultIsland){
     r:Math.max(screen.r||0,screen.w*.14)
   };
 }
-function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland){
+function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland,islandCutout=null){
   if(!hideDefaultIsland){
     ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
     return;
   }
-  const ex=defaultFrameIslandRect(screen);
+  const ex=islandCutout||defaultFrameIslandRect(screen);
   ctx.save();
   ctx.beginPath();
   ctx.rect(phone.x,phone.y,phone.w,phone.h);
@@ -6901,6 +6928,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   ctx.clip();
   ctx.fillStyle='#111';ctx.fillRect(screen.x,screen.y,screen.w,screen.h);
   const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
+  const islandCutout=opts.hideNotch?sourceIslandFrameCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
   if(mediaHasContent(media)){
     const smoothing={enabled:ctx.imageSmoothingEnabled,quality:ctx.imageSmoothingQuality};
     ctx.imageSmoothingEnabled=true;
@@ -6924,7 +6952,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     try{
       ctx.save();
       applyPhoneShadow(ctx,W,H);
-      drawPhoneFrameImage(ctx,frameImg,phone,screen,!!opts.hideNotch);
+      drawPhoneFrameImage(ctx,frameImg,phone,screen,!!opts.hideNotch,islandCutout);
       ctx.restore();
     }catch(e){}
   }else if(frameKey!=='none'){
@@ -7124,7 +7152,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
         if(removeStatusBar)safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
         media=sourceCleanCanvas;
       }
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,transparentBackground});
+      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground});
     }else{
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       const island=detectDynamicIslandRect(canvas);
@@ -7298,7 +7326,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           if(removeStatusBar)safeApplyExportStatusBar(clean,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
           media=clean;
         }
-        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,transparentBackground});
+        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground});
       }else{
         ctx.drawImage(el,0,0,canvas.width,canvas.height);
         const island=detectDynamicIslandRect(canvas);
@@ -8339,7 +8367,7 @@ function drawVideoPreviewOverlay(){
       const probeScale=Math.min(1,260/Math.max(video.videoWidth,video.videoHeight));
       rememberSourceIsland(_stageVid,sourceIsland,Math.max(1,Math.round(video.videoWidth*probeScale)),Math.max(1,Math.round(video.videoHeight*probeScale)));
     }
-    drawComposedMediaFrame(ctx,media,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW,sourceH,hideNotch:!!sourceIsland||!!_stageVid?._hasSourceIsland});
+    drawComposedMediaFrame(ctx,media,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW,sourceH,hideNotch:!!sourceIsland||!!_stageVid?._hasSourceIsland,sourceIslandRect:sourceIsland});
     return;
   }
   if(!video.videoWidth){clearVideoPreviewOverlay();return;}
