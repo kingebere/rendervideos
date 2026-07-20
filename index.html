@@ -941,6 +941,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
         <option value="1.5">1.5×</option>
         <option value="2">2×</option>
       </select>
+      <button class="btn bg sm" id="preview-statusbar-btn" onclick="togglePreviewStatusBarCleanup()" title="Hide or reveal preview status bar replacement">Statusbar On</button>
       <button class="btn bg sm" id="redact-reveal-btn" onclick="toggleRedactionReveal()" title="Show or hide redactions in preview/export">Reveal Redact</button>
       <button class="btn bd sm" onclick="addRedactionAtCurrent()" title="Add a manual redaction at the current video time">Add Redact</button>
       <button class="btn bg sm" id="full-view-btn" onclick="toggleVideoFullView()" title="Full preview (V)">Full View</button>
@@ -1359,7 +1360,7 @@ function loadPersistentWords(){
   return null;
 }
 function savePrefs(){
-  try{localStorage.setItem(LS_PREFS,JSON.stringify({globalHideStyle,vexFormat,currentView,canvasOptions,showVideoRedactions}));}catch(e){}
+  try{localStorage.setItem(LS_PREFS,JSON.stringify({globalHideStyle,vexFormat,currentView,canvasOptions,showVideoRedactions,previewStatusBarCleanup}));}catch(e){}
 }
 
 // ─── STATE ─────────────────────────────────────────────────────────────────
@@ -1372,6 +1373,7 @@ let currentView='g', cancelFlag=false, restoreCancelFlag=false;
 let frameTrayMode='strip', _previewOverlayRaf=0, _previewCutJumping=false;
 let globalHideStyle='blur', vexFormat='webm';
 let showVideoRedactions=true;
+let previewStatusBarCleanup=true;
 let videoFullView=false;
 let canvasOptions={
   enabled:true,
@@ -7219,6 +7221,8 @@ function updateCanvasControls(){
   const c=document.getElementById('canvas-bg-color');if(c)c.value=_canvasColor(canvasOptions.solid,'#ffffff');
   const rb=document.getElementById('redact-reveal-btn');
   if(rb){rb.classList.toggle('bp',showVideoRedactions);rb.textContent=showVideoRedactions?'Hide Redact':'Reveal Redact';}
+  const sb=document.getElementById('preview-statusbar-btn');
+  if(sb){sb.classList.toggle('bp',previewStatusBarCleanup);sb.textContent=previewStatusBarCleanup?'Statusbar On':'Statusbar Off';}
   renderCanvasBgControls();
   drawVideoPreviewOverlay();
 }
@@ -7249,6 +7253,7 @@ function applyCanvasBgPreset(i){
   savePrefs();updateCanvasControls();
 }
 function toggleRedactionReveal(){showVideoRedactions=!showVideoRedactions;savePrefs();updateCanvasControls();}
+function togglePreviewStatusBarCleanup(){previewStatusBarCleanup=!previewStatusBarCleanup;savePrefs();updateCanvasControls();}
 function addRedactionAtCurrent(){
   if(!_stageVid||!_stageVid.frames?.length){toast('⚠','Extract frames first');return;}
   const video=document.getElementById('vid-main');
@@ -8713,6 +8718,40 @@ function _previewRedactionEvents(v){
   }
   return v._previewRedactionEvents||[];
 }
+let _previewStatusCanvas=null;
+function previewSourceIslandForMedia(v,media,sourceW,sourceH){
+  let sourceIsland=sourceIslandRectForSize(v,sourceW,sourceH);
+  if(!sourceIsland&&media&&media.videoWidth)sourceIsland=detectDynamicIslandInMedia(media,sourceW,sourceH);
+  if(sourceIsland)rememberSourceIsland(v,sourceIsland,sourceW,sourceH);
+  if(!sourceIsland&&v&&v._hasSourceIsland)sourceIsland=sourceIslandRectForSize(v,sourceW,sourceH);
+  return sourceIsland;
+}
+function previewStatusBarMedia(v,media,sourceW,sourceH){
+  const sourceIsland=previewSourceIslandForMedia(v,media,sourceW,sourceH);
+  if(!previewStatusBarCleanup||!mediaHasContent(media)||!sourceW||!sourceH){
+    return {media,sourceIsland,sourceW,sourceH};
+  }
+  const canvas=_previewStatusCanvas||(_previewStatusCanvas=document.createElement('canvas'));
+  const w=Math.max(1,Math.round(sourceW)),h=Math.max(1,Math.round(sourceH));
+  if(canvas.width!==w)canvas.width=w;
+  if(canvas.height!==h)canvas.height=h;
+  const ctx=get2dCtx(canvas,true,false);
+  ctx.clearRect(0,0,w,h);
+  try{ctx.drawImage(media,0,0,w,h);}catch(e){return {media,sourceIsland,sourceW,sourceH};}
+  const canvasIsland=sourceIslandRectForCanvas(v,canvas,{useCached:true})||sourceIslandForCanvasScale(sourceIsland,sourceW,sourceH,w,h);
+  if(canvasIsland)removeRecordingIndicator(canvas,canvasIsland);
+  safeApplyExportStatusBar(canvas,{preserveIsland:!!canvasIsland,sourceIslandRect:canvasIsland});
+  return {media:canvas,sourceIsland:canvasIsland,sourceW:w,sourceH:h};
+}
+function sourceIslandForCanvasScale(rect,sourceW,sourceH,w,h){
+  if(!rect||!sourceW||!sourceH||!w||!h)return null;
+  return {
+    x:Math.round(rect.x/sourceW*w),
+    y:Math.round(rect.y/sourceH*h),
+    w:Math.round(rect.w/sourceW*w),
+    h:Math.round(rect.h/sourceH*h)
+  };
+}
 function drawVideoPreviewOverlay(){
   const video=document.getElementById('vid-main');
   const canvas=document.getElementById('vid-preview-overlay');
@@ -8726,14 +8765,11 @@ function drawVideoPreviewOverlay(){
     if(!media){clearVideoPreviewOverlay();return;}
     const sourceW=video.videoWidth||media.width;
     const sourceH=video.videoHeight||media.height;
-    let sourceIsland=sourceIslandRectForSize(_stageVid,sourceW,sourceH);
-    if(!sourceIsland&&video.videoWidth)sourceIsland=detectDynamicIslandInMedia(video,video.videoWidth,video.videoHeight);
-    if(sourceIsland){
-      rememberSourceIsland(_stageVid,sourceIsland,sourceW,sourceH);
-    }
+    const previewMedia=previewStatusBarMedia(_stageVid,media,sourceW,sourceH);
+    let sourceIsland=previewMedia.sourceIsland;
     const hasSourceIsland=!!sourceIsland||!!(_stageVid&&_stageVid._hasSourceIsland);
-    if(hasSourceIsland&&!sourceIsland)sourceIsland=sourceIslandRectForSize(_stageVid,sourceW,sourceH);
-    drawComposedMediaFrame(ctx,media,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW,sourceH,hideNotch:hasSourceIsland,sourceIslandRect:sourceIsland});
+    if(hasSourceIsland&&!sourceIsland)sourceIsland=sourceIslandRectForSize(_stageVid,previewMedia.sourceW,previewMedia.sourceH);
+    drawComposedMediaFrame(ctx,previewMedia.media,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:previewMedia.sourceW,sourceH:previewMedia.sourceH,hideNotch:hasSourceIsland,sourceIslandRect:sourceIsland});
     return;
   }
   if(!video.videoWidth){clearVideoPreviewOverlay();return;}
@@ -9438,6 +9474,7 @@ async function init(){
       canvasOptions._frameGeometryV2=true;
     }
     if(typeof p.showVideoRedactions==='boolean')showVideoRedactions=p.showVideoRedactions;
+    if(typeof p.previewStatusBarCleanup==='boolean')previewStatusBarCleanup=p.previewStatusBarCleanup;
   }catch(e){}
   initFlows();
   initWords();
