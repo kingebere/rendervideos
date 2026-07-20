@@ -7102,14 +7102,35 @@ function _chunksToWebM(chunks,W,H,fps){
   function _eid(id){if(id<=0xff)return new Uint8Array([id]);if(id<=0xffff)return new Uint8Array([(id>>8)&0xff,id&0xff]);if(id<=0xffffff)return new Uint8Array([(id>>16)&0xff,(id>>8)&0xff,id&0xff]);return new Uint8Array([(id>>24)&0xff,(id>>16)&0xff,(id>>8)&0xff,id&0xff]);}
   function _esz(s){if(s<0x7f)return new Uint8Array([0x80|s]);if(s<0x3fff)return new Uint8Array([0x40|(s>>8),s&0xff]);if(s<0x1fffff)return new Uint8Array([0x20|(s>>16),(s>>8)&0xff,s&0xff]);return new Uint8Array([0x10|(s>>24),(s>>16)&0xff,(s>>8)&0xff,s&0xff]);}
   function num(v,b){const a=new Uint8Array(b);for(let i=b-1;i>=0;i--){a[i]=v&0xff;v>>=8;}return a;}
+  function i16(v){v=Math.max(-32768,Math.min(32767,Math.round(v)));if(v<0)v=0x10000+v;return new Uint8Array([(v>>8)&0xff,v&0xff]);}
   function cat(...a){const t=a.reduce((s,x)=>s+x.length,0),o=new Uint8Array(t);let p=0;a.forEach(x=>{o.set(x,p);p+=x.length;});return o;}
   function str(s){return new TextEncoder().encode(s);}
   function f64(v){const b=new ArrayBuffer(8);new DataView(b).setFloat64(0,v,false);return new Uint8Array(b);}
-  const blocks=chunks.map(ch=>{const d=new Uint8Array(ch.buf);const h=new Uint8Array([0x81,0x00,0x00,ch.type==='key'?0x80:0x00]);return cat(h,d);});
-  const clusterData=cat(ebml(0xe7,num(0,8)),...blocks.map(b=>ebml(0xa3,b)));
+  const frameMs=1000/Math.max(1,Number(fps)||1);
+  const timed=chunks.map((ch,i)=>({
+    data:new Uint8Array(ch.buf),
+    type:ch.type,
+    ms:Number.isFinite(+ch.timestamp)?Math.round(+ch.timestamp/1000):Math.round(i*frameMs)
+  })).sort((a,b)=>a.ms-b.ms);
+  const clusterMaxMs=30000;
+  const clusters=[];
+  let group=[],base=timed[0]?.ms||0;
+  timed.forEach(ch=>{
+    if(group.length&&ch.ms-base>clusterMaxMs){clusters.push({base,group});group=[];base=ch.ms;}
+    group.push(ch);
+  });
+  if(group.length)clusters.push({base,group});
+  const clusterEls=clusters.map(cl=>{
+    const blocks=cl.group.map(ch=>{
+      const h=cat(new Uint8Array([0x81]),i16(ch.ms-cl.base),new Uint8Array([ch.type==='key'?0x80:0x00]));
+      return ebml(0xa3,cat(h,ch.data));
+    });
+    return ebml(0x1f43b675,cat(ebml(0xe7,num(cl.base,4)),...blocks));
+  });
   const trackEntry=cat(ebml(0xd7,num(1,1)),ebml(0x73c5,num(1,1)),ebml(0x83,num(1,1)),ebml(0x86,str('V_VP8')),ebml(0xe0,cat(ebml(0xb0,num(W,2)),ebml(0xba,num(H,2)))));
-  const info=cat(ebml(0x2ad7b1,num(1000000,4)),ebml(0x4d80,str('UILand')),ebml(0x5741,str('UILand')),ebml(0x4489,f64(chunks.length*1000/fps)));
-  const seg=cat(ebml(0x1549a966,info),ebml(0x1654ae6b,ebml(0xae,trackEntry)),ebml(0x1f43b675,clusterData));
+  const duration=timed.length?(Math.max(...timed.map(ch=>ch.ms))+frameMs):0;
+  const info=cat(ebml(0x2ad7b1,num(1000000,4)),ebml(0x4d80,str('UILand')),ebml(0x5741,str('UILand')),ebml(0x4489,f64(duration)));
+  const seg=cat(ebml(0x1549a966,info),ebml(0x1654ae6b,ebml(0xae,trackEntry)),...clusterEls);
   const hdr=ebml(0x1a45dfa3,cat(ebml(0x4286,num(1,1)),ebml(0x42f7,num(1,1)),ebml(0x42f2,num(4,1)),ebml(0x42f3,num(8,1)),ebml(0x4282,str('webm')),ebml(0x4287,num(2,1)),ebml(0x4285,num(2,1))));
   return new Blob([cat(hdr,ebml(0x18538067,seg))],{type:'video/webm'});
 }
