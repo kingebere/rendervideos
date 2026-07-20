@@ -2612,7 +2612,7 @@ function statusBarAssetLayout(sX,sY,sW,sH,island){
   const anchorH=island?.h&&island.h>0?island.h:sbH;
   const iconH=Math.max(8,Math.min(sbH*.265,anchorH*.305,sW*.03));
   const scale=iconH/13;
-  const centerY=island?.h?island.y+island.h*.50:sY+sbH*.61;
+  const centerY=island?.h?island.y+island.h*.50:sY+sbH*.40;
   const iconY=Math.round(centerY-iconH*.5);
   const leftX=Math.round(sX+sW*.087);
   const rightPad=Math.round(sW*.071);
@@ -2724,7 +2724,11 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
     const leftZone={x:sX+sW*.055,y:layout.centerY-layout.iconH*.75,w:Math.max(0,leftEnd-(sX+sW*.055)),h:layout.iconH*1.5};
     const rightStart=island?Math.max(island.x+island.w+padX,sX+sW*.705):sX+sW*.705;
     const rightZone={x:rightStart,y:layout.centerY-layout.iconH*.78,w:sX+sW*.972-rightStart,h:layout.iconH*1.56};
+    const statusLaneH=layout.sbH*(island?1.04:1.0);
     const zones=[
+      {x:sX,y:sY,w:sW,h:statusLaneH},
+      {x:sX,y:sY+layout.sbH*.18,w:sW*.48,h:layout.sbH*.82},
+      {x:sX+sW*.52,y:sY+layout.sbH*.16,w:sW*.46,h:layout.sbH*.84},
       leftZone,
       {x:layout.time.x-padX,y:layout.time.y-padY,w:layout.time.w+padX*2,h:layout.time.h+padY*2},
       rightZone,
@@ -2900,6 +2904,125 @@ function sourceIslandRectForSize(v,w,h){
   };
 }
 
+const AUTO_KEYBOARD_BLUR=true;
+let _keyboardProbeCanvas=null;
+function detectKeyboardRect(canvas){
+  if(!canvas||!canvas.width||!canvas.height)return null;
+  const W=canvas.width,H=canvas.height;
+  try{
+    const sw=Math.min(320,W);
+    const scale=sw/W;
+    const sh=Math.max(1,Math.round(H*scale));
+    const probe=_keyboardProbeCanvas||(_keyboardProbeCanvas=document.createElement('canvas'));
+    if(probe.width!==sw)probe.width=sw;
+    if(probe.height!==sh)probe.height=sh;
+    const pctx=get2dCtx(probe,true,true);
+    pctx.drawImage(canvas,0,0,sw,sh);
+    const data=pctx.getImageData(0,0,sw,sh).data;
+    const rows=[];
+    for(let y=0;y<sh;y++){
+      let light=0,lightRuns=0,lightRunLen=0,lightMeaningful=0,lightIn=false;
+      let darkKey=0,darkRuns=0,darkRunLen=0,darkMeaningful=0,darkIn=false;
+      let lightBg=0,darkBg=0,darkGlyph=0,whiteGlyph=0,blue=0;
+      for(let x=0;x<sw;x++){
+        const i=(y*sw+x)*4,r=data[i],g=data[i+1],b=data[i+2],a=data[i+3];
+        if(a<16)continue;
+        const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+        const isLightKey=r>238&&g>238&&b>238&&mx-mn<34;
+        const isDarkKey=r>34&&r<104&&g>34&&g<104&&b>34&&b<112&&mx-mn<42;
+        if(r>=180&&g>=185&&b>=195&&r<246&&g<250&&b<255&&b>=r-10)lightBg++;
+        if(r>=14&&r<70&&g>=14&&g<70&&b>=14&&b<78&&mx-mn<42)darkBg++;
+        if(r<90&&g<90&&b<90)darkGlyph++;
+        if(r>210&&g>210&&b>210)whiteGlyph++;
+        if(b>145&&g>75&&r<110&&b>r*1.35)blue++;
+        if(isLightKey){
+          light++;lightRunLen++;
+          if(!lightIn){lightRuns++;lightIn=true;}
+        }else{
+          if(lightIn&&lightRunLen>=Math.max(7,Math.round(sw*.025)))lightMeaningful++;
+          lightRunLen=0;lightIn=false;
+        }
+        if(isDarkKey){
+          darkKey++;darkRunLen++;
+          if(!darkIn){darkRuns++;darkIn=true;}
+        }else{
+          if(darkIn&&darkRunLen>=Math.max(7,Math.round(sw*.025)))darkMeaningful++;
+          darkRunLen=0;darkIn=false;
+        }
+      }
+      if(lightIn&&lightRunLen>=Math.max(7,Math.round(sw*.025)))lightMeaningful++;
+      if(darkIn&&darkRunLen>=Math.max(7,Math.round(sw*.025)))darkMeaningful++;
+      const lr=light/sw,dr=darkKey/sw,lbg=lightBg/sw,dbg=darkBg/sw,dg=darkGlyph/sw,wg=whiteGlyph/sw,br=blue/sw;
+      const lightRow=lightMeaningful>=4&&lr>.18&&(lbg>.07||dg>.003||br>.025);
+      const darkRow=darkMeaningful>=4&&dr>.18&&(dbg>.08||wg>.003||br>.025);
+      const actionRow=lightMeaningful>=2&&br>.08&&lr>.12;
+      rows.push(lightRow||darkRow||actionRow);
+    }
+    const smooth=[];
+    for(let y=0;y<sh;y++){
+      let n=0,total=0;
+      for(let yy=Math.max(0,y-4);yy<Math.min(sh,y+5);yy++){total++;if(rows[yy])n++;}
+      smooth.push(n>=3);
+    }
+    const segs=[];
+    let inSeg=false,st=0;
+    for(let y=0;y<sh;y++){
+      if(smooth[y]&&!inSeg){st=y;inSeg=true;}
+      if(inSeg&&(!smooth[y]||y===sh-1)){
+        const en=!smooth[y]?y-1:y;
+        if(en-st>=Math.max(7,Math.round(sh*.012)))segs.push({st,en});
+        inSeg=false;
+      }
+    }
+    if(!segs.length)return null;
+    const anchors=segs.filter(s=>s.en>sh*.60&&s.st>sh*.18);
+    if(!anchors.length)return null;
+    let first=anchors[anchors.length-1].st,last=anchors[anchors.length-1].en,count=1;
+    const mergeGap=Math.max(8,Math.round(sh*.025));
+    for(let i=segs.length-2;i>=0;i--){
+      const s=segs[i];
+      if(s.en<sh*.18)break;
+      if(first-s.en<=mergeGap){
+        first=s.st;count++;
+      }else if(count>=3){
+        break;
+      }
+    }
+    if(count<2&&last-first<sh*.16)return null;
+    const y0=Math.max(0,Math.round((first-Math.max(6,sh*.025))/scale));
+    const padX=Math.round(W*.004);
+    return {x:Math.max(0,padX),y:y0,w:Math.max(1,W-padX*2),h:Math.max(1,H-y0)};
+  }catch(e){return null;}
+}
+function applyKeyboardBlur(canvas,amount=18){
+  if(!AUTO_KEYBOARD_BLUR||!canvas)return null;
+  const rect=detectKeyboardRect(canvas);
+  if(!rect)return null;
+  const ctx=get2dCtx(canvas,true,true);
+  if(!ctx)return null;
+  const x=Math.max(0,Math.floor(rect.x)),y=Math.max(0,Math.floor(rect.y));
+  const w=Math.max(1,Math.min(canvas.width-x,Math.ceil(rect.w)));
+  const h=Math.max(1,Math.min(canvas.height-y,Math.ceil(rect.h)));
+  try{
+    ctx.save();
+    ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
+    ctx.globalAlpha=1;
+    const g=ctx.createLinearGradient(0,y,0,y+h);
+    g.addColorStop(0,'rgb(245,248,255)');
+    g.addColorStop(.55,'rgb(232,237,248)');
+    g.addColorStop(1,'rgb(218,225,240)');
+    ctx.fillStyle=g;
+    ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle='rgba(255,255,255,.65)';
+    ctx.lineWidth=Math.max(1,Math.round(canvas.width*.0015));
+    ctx.beginPath();ctx.moveTo(x,y+.5);ctx.lineTo(x+w,y+.5);ctx.stroke();
+    ctx.restore();
+  }catch(e){
+    blurCanvasRect(ctx,x,y,w,h,Math.max(28,amount*2));
+  }
+  return rect;
+}
+
 function removeRecordingIndicator(canvas,islandRect=null){
   if(!canvas)return false;
   const rect=islandRect||detectDynamicIslandRect(canvas);
@@ -3022,13 +3145,14 @@ function cloneCanvasForExport(src){
 }
 async function frameCanvasForExport(fr,removeStatusBar,opts={}){
   const base=await getFrameCanvas(fr);
-  let canvas=removeStatusBar?cloneCanvasForExport(base):base;
+  let canvas=(removeStatusBar||opts.cleanKeyboard!==false)?cloneCanvasForExport(base):base;
   const sourceIsland=removeStatusBar?sourceIslandRectForCanvas(getVideo(fr.videoId),canvas):null;
   const cleanIsland=sourceIsland||(!removeStatusBar?sourceIslandRectForCanvas(getVideo(fr.videoId),base):null);
   if(cleanIsland){
     if(!removeStatusBar)canvas=cloneCanvasForExport(base);
     removeRecordingIndicator(canvas,cleanIsland);
   }
+  if(opts.cleanKeyboard!==false)applyKeyboardBlur(canvas);
   if(removeStatusBar){
     safeApplyExportStatusBar(canvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
   }
@@ -3838,6 +3962,7 @@ async function addImages(filesInput){
         const newAr=rc2.width/rc2.height;
         fr._gridSrc=newAr<0.8?'iphone':newAr>1.1?'mac':'unknown';
       }
+      applyKeyboardBlur(finalCanvas);
       try{
         await storeFrameAsBlob(fr,finalCanvas);
       }catch(e){
@@ -4247,6 +4372,7 @@ async function extractVideo(v){
       rememberSourceIsland(v,island,fc.width,fc.height);
       removeRecordingIndicator(fc,island);
     }
+    applyKeyboardBlur(fc);
     await storeFrameAsBlob(fr, fc);
     v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
     document.getElementById('live-ct').textContent=total;
@@ -6607,6 +6733,7 @@ async function extractTrimRange(){
       rememberSourceIsland(v,island,fc.width,fc.height);
       removeRecordingIndicator(fc,island);
     }
+    applyKeyboardBlur(fc);
     n++;
     const fr={id:'fr_'+Date.now()+'_'+n,canvas:fc,name:`frame_${String(v.frames.length+1).padStart(4,'0')}`,flows:[],selected:false,redacted:false,redactBoxes:[],wordBoxes:[],timestamp:times[i],timeSec:times[i],videoId:v.id,source:v.source};
     v.frames.push(fr);appendFrameCard(fr,v.source);updateStatsQuick();
@@ -7367,7 +7494,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
     if(canvasCompositionEnabled()){
       let media=video;
       var sourceIsland=null;
-      if(removeStatusBar||!v._sourceIslandChecked||v._hasSourceIsland){
+      if(removeStatusBar||AUTO_KEYBOARD_BLUR||!v._sourceIslandChecked||v._hasSourceIsland){
         if(sourceCleanCanvas.width!==video.videoWidth||sourceCleanCanvas.height!==video.videoHeight){
           sourceCleanCanvas.width=video.videoWidth;sourceCleanCanvas.height=video.videoHeight;
         }
@@ -7375,6 +7502,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
         sourceIsland=sourceIslandRectForCanvas(v,sourceCleanCanvas,{useCached:true});
         if(sourceIsland)removeRecordingIndicator(sourceCleanCanvas,sourceIsland);
         if(removeStatusBar)safeApplyExportStatusBar(sourceCleanCanvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
+        applyKeyboardBlur(sourceCleanCanvas);
         media=sourceCleanCanvas;
       }
       drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey:opts.frameKey});
@@ -7385,6 +7513,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
       if(removeStatusBar){
         safeApplyExportStatusBar(canvas,{preserveIsland:!!island,sourceIslandRect:island});
       }
+      applyKeyboardBlur(canvas);
       if(showVideoRedactions)_drawVideoRedactions(ctx,video.currentTime,redactions,canvas.width,canvas.height);
     }
     requestCanvasFrame();
@@ -7537,7 +7666,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       const el=active.el,v=active.v;
       if(canvasCompositionEnabled()){
         let media=el,sourceIsland=null;
-        if(removeStatusBar||!v._sourceIslandChecked||v._hasSourceIsland){
+        if(removeStatusBar||AUTO_KEYBOARD_BLUR||!v._sourceIslandChecked||v._hasSourceIsland){
           if(clean.width!==el.videoWidth||clean.height!==el.videoHeight){
             clean.width=el.videoWidth;clean.height=el.videoHeight;
           }
@@ -7545,6 +7674,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           sourceIsland=sourceIslandRectForCanvas(v,clean,{useCached:true});
           if(sourceIsland)removeRecordingIndicator(clean,sourceIsland);
           if(removeStatusBar)safeApplyExportStatusBar(clean,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
+          applyKeyboardBlur(clean);
           media=clean;
         }
         const frameKey=flowFrameKeyAtTime(v,el.currentTime,opts.frameEventsByVideoId?.[v.id])||opts.frameKey;
@@ -7556,6 +7686,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
         if(removeStatusBar){
           safeApplyExportStatusBar(canvas,{preserveIsland:!!island,sourceIslandRect:island});
         }
+        applyKeyboardBlur(canvas);
         if(showVideoRedactions)_drawVideoRedactions(ctx,el.currentTime,active.redactions,canvas.width,canvas.height);
       }
       try{canvasTrack?.requestFrame?.();}catch(e){}
@@ -8728,7 +8859,7 @@ function previewSourceIslandForMedia(v,media,sourceW,sourceH){
 }
 function previewStatusBarMedia(v,media,sourceW,sourceH){
   const sourceIsland=previewSourceIslandForMedia(v,media,sourceW,sourceH);
-  if(!previewStatusBarCleanup||!mediaHasContent(media)||!sourceW||!sourceH){
+  if(!mediaHasContent(media)||!sourceW||!sourceH){
     return {media,sourceIsland,sourceW,sourceH};
   }
   const canvas=_previewStatusCanvas||(_previewStatusCanvas=document.createElement('canvas'));
@@ -8739,8 +8870,11 @@ function previewStatusBarMedia(v,media,sourceW,sourceH){
   ctx.clearRect(0,0,w,h);
   try{ctx.drawImage(media,0,0,w,h);}catch(e){return {media,sourceIsland,sourceW,sourceH};}
   const canvasIsland=sourceIslandRectForCanvas(v,canvas,{useCached:true})||sourceIslandForCanvasScale(sourceIsland,sourceW,sourceH,w,h);
-  if(canvasIsland)removeRecordingIndicator(canvas,canvasIsland);
-  safeApplyExportStatusBar(canvas,{preserveIsland:!!canvasIsland,sourceIslandRect:canvasIsland});
+  if(previewStatusBarCleanup){
+    if(canvasIsland)removeRecordingIndicator(canvas,canvasIsland);
+    safeApplyExportStatusBar(canvas,{preserveIsland:!!canvasIsland,sourceIslandRect:canvasIsland});
+  }
+  applyKeyboardBlur(canvas);
   return {media:canvas,sourceIsland:canvasIsland,sourceW:w,sourceH:h};
 }
 function sourceIslandForCanvasScale(rect,sourceW,sourceH,w,h){
