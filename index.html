@@ -8030,13 +8030,6 @@ function exportDuration(sec){
 function flowFolderName(fl,idx){
   return `${String(idx+1).padStart(3,'0')}_${exportTitleSlug(fl?.name||'Flow','Flow')}`;
 }
-function exportFigmaHtml(title,imageFile,meta){
-  return `<span data-h2d="uiland-export"></span><!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title>
-<style>html,body{margin:0;background:#f4f4f5;font-family:Arial,sans-serif}main{min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:24px}img{max-width:100%;height:auto;box-shadow:0 8px 40px rgba(0,0,0,.18);background:white}.meta{position:fixed;left:10px;bottom:10px;background:rgba(0,0,0,.72);color:white;border-radius:6px;padding:6px 8px;font-size:11px}</style>
-</head><body><main><img src="${esc(imageFile.split('/').pop())}" alt=""></main><div class="meta">${esc(meta)}</div></body></html>`;
-}
 async function exportZip(vid){
   const nameInput=document.getElementById('exp-appname');
   const appName=(nameInput?.value||'').trim();
@@ -8092,7 +8085,7 @@ async function exportZip(vid){
     flows:[],
     screenshots:[]
   };
-  const dbScreens=['screenshot_id,video,flow,time,time_sec,image_file,figma_file'];
+  const dbScreens=['screenshot_id,video,flow,time,time_sec,image_file'];
   const dbFlows=['flow_id,index,name,folder,screenshot_count,start_sec,end_sec'];
   const allFlowsIndex=['flow_index,flow_name,folder,screenshot_count,start_sec,end_sec'];
   const inventory=['path,type,bytes'];
@@ -8148,7 +8141,7 @@ async function exportZip(vid){
       const idx=[...usedFlowIds].indexOf(f.id);
       const folderName=flowFolderName(f,idx);
       if(!exportFlowData[f.id]){
-        exportFlowData[f.id]={folder:flowsRoot.folder(folderName),path:`flows/${folderName}/`,index:idx+1,rows:['index,frame_id,time,time_sec,kind,has_figma,url,image_files,figma_files'],frames:[],flow:f};
+        exportFlowData[f.id]={folder:flowsRoot.folder(folderName),path:`flows/${folderName}/`,index:idx+1,rows:['index,frame_id,time,time_sec,kind,url,image_files'],frames:[],flow:f};
       }
       if(!exportFlowFrameRefs[f.id])exportFlowFrameRefs[f.id]=[];
       flowFolders[f.id]=exportFlowData[f.id];
@@ -8207,22 +8200,19 @@ async function exportZip(vid){
         const localTs=Number(fr.timestamp??fr.timeSec??0)||0;
         const ts=effectiveGlobalFrameSec(fr,targetVideos);
         const snapId=`snap_${Date.now()+seq}_${Math.random().toString(36).slice(2,6)}`;
-        const stem=`${String(seq).padStart(5,'0')}_${exportTimeName(ts)}_figma_${snapId}`;
+        const stem=`${String(seq).padStart(5,'0')}_${exportTimeName(ts)}_snap_${snapId}`;
         const imgName=`${stem}.png`;
-        const htmlName=`${stem}_figma.html`;
         const flowNames=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?fl.name:'';}).filter(Boolean);
         const targets=fr.flows.length?fr.flows.filter(fid=>flowFolders[fid]).map(fid=>flowFolders[fid]):[{folder:untaggedFolder,path:'untagged/',rows:null,frames:null,flow:null,index:null}];
         targets.forEach(t=>{
           t.folder.file(imgName,blob,{binary:true,compression:'STORE'});
-          t.folder.file(htmlName,exportFigmaHtml(appName,imgName,`${exportClock(ts)} · ${flowNames.join(', ')||'untagged'}`),{compression:'STORE'});
-          if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},figma,yes,${csvCell('')},${csvCell(t.path+imgName)},${csvCell(t.path+htmlName)}`);
-          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName,figmaFile:t.path+htmlName});
+          if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},image,${csvCell('')},${csvCell(t.path+imgName)}`);
+          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName});
           if(t.flow&&exportFlowFrameRefs[t.flow.id])exportFlowFrameRefs[t.flow.id].push(fr);
           inventory.push(`${sessionFolder}/${t.path}${imgName},image/png,${blob.size}`);
-          inventory.push(`${sessionFolder}/${t.path}${htmlName},text/html,${exportFigmaHtml(appName,imgName,'').length}`);
         });
-        dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName),csvCell(targets[0].path+htmlName)].join(','));
-        manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,kind:'figma',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,figmaFile:targets[0].path+htmlName});
+        dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName)].join(','));
+        manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,kind:'image',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName});
       }));
       setLdPb(34+Math.round(globalSeq/totalFramesToExport*48),'Encoding reference frames…');
       await yieldUI();
@@ -8352,7 +8342,7 @@ async function exportZip(vid){
     dbFolder.file('screenshots.jsonl',manifestData.screenshots.map(s=>JSON.stringify(s)).join('\n'),{compression:'STORE'});
   }
   sessionRoot.file('flows_reference.txt',flowInfos.join('\n'),{compression:'STORE'});
-  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- flow videos are intentionally not exported; cut them later from video.webm using manifest.json flow start/end times\n- each flow has an iphoneFrame value; the master video uses that iPhone mockup asset color over the tagged flow range\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, _figma.html sidecars, flow_info.txt, and timing metadata\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
+  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- flow videos are intentionally not exported; cut them later from video.webm using manifest.json flow start/end times\n- each flow has an iphoneFrame value; the master video uses that iPhone mockup asset color over the tagged flow range\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, flow_info.txt, and timing metadata\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
   sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nStatus bar removed on export: ${removeStatusBar}\nEdited master videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\nFlow videos exported into ZIP: 0\nMaster render: ${exportTimingReport.masterRenderSec}s\nFlow clip/render stage: ${exportTimingReport.flowClipSec}s\n`,{compression:'STORE'});
   setLdPb(94,'Packing Flora-style ZIP...');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
