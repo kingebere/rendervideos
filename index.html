@@ -3064,24 +3064,28 @@ function rememberSourceIsland(v,rect,w,h){
   v._hasSourceIsland=true;
   v._sourceIslandRect={x:rect.x/w,y:rect.y/h,w:rect.w/w,h:rect.h/h};
 }
+function cachedSourceIslandRectForCanvas(v,canvas){
+  if(!v||!canvas||!v._hasSourceIsland||!v._sourceIslandRect)return null;
+  const r=v._sourceIslandRect;
+  return {
+    x:Math.round(r.x*canvas.width),
+    y:Math.round(r.y*canvas.height),
+    w:Math.round(r.w*canvas.width),
+    h:Math.round(r.h*canvas.height)
+  };
+}
 function sourceIslandRectForCanvas(v,canvas,opts={}){
   if(!canvas)return null;
   if(opts.useCached&&v&&v._sourceIslandChecked&&!v._hasSourceIsland)return null;
+  const cached=cachedSourceIslandRectForCanvas(v,canvas);
+  if(opts.preferCached&&cached)return cached;
   const found=detectDynamicIslandRect(canvas);
   if(v)v._sourceIslandChecked=true;
   if(found){
     rememberSourceIsland(v,found,canvas.width,canvas.height);
     return found;
   }
-  if(v&&v._hasSourceIsland&&v._sourceIslandRect){
-    const r=v._sourceIslandRect;
-    return {
-      x:Math.round(r.x*canvas.width),
-      y:Math.round(r.y*canvas.height),
-      w:Math.round(r.w*canvas.width),
-      h:Math.round(r.h*canvas.height)
-    };
-  }
+  if(cached)return cached;
   return null;
 }
 function sourceIslandRectForSize(v,w,h){
@@ -3613,18 +3617,39 @@ function cloneCanvasForExport(src){
   ctx.drawImage(src,0,0);
   return c;
 }
+function restoreProtectedIslandSnapshot(canvas,snapshot,rect){
+  if(!canvas||!snapshot||!rect)return;
+  const ctx=get2dCtx(canvas,true,true);
+  if(!ctx)return;
+  const padX=Math.max(4,Math.round(rect.h*.08));
+  const padY=Math.max(3,Math.round(rect.h*.06));
+  const x=Math.max(0,Math.round(rect.x-padX));
+  const y=Math.max(0,Math.round(rect.y-padY));
+  const w=Math.min(canvas.width-x,Math.round(rect.w+padX*2));
+  const h=Math.min(canvas.height-y,Math.round(rect.h+padY*2));
+  if(w<=0||h<=0)return;
+  ctx.save();
+  roundedRectPath(ctx,x,y,w,h,Math.max(1,h/2));
+  ctx.clip();
+  ctx.drawImage(snapshot,x,y,w,h,x,y,w,h);
+  ctx.restore();
+}
 async function frameCanvasForExport(fr,removeStatusBar,opts={}){
   const base=await getFrameCanvas(fr);
   let canvas=(removeStatusBar||opts.cleanKeyboard!==false)?cloneCanvasForExport(base):base;
-  const sourceIsland=removeStatusBar?sourceIslandRectForCanvas(getVideo(fr.videoId),canvas):null;
-  const cleanIsland=sourceIsland||(!removeStatusBar?sourceIslandRectForCanvas(getVideo(fr.videoId),base):null);
+  const videoForFrame=getVideo(fr.videoId);
+  const sourceIsland=removeStatusBar?sourceIslandRectForCanvas(videoForFrame,canvas,{preferCached:true}):null;
+  const cleanIsland=sourceIsland||(!removeStatusBar?sourceIslandRectForCanvas(videoForFrame,base):null);
+  let islandSnapshot=null;
   if(cleanIsland){
     if(!removeStatusBar)canvas=cloneCanvasForExport(base);
     removeRecordingIndicator(canvas,cleanIsland);
+    if(removeStatusBar&&sourceIsland)islandSnapshot=cloneCanvasForExport(canvas);
   }
   if(opts.cleanKeyboard!==false)applyKeyboardBlur(canvas);
   if(removeStatusBar){
     safeApplyExportStatusBar(canvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
+    if(sourceIsland&&islandSnapshot)restoreProtectedIslandSnapshot(canvas,islandSnapshot,sourceIsland);
   }
   if(opts.compose!==false&&(opts.requireFrameAsset||canvasCompositionEnabled())){
     const frameKey=opts.requireFrameAsset?exportPhoneFrameKey(opts.frameKey||canvasOptions.frame):opts.frameKey;
@@ -10350,7 +10375,7 @@ function openFlowConfirmModal(){
   document.getElementById('flow-modal-dur').textContent=fmt(hi-lo);
   document.getElementById('flow-modal-count').textContent=hits.length;
   const hint=document.getElementById('flow-confirm-hint');
-  if(hint)hint.textContent=hits.length?'Click multiple flows · commas create several · Enter confirms':'No extracted frames in this range yet';
+  if(hint)hint.textContent=hits.length?'Click results to tag those full flows - type creates only when none selected - Enter confirms':'No extracted frames in this range yet';
   modal.classList.add('on');
   renderFlowConfirmChoices();
   setTimeout(()=>{const input=document.getElementById('flow-confirm-input');if(input){input.focus();input.select();}},30);
@@ -10368,7 +10393,9 @@ function renderFlowConfirmChoices(){
     const an=a._isNew?0:1,bn=b._isNew?0:1;
     return an-bn||a.name.localeCompare(b.name);
   });
-  const filtered=q?sorted.filter(fl=>fl.name.toLowerCase().includes(q)):sorted.slice(0,72);
+  const matches=q?sorted.filter(fl=>fl.name.toLowerCase().includes(q)):sorted;
+  const selected=sorted.filter(fl=>flowConfirmSelectedIds.has(fl.id));
+  const filtered=[...selected,...matches.filter(fl=>!flowConfirmSelectedIds.has(fl.id))].slice(0,q?120:72);
   c.innerHTML='';
   filtered.forEach(fl=>{
     const b=document.createElement('button');
@@ -10379,7 +10406,8 @@ function renderFlowConfirmChoices(){
     b.onclick=()=>{
       if(flowConfirmSelectedIds.has(fl.id))flowConfirmSelectedIds.delete(fl.id);
       else flowConfirmSelectedIds.add(fl.id);
-      b.classList.toggle('on',flowConfirmSelectedIds.has(fl.id));
+      if(input)input.value='';
+      renderFlowConfirmChoices();
     };
     c.appendChild(b);
   });
@@ -10393,8 +10421,8 @@ function renderFlowConfirmChoices(){
 function saveFlowConfirm(){
   if(_markIn===null||_markOut===null){toast('⚠️','Set In and Out first');return;}
   const input=document.getElementById('flow-confirm-input');
-  const typedNames=parseFlowNames(input?.value||'');
   const chosenIds=[...flowConfirmSelectedIds];
+  const typedNames=chosenIds.length?[]:parseFlowNames(input?.value||'');
   if(!typedNames.length&&!chosenIds.length){
     if(input){input.style.borderColor='var(--r)';input.focus();setTimeout(()=>input.style.borderColor='',900);}
     toast('⚠️','Choose or type at least one flow');
