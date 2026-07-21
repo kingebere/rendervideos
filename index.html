@@ -2685,7 +2685,7 @@ function statusBarAssetLayout(sX,sY,sW,sH,island){
   const anchorH=island?.h&&island.h>0?island.h:sbH;
   const iconH=Math.max(8,Math.min(sbH*.265,anchorH*.305,sW*.03));
   const scale=iconH/13;
-  const centerY=island?.h?island.y+island.h*.50:sY+sbH*.40;
+  const centerY=island?.h?island.y+island.h*.50:sY+sbH*.72;
   const iconY=Math.round(centerY-iconH*.5);
   const leftX=Math.round(sX+sW*.087);
   const rightPad=Math.round(sW*.071);
@@ -2758,7 +2758,30 @@ function sampleCanvasMedian(ctx,rect,skipRect=null,step=3,fallback=null){
   return _medianColor(samples,fallback||{avgR:255,avgG:255,avgB:255});
 }
 
-function fillStatusPatch(ctx,rect,fallback,protectRect=null){
+function statusRedRatio(source,rect){
+  if(!source||!rect)return 0;
+  const W=source.width||0,H=source.height||0;
+  const r=_clipRectToCanvas(rect,W,H);
+  if(r.w<=0||r.h<=0)return 0;
+  const sctx=source.getContext?get2dCtx(source,true,true):null;
+  if(!sctx)return 0;
+  let data;
+  try{data=sctx.getImageData(r.x,r.y,r.w,r.h).data;}catch(e){return 0;}
+  let red=0,seen=0;
+  const step=Math.max(1,Math.round(Math.min(r.w,r.h)/16));
+  for(let y=0;y<r.h;y+=step){
+    for(let x=0;x<r.w;x+=step){
+      const i=(y*r.w+x)*4;
+      if(data[i+3]<24)continue;
+      seen++;
+      const rr=data[i],gg=data[i+1],bb=data[i+2];
+      if(rr>72&&rr>gg*1.18&&rr>bb*1.18&&(rr-Math.max(gg,bb))>18)red++;
+    }
+  }
+  return seen?red/seen:0;
+}
+
+function fillStatusPatch(ctx,rect,fallback,protectRect=null,sourceCanvas=null,opts={}){
   const W=ctx.canvas.width,H=ctx.canvas.height;
   let r=_clipRectToCanvas(rect,W,H);
   if(r.w<=0||r.h<=0)return;
@@ -2776,11 +2799,83 @@ function fillStatusPatch(ctx,rect,fallback,protectRect=null){
     const pad=Math.max(4,Math.round(Math.min(piece.w,piece.h)*.45));
     const ring={x:piece.x-pad,y:piece.y-pad,w:piece.w+pad*2,h:piece.h+pad*2};
     const bg=sampleCanvasMedian(ctx,ring,protectRect,Math.max(2,Math.round(pad/2)),fallback);
+    const src=sourceCanvas||ctx.canvas;
+    const redInPatch=statusRedRatio(src,piece)>.012;
+    const forceSolid=!!opts.forceSolid;
+    const offset=Math.max(2,Math.round(piece.h*.22));
+    const candidates=[
+      {x:piece.x,y:piece.y+piece.h+offset,w:piece.w,h:piece.h},
+      {x:piece.x,y:piece.y-piece.h-offset,w:piece.w,h:piece.h},
+      {x:piece.x+piece.w+offset,y:piece.y,w:piece.w,h:piece.h},
+      {x:piece.x-piece.w-offset,y:piece.y,w:piece.w,h:piece.h}
+    ].map(c=>_clipRectToCanvas(c,W,H)).filter(c=>c.w>=piece.w*.75&&c.h>=piece.h*.75&&!_rectIntersects(c,protectRect));
+    const sample=candidates[0]||null;
     ctx.save();
-    ctx.fillStyle=`rgb(${Math.round(bg.avgR)},${Math.round(bg.avgG)},${Math.round(bg.avgB)})`;
-    ctx.fillRect(piece.x,piece.y,piece.w,piece.h);
+    ctx.beginPath();ctx.rect(piece.x,piece.y,piece.w,piece.h);ctx.clip();
+    if(sample&&!redInPatch&&!forceSolid){
+      const blur=Math.max(1,Math.min(4,Math.round(Math.min(piece.w,piece.h)*.08)));
+      const over=Math.ceil(blur*2);
+      ctx.filter=`blur(${blur}px)`;
+      try{ctx.drawImage(src,sample.x,sample.y,sample.w,sample.h,piece.x-over,piece.y-over,piece.w+over*2,piece.h+over*2);}
+      catch(e){ctx.fillStyle=`rgb(${Math.round(bg.avgR)},${Math.round(bg.avgG)},${Math.round(bg.avgB)})`;ctx.fillRect(piece.x,piece.y,piece.w,piece.h);}
+      ctx.filter='none';
+      ctx.globalAlpha=.08;
+      ctx.fillStyle=`rgb(${Math.round(bg.avgR)},${Math.round(bg.avgG)},${Math.round(bg.avgB)})`;
+      ctx.fillRect(piece.x,piece.y,piece.w,piece.h);
+    }else{
+      ctx.fillStyle=`rgb(${Math.round(bg.avgR)},${Math.round(bg.avgG)},${Math.round(bg.avgB)})`;
+      ctx.fillRect(piece.x,piece.y,piece.w,piece.h);
+    }
     ctx.restore();
   });
+}
+
+function eraseStatusRecordingArtifacts(ctx,protectRect=null){
+  const W=ctx.canvas.width,H=ctx.canvas.height;
+  if(!W||!H)return 0;
+  const scan={x:0,y:0,w:W,h:Math.max(12,Math.round(H*.085))};
+  let data;
+  try{data=ctx.getImageData(scan.x,scan.y,scan.w,scan.h).data;}catch(e){return 0;}
+  const mask=new Uint8Array(scan.w*scan.h);
+  for(let p=0,i=0;p<mask.length;p++,i+=4){
+    if(data[i+3]<24)continue;
+    const r=data[i],g=data[i+1],b=data[i+2];
+    if(r>58&&r>g*1.14&&r>b*1.14&&(r-Math.max(g,b))>16)mask[p]=1;
+  }
+  const seen=new Uint8Array(mask.length);
+  const stack=[];
+  const fallback=sampleCanvasMedian(ctx,scan,protectRect,Math.max(3,Math.round(W/240)),{avgR:255,avgG:255,avgB:255});
+  let removed=0;
+  for(let p=0;p<mask.length;p++){
+    if(!mask[p]||seen[p])continue;
+    seen[p]=1;stack.length=0;stack.push(p);
+    let count=0,minX=scan.w,minY=scan.h,maxX=0,maxY=0;
+    while(stack.length){
+      const q=stack.pop();
+      count++;
+      const x=q%scan.w,y=(q/scan.w)|0;
+      if(x<minX)minX=x;if(x>maxX)maxX=x;
+      if(y<minY)minY=y;if(y>maxY)maxY=y;
+      const n0=q-1,n1=q+1,n2=q-scan.w,n3=q+scan.w;
+      if(x>0&&mask[n0]&&!seen[n0]){seen[n0]=1;stack.push(n0);}
+      if(x<scan.w-1&&mask[n1]&&!seen[n1]){seen[n1]=1;stack.push(n1);}
+      if(y>0&&mask[n2]&&!seen[n2]){seen[n2]=1;stack.push(n2);}
+      if(y<scan.h-1&&mask[n3]&&!seen[n3]){seen[n3]=1;stack.push(n3);}
+    }
+    if(count<Math.max(4,Math.round(W*H*.000003)))continue;
+    const bw=maxX-minX+1,bh=maxY-minY+1;
+    const cx=minX+bw/2,cy=minY+bh/2;
+    if(protectRect&&_rectIntersects({x:minX,y:minY,w:bw,h:bh},protectRect))continue;
+    if(cy>scan.h*.92)continue;
+    const leftStatus=cx<W*.36;
+    const rightStatus=cx>W*.62;
+    if(!leftStatus&&!rightStatus)continue;
+    const padX=Math.max(8,Math.round(bh*2.1));
+    const padY=Math.max(5,Math.round(bh*.9));
+    fillStatusPatch(ctx,{x:minX-padX,y:minY-padY,w:bw+padX*2,h:bh+padY*2},fallback,protectRect,ctx.canvas,{forceSolid:true});
+    removed++;
+  }
+  return removed;
 }
 
 function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
@@ -2791,23 +2886,46 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
     const layout=statusBarAssetLayout(sX,sY,sW,sH,island);
     if(!layout)return null;
     const bg=sampleCanvasMedian(ctx,{x:sX,y:sY,w:sW,h:layout.sbH},protect,Math.max(3,Math.round(sW/220)),{avgR:255,avgG:255,avgB:255});
-    const padX=Math.max(5,Math.round(layout.iconH*.55));
-    const padY=Math.max(4,Math.round(layout.iconH*.42));
-    const leftEnd=island?Math.min(island.x-padX,sX+sW*.265):sX+sW*.255;
-    const leftZone={x:sX+sW*.055,y:layout.centerY-layout.iconH*.75,w:Math.max(0,leftEnd-(sX+sW*.055)),h:layout.iconH*1.5};
-    const rightStart=island?Math.max(island.x+island.w+padX,sX+sW*.705):sX+sW*.705;
-    const rightZone={x:rightStart,y:layout.centerY-layout.iconH*.78,w:sX+sW*.972-rightStart,h:layout.iconH*1.56};
-    const statusLaneH=layout.sbH*(island?1.04:1.0);
+    const padX=Math.max(5,Math.round(layout.iconH*.72));
+    const padY=Math.max(5,Math.round(layout.iconH*.68));
+    const timePadX=Math.max(padX,Math.round(layout.iconH*.95));
+    const rightW=layout.battery.x+layout.battery.w-layout.signal.x;
+    const laneY=island?sY:sY+layout.sbH*.04;
+    const laneH=island?Math.max(layout.sbH,Math.round(island.y+island.h+layout.iconH*.08-sY)):layout.sbH*.86;
+    const timeZone={x:layout.time.x-timePadX,y:laneY,w:layout.time.w+timePadX*2,h:laneH};
+    if(island){
+      const rightEdge=Math.max(timeZone.x+timeZone.w,Math.min(island.x-Math.max(2,padX*.35),sX+sW*.49));
+      timeZone.x=sX;
+      timeZone.w=Math.max(1,rightEdge-timeZone.x);
+    }else{
+      const leftEdge=sX+sW*.025;
+      const rightEdge=Math.max(timeZone.x+timeZone.w,sX+sW*.31);
+      timeZone.x=leftEdge;
+      timeZone.w=Math.max(1,rightEdge-leftEdge);
+    }
+    const rightStart=island?Math.max(island.x+island.w+Math.max(2,padX*.35),sX+sW*.51):layout.signal.x-padX;
     const zones=[
-      {x:sX,y:sY,w:sW,h:statusLaneH},
-      {x:sX,y:sY+layout.sbH*.18,w:sW*.48,h:layout.sbH*.82},
-      {x:sX+sW*.52,y:sY+layout.sbH*.16,w:sW*.46,h:layout.sbH*.84},
-      leftZone,
-      {x:layout.time.x-padX,y:layout.time.y-padY,w:layout.time.w+padX*2,h:layout.time.h+padY*2},
-      rightZone,
-      {x:layout.signal.x-padX,y:layout.signal.y-padY,w:layout.battery.x+layout.battery.w-layout.signal.x+padX*2,h:layout.signal.h+padY*2}
+      timeZone,
+      {x:rightStart,y:laneY,w:sX+sW-rightStart,h:laneH}
     ];
-    zones.forEach(z=>fillStatusPatch(ctx,z,bg,protect));
+    if(island){
+      const islandPadX=Math.max(2,Math.round(layout.iconH*.18));
+      const topCapH=Math.max(0,Math.round(island.y-sY-Math.max(1,layout.iconH*.04)));
+      if(topCapH>0)zones.unshift({x:sX,y:sY,w:sW,h:topCapH});
+      const sideY=Math.max(sY,Math.round(island.y-Math.max(1,layout.iconH*.06)));
+      const sideB=Math.min(sY+layout.sbH,Math.round(Math.max(laneY+laneH,island.y+island.h*.62)));
+      const sideH=Math.max(0,sideB-sideY);
+      if(sideH>0){
+        const leftW=Math.max(0,Math.round(island.x-islandPadX-sX));
+        const rightX=Math.round(island.x+island.w+islandPadX);
+        if(leftW>0)zones.push({x:sX,y:sideY,w:leftW,h:sideH});
+        if(rightX<sX+sW)zones.push({x:rightX,y:sideY,w:sX+sW-rightX,h:sideH});
+      }
+    }
+    const sourceSnap=document.createElement('canvas');
+    sourceSnap.width=ctx.canvas.width;sourceSnap.height=ctx.canvas.height;
+    try{get2dCtx(sourceSnap,true,true).drawImage(ctx.canvas,0,0);}catch(e){}
+    zones.forEach(z=>fillStatusPatch(ctx,z,bg,protect,sourceSnap,{forceSolid:true}));
     return bg;
   }catch(e){return null;}
 }
@@ -3430,16 +3548,55 @@ function paintCleanDynamicIsland(ctx,rect,bg){
   return pill;
 }
 
+function paintExactDynamicIsland(ctx,rect){
+  if(!rect||rect.w<=0||rect.h<=0)return null;
+  const W=ctx.canvas.width,H=ctx.canvas.height;
+  const pad=Math.max(.5,Math.min(2,rect.h*.012));
+  const r=_clipRectToCanvas({x:rect.x-pad,y:rect.y-pad,w:rect.w+pad*2,h:rect.h+pad*2},W,H);
+  if(r.w<=0||r.h<=0)return null;
+  ctx.save();
+  roundedRectPath(ctx,r.x,r.y,r.w,r.h,r.h*.5);
+  ctx.fillStyle='#000';
+  ctx.fill();
+  ctx.restore();
+  return r;
+}
+
+function cleanDynamicIslandSurround(ctx,rect,bg=null){
+  if(!rect||rect.w<=0||rect.h<=0)return null;
+  const W=ctx.canvas.width,H=ctx.canvas.height;
+  const padX=Math.max(4,Math.round(rect.h*.18));
+  const padTop=Math.max(3,Math.round(rect.h*.25));
+  const padBottom=Math.max(3,Math.round(rect.h*.18));
+  const outer=_clipRectToCanvas({x:rect.x-padX,y:rect.y-padTop,w:rect.w+padX*2,h:rect.h+padTop+padBottom},W,H);
+  if(outer.w<=0||outer.h<=0)return paintExactDynamicIsland(ctx,rect);
+  const sampleY=Math.min(H-1,Math.round(rect.y+rect.h+Math.max(2,rect.h*.08)));
+  const sampleH=Math.max(4,Math.min(H-sampleY,Math.round(rect.h*.28)));
+  const fillBg=sampleCanvasMedian(ctx,{x:outer.x,y:sampleY,w:outer.w,h:sampleH},rect,Math.max(2,Math.round(rect.h/32)),bg||{avgR:0,avgG:0,avgB:0});
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(outer.x,outer.y,outer.w,outer.h);
+  roundedRectSubPath(ctx,rect.x,rect.y,rect.w,rect.h,rect.h/2);
+  try{ctx.clip('evenodd');}
+  catch(e){ctx.clip();}
+  ctx.fillStyle=`rgb(${Math.round(fillBg.avgR)},${Math.round(fillBg.avgG)},${Math.round(fillBg.avgB)})`;
+  ctx.fillRect(outer.x,outer.y,outer.w,outer.h);
+  ctx.restore();
+  return paintExactDynamicIsland(ctx,rect);
+}
+
 function replaceStatusBarFast(canvas,opts={}){
   const W=canvas.width,H=canvas.height;
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
   const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
+  if(island&&opts.preserveIsland)paintExactDynamicIsland(ctx,island);
   const islandPatch=island&&opts.preserveIsland?paddedStatusIslandRect(island,W,H):null;
+  eraseStatusRecordingArtifacts(ctx,islandPatch);
   const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
   if(!bg)return false;
   let cleanIsland=island;
-  if(island&&opts.preserveIsland)cleanIsland=island;
+  if(island&&opts.preserveIsland)cleanIsland=cleanDynamicIslandSurround(ctx,island,bg)||island;
   try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:cleanIsland});}catch(e){console.warn('status bar icons failed',e);}
   return true;
 }
@@ -7583,6 +7740,13 @@ function defaultFrameIslandRect(screen){
     h:screen.h*.052
   };
 }
+function unionRect(a,b){
+  if(!a)return b||null;
+  if(!b)return a||null;
+  const x=Math.min(a.x,b.x),y=Math.min(a.y,b.y);
+  const r=Math.max(a.x+a.w,b.x+b.w),bt=Math.max(a.y+a.h,b.y+b.h);
+  return {x,y,w:r-x,h:bt-y};
+}
 function sourceIslandFrameCutout(screen,mediaRect,sourceIslandRect,sourceW,sourceH){
   if(!sourceIslandRect||!mediaRect||!sourceW||!sourceH)return defaultFrameIslandRect(screen);
   const x=mediaRect.x+(sourceIslandRect.x/sourceW)*mediaRect.w;
@@ -7605,6 +7769,22 @@ function sourceIslandFrameCutout(screen,mediaRect,sourceIslandRect,sourceW,sourc
   out.w=Math.max(1,Math.min(out.w,maxRight-out.x));
   out.h=Math.max(1,Math.min(out.h,screen.y+screen.h*.12-out.y));
   return out;
+}
+function sourceIslandAssetCutout(screen,mediaRect,sourceIslandRect,sourceW,sourceH){
+  const source=sourceIslandFrameCutout(screen,mediaRect,sourceIslandRect,sourceW,sourceH);
+  const def=defaultFrameIslandRect(screen);
+  const merged=unionRect(source,def);
+  if(!merged)return source||def;
+  const maxLeft=screen.x+screen.w*.14;
+  const maxRight=screen.x+screen.w*.86;
+  const x=Math.max(maxLeft,merged.x);
+  const right=Math.min(maxRight,merged.x+merged.w);
+  return {
+    x,
+    y:Math.max(screen.y,merged.y),
+    w:Math.max(1,right-x),
+    h:Math.max(1,Math.min(merged.h,screen.h*.092))
+  };
 }
 function sourceIslandScreenClip(screen,hideDefaultIsland){
   if(!hideDefaultIsland)return screen;
@@ -7640,6 +7820,12 @@ function frameApertureMask(frameKey,img,W,H,phone,screen,islandCutout=null){
   if(islandCutout){
     roundedRectPath(mctx,islandCutout.x,islandCutout.y,islandCutout.w,islandCutout.h,islandCutout.h/2);
     mctx.fill();
+    _frameApertureMaskCache.set(key,mask);
+    if(_frameApertureMaskCache.size>24){
+      const first=_frameApertureMaskCache.keys().next().value;
+      _frameApertureMaskCache.delete(first);
+    }
+    return mask;
   }
   const asset=document.createElement('canvas');asset.width=W;asset.height=H;
   const actx=get2dCtx(asset,true,true);
@@ -7676,14 +7862,38 @@ function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland,islandCutout
     ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
     return;
   }
-  const ex=islandCutout||defaultFrameIslandRect(screen);
   ctx.save();
   ctx.beginPath();
   ctx.rect(phone.x,phone.y,phone.w,phone.h);
-  roundedRectSubPath(ctx,ex.x,ex.y,ex.w,ex.h,ex.h/2);
+  const screenClip=sourceIslandScreenClip(screen,true);
+  roundedRectSubPath(ctx,screenClip.x,screenClip.y,screenClip.w,screenClip.h,screenClip.r||screen.r||Math.max(12,screen.w*.065));
   try{ctx.clip('evenodd');}
   catch(e){ctx.clip();}
   ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
+  ctx.restore();
+}
+function drawPhoneInnerBandOverlay(ctx,img,phone,screen,islandCutout=null){
+  if(!img||!img.complete||!img.naturalWidth||!screen)return;
+  const bandH=Math.max(16,Math.round(screen.h*.105));
+  const bandR=Math.max(screen.r||0,screen.w*.14);
+  ctx.save();
+  ctx.beginPath();
+  roundedRectSubPath(ctx,screen.x,screen.y,screen.w,Math.min(screen.h,bandH),bandR);
+  if(islandCutout)roundedRectSubPath(ctx,islandCutout.x,islandCutout.y,islandCutout.w,islandCutout.h,islandCutout.h/2);
+  try{ctx.clip(islandCutout?'evenodd':'nonzero');}
+  catch(e){ctx.clip();}
+  ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
+  ctx.restore();
+}
+function applyInnerScreenCurveMask(ctx,screen,hideDefaultIsland){
+  if(!screen)return;
+  const bleed=Math.max(.5,Math.min(2,screen.w*.002));
+  const r=hideDefaultIsland?Math.max(screen.r||0,screen.w*.14):(screen.r||Math.max(12,screen.w*.065));
+  ctx.save();
+  ctx.globalCompositeOperation='destination-in';
+  roundedRectPath(ctx,screen.x-bleed,screen.y-bleed,screen.w+bleed*2,screen.h+bleed*2,r+bleed);
+  ctx.fillStyle='#fff';
+  ctx.fill();
   ctx.restore();
 }
 function drawComposedMediaFrame(ctx,media,t,events,opts={}){
@@ -7698,8 +7908,9 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const frameImg=getPhoneFrameImage(frameKey);
   const frameReady=frameKey!=='none'&&frameImg&&frameImg.complete&&frameImg.naturalWidth;
   const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
-  const islandCutout=opts.hideNotch?sourceIslandFrameCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
-  const aperture=frameReady?frameApertureMask(frameKey,frameImg,W,H,phone,screen,islandCutout):null;
+  const sourceIslandCutout=opts.hideNotch?sourceIslandFrameCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
+  const frameIslandCutout=opts.hideNotch?sourceIslandAssetCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
+  const aperture=frameReady?frameApertureMask(frameKey,frameImg,W,H,phone,screen,frameIslandCutout):null;
   const mediaTarget=aperture?document.createElement('canvas'):ctx.canvas;
   if(aperture){mediaTarget.width=W;mediaTarget.height=H;}
   const mediaCtx=aperture?get2dCtx(mediaTarget,false,true):ctx;
@@ -7735,6 +7946,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   if(opts.includeRedactions!==false)drawRedactionsInRect(mediaCtx,t||0,events,dr,srcW,srcH);
   mediaCtx.restore();
   if(aperture){
+    applyInnerScreenCurveMask(mediaCtx,screen,!!opts.hideNotch);
     mediaCtx.save();
     mediaCtx.globalCompositeOperation='destination-in';
     mediaCtx.drawImage(aperture,0,0);
@@ -7745,7 +7957,8 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     try{
       ctx.save();
       applyPhoneShadow(ctx,W,H);
-      drawPhoneFrameImage(ctx,frameImg,phone,screen,!!opts.hideNotch,islandCutout);
+      drawPhoneFrameImage(ctx,frameImg,phone,screen,!!opts.hideNotch,frameIslandCutout||sourceIslandCutout);
+      if(opts.hideNotch)drawPhoneInnerBandOverlay(ctx,frameImg,phone,screen,frameIslandCutout||sourceIslandCutout);
       ctx.restore();
     }catch(e){}
   }
