@@ -3366,26 +3366,50 @@ function paddedStatusIslandRect(rect,W,H){
   return {x,y,w:Math.max(1,r-x),h:Math.max(1,b-y)};
 }
 
+function normalizedCleanIslandRect(rect,W,H){
+  if(!rect||!W||!H)return null;
+  const cx=rect.x+rect.w*.5;
+  const cy=rect.y+rect.h*.5;
+  let h=Math.max(rect.h,Math.round(H*.032));
+  h=Math.min(h,Math.round(H*.052));
+  let w=Math.max(rect.w,Math.round(W*.24));
+  w=Math.min(w,Math.round(W*.44));
+  const x=Math.max(0,Math.min(W-w,Math.round(cx-w*.5)));
+  const y=Math.max(0,Math.min(H-h,Math.round(cy-h*.5)));
+  return {x,y,w:Math.round(w),h:Math.round(h)};
+}
+
+function paintCleanDynamicIsland(ctx,rect,bg){
+  const W=ctx.canvas.width,H=ctx.canvas.height;
+  const pill=normalizedCleanIslandRect(rect,W,H);
+  if(!pill)return null;
+  const padX=Math.max(4,Math.round(pill.h*.18));
+  const padY=Math.max(3,Math.round(pill.h*.16));
+  const patch=_clipRectToCanvas({x:pill.x-padX,y:pill.y-padY,w:pill.w+padX*2,h:pill.h+padY*2},W,H);
+  const fillBg=bg||sampleCanvasMedian(ctx,{x:patch.x,y:patch.y,w:patch.w,h:patch.h},pill,3,{avgR:255,avgG:255,avgB:255});
+  ctx.save();
+  ctx.fillStyle=`rgb(${Math.round(fillBg.avgR)},${Math.round(fillBg.avgG)},${Math.round(fillBg.avgB)})`;
+  ctx.fillRect(patch.x,patch.y,patch.w,patch.h);
+  roundedRectPath(ctx,pill.x,pill.y,pill.w,pill.h,pill.h*.5);
+  ctx.fillStyle='#000';
+  ctx.fill();
+  ctx.restore();
+  return pill;
+}
+
 function replaceStatusBarFast(canvas,opts={}){
   const W=canvas.width,H=canvas.height;
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
   const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
   const islandPatch=island&&opts.preserveIsland?paddedStatusIslandRect(island,W,H):null;
-  let islandCopy=null;
-  if(islandPatch){
-    islandCopy=document.createElement('canvas');
-    islandCopy.width=islandPatch.w;islandCopy.height=islandPatch.h;
-    islandCopy.getContext('2d',{alpha:true}).drawImage(canvas,islandPatch.x,islandPatch.y,islandPatch.w,islandPatch.h,0,0,islandPatch.w,islandPatch.h);
-  }
   const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
   if(!bg)return false;
-  if(islandPatch&&islandCopy){
-    try{
-      ctx.drawImage(islandCopy,islandPatch.x,islandPatch.y);
-    }catch(e){}
+  let cleanIsland=island;
+  if(island&&opts.preserveIsland){
+    cleanIsland=paintCleanDynamicIsland(ctx,island,bg)||island;
   }
-  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:island});}catch(e){console.warn('status bar icons failed',e);}
+  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:cleanIsland});}catch(e){console.warn('status bar icons failed',e);}
   return true;
 }
 function exportStatusBarEnabled(scope='zip'){
