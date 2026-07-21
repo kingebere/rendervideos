@@ -8576,6 +8576,19 @@ async function _animationGraySample(fr,maxW=180){
   for(let i=0,j=0;i<data.length;i+=4,j++)gray[j]=Math.round(data[i]*.2126+data[i+1]*.7152+data[i+2]*.0722);
   return {gray:_animCleanGray(gray,w,h),w,h};
 }
+function _animBlankLike(sample){
+  if(!sample?.gray?.length)return false;
+  let dark=0,bright=0,sum=0,sumSq=0;
+  const g=sample.gray,n=g.length;
+  for(let i=0;i<n;i++){
+    const v=g[i];
+    if(v<18)dark++;
+    if(v>238)bright++;
+    sum+=v;sumSq+=v*v;
+  }
+  const mean=sum/n,variance=Math.max(0,sumSq/n-mean*mean);
+  return dark/n>.9||bright/n>.94||variance<10;
+}
 function _animationDiff(prev,cur){
   if(!prev||!cur||prev.w!==cur.w||prev.h!==cur.h)return null;
   const w=cur.w,h=cur.h,mask=new Uint8Array(w*h);
@@ -8636,8 +8649,11 @@ async function detectExportAnimations(targetVideos,opts={}){
       catch(e){continue;}
       const cur={fr,rawSec:sec,masterSec:effectiveGlobalFrameSec(fr,targetVideos),gray};
       if(prev&&prev.fr?.videoId===fr.videoId){
-        const diff=_animationDiff(prev.gray,cur.gray);
-        if(diff)samples.push({...diff,prevRawSec:prev.rawSec,rawSec:cur.rawSec,prevMasterSec:prev.masterSec,masterSec:cur.masterSec,video:v});
+        const startupBlank=prev.rawSec<=.1&&_animBlankLike(prev.gray);
+        if(!startupBlank){
+          const diff=_animationDiff(prev.gray,cur.gray);
+          if(diff)samples.push({...diff,prevRawSec:prev.rawSec,rawSec:cur.rawSec,prevMasterSec:prev.masterSec,masterSec:cur.masterSec,video:v});
+        }
       }
       prev=cur;
     }
