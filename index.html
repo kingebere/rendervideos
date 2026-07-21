@@ -183,6 +183,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
 /* FIXED thumbnails - no stretch, natural proportions */
 .fsir{display:flex;gap:3px;overflow-x:auto;padding:5px 6px;flex-wrap:wrap}
 .fsit{height:44px;width:auto;max-width:70px;border-radius:3px;object-fit:contain;border:1px solid var(--b);background:var(--s3);flex-shrink:0}
+.anim-tools{display:flex;gap:4px;padding:6px 9px;border-bottom:1px solid var(--b);flex-shrink:0}
+.anim-card{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:7px;border:1.5px solid var(--b);background:var(--s2);cursor:pointer;transition:border-color .12s,background .12s}
+.anim-card:hover{border-color:#2563eb60;background:#2563eb08}
+.anim-dot{width:8px;height:8px;border-radius:50%;background:var(--a3);flex-shrink:0}
+.anim-main{flex:1;min-width:0}
+.anim-name{font-size:10px;font-weight:700;color:var(--t);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.anim-meta{font-family:'DM Mono',monospace;font-size:8px;color:var(--m);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.anim-del{background:none;border:none;color:var(--m);cursor:pointer;font-size:11px;padding:1px 3px;flex-shrink:0}
+.anim-card:hover .anim-del{color:var(--r)}
+.anim-empty{font-size:10px;color:var(--m);text-align:center;padding:12px 8px;line-height:1.5}
+.tl-anim-band{position:absolute;bottom:2px;height:10px;border-radius:999px;background:var(--a3);opacity:.85;cursor:pointer;min-width:4px;z-index:30;box-shadow:0 0 0 1px rgba(0,0,0,.2)}
+.tl-anim-band:hover{opacity:1;box-shadow:0 0 0 1px var(--a3),0 0 10px rgba(34,211,238,.45)}
 .exs{padding:7px 10px;border-top:1px solid var(--b);flex-shrink:0}
 .eor{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--m);cursor:pointer;margin-bottom:3px}
 .eor input{accent-color:var(--a)}
@@ -762,6 +774,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
   <div class="tabs">
     <button class="tab on" id="lt-videos" onclick="ltab('videos')">Videos</button>
     <button class="tab" id="lt-flows" onclick="ltab('flows')">Flows</button>
+    <button class="tab" id="lt-animations" onclick="ltab('animations')">Anims</button>
     <button class="tab" id="lt-trim" onclick="ltab('trim')">Trim</button>
     <button class="tab" id="lt-words" onclick="ltab('words')">Words</button>
     <button class="tab" id="lt-bin" onclick="ltab('bin')">🗑</button>
@@ -832,6 +845,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <div style="font-size:9px;color:var(--m);font-family:'DM Mono',monospace" id="flow-count">0 flows</div>
     </div>
     <div class="fscr" id="fscroll"></div>
+  </div>
+  <!-- ANIMATIONS TAB -->
+  <div class="tp" id="tp-animations">
+    <div class="anim-tools">
+      <button class="btn bp sm" style="flex:1" onclick="scanAnimationsForSession()">Scan</button>
+      <button class="btn bg sm" onclick="renderAnimations()" title="Refresh list">Refresh</button>
+    </div>
+    <div style="font-size:9px;color:var(--m);font-family:'DM Mono',monospace;padding:5px 9px;border-bottom:1px solid var(--b)" id="anim-count">0 animations</div>
+    <div class="fscr" id="anim-scroll"></div>
   </div>
   <!-- TRIM TAB -->
   <div class="tp" id="tp-trim">
@@ -1074,6 +1096,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
   <div class="fsm" id="fsum">
     <div class="sl" style="margin-bottom:5px">Flow Summary</div>
     <div id="fsumcon" style="color:var(--m);font-size:10px">No flows assigned yet.</div>
+    <div class="sl" style="margin:10px 0 5px">Animations</div>
+    <div id="asumcon" style="color:var(--m);font-size:10px">No animations scanned yet.</div>
   </div>
 <!-- REPLACE with: -->
 <div style="padding:7px 10px;border-top:1px solid var(--b);flex-shrink:0">
@@ -1285,7 +1309,10 @@ function saveSession(){
           wordBoxes:fr.wordBoxes||[]
         }))
       })),
-      activeVideoId
+      activeVideoId,
+      animations,
+      animationScanStats,
+      removedAnimationKeys:[...removedAnimationKeys]
     };
     localStorage.setItem(LS_SESSION,JSON.stringify(meta));
   }catch(e){console.warn('saveSession',e);}
@@ -1305,6 +1332,9 @@ async function restoreSession(){
   const meta=getSessionMeta();if(!meta||!meta.videos?.length)return false;
   showLd('Restoring session…');
   videos=[];
+  animations=Array.isArray(meta.animations)?meta.animations:[];
+  animationScanStats=meta.animationScanStats||null;
+  removedAnimationKeys=new Set(Array.isArray(meta.removedAnimationKeys)?meta.removedAnimationKeys:[]);
   let loaded=0;
   const total=meta.videos.reduce((s,v)=>s+v.frames.length,0);
   const abortRestore=()=>{
@@ -1312,7 +1342,7 @@ async function restoreSession(){
     videos=[];activeVideoId=null;
     hideLd();
     renderVideoList();updateVDD();renderFrames();updateStats();
-    renderFlows();renderQFlows();toggleExpBtns();
+    renderFlows();renderQFlows();renderAnimations();toggleExpBtns();
     showSessionBanner(meta.savedAt,total);
     toast('⚠️','Restore cancelled');
     return 'cancelled';
@@ -1341,7 +1371,7 @@ async function restoreSession(){
   activeVideoId=meta.activeVideoId||videos[0]?.id||null;
   hideLd();
   renderVideoList();updateVDD();renderFrames();updateStats();
-  renderFlows();renderQFlows();toggleExpBtns();
+  renderFlows();renderQFlows();renderAnimations();toggleExpBtns();
   const _restoreVid=activeVideoId?getVideo(activeVideoId):null;
   if(_restoreVid)loadVideoStage(_restoreVid);
   showSessionBanner(meta.savedAt,total);
@@ -1381,6 +1411,9 @@ function savePrefs(){
 // ─── STATE ─────────────────────────────────────────────────────────────────
 let videos=[];
 let flows=[];
+let animations=[];
+let animationScanStats=null;
+let removedAnimationKeys=new Set();
 let wordList=[];
 let flowTagSeq=0;
 let activeVideoId=null;
@@ -5152,7 +5185,7 @@ function updateStatsQuick(){
     slbl.textContent='-';
   }
 }
-function updateStats(){updateStatsQuick();updateFSum();}
+function updateStats(){updateStatsQuick();updateFSum();renderAnimations();}
 function toggleExpBtns(){
   const has=allFrames().length>0;
   ['exp-btn','exp-btn2','vex-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=!has;});
@@ -5167,6 +5200,7 @@ function removeVideo(id){
   if(v.originalObjectURL&&v.originalObjectURL!==v.objectURL)URL.revokeObjectURL(v.originalObjectURL);
   if(v.previewObjectURL&&v.previewObjectURL!==v.objectURL)URL.revokeObjectURL(v.previewObjectURL);
   videos=videos.filter(x=>x.id!==id);
+  animations=animations.filter(a=>a.sourceVideoId!==id);
   if(activeVideoId===id)activeVideoId=videos[0]?.id||null;
   renderVideoList();updateVDD();renderFrames();updateStats();toggleExpBtns();
   loadVideoStage(activeVideo()||null);
@@ -5227,10 +5261,11 @@ function setMode(m){
   document.getElementById('ex-btn-row').style.display=m==='video'?'':'none';
 }
 function ltab(n){
-  ['videos','flows','trim','words','bin'].forEach(t=>{
+  ['videos','flows','animations','trim','words','bin'].forEach(t=>{
     document.getElementById('lt-'+t).classList.toggle('on',t===n);
     document.getElementById('tp-'+t).classList.toggle('on',t===n);
   });
+  if(n==='animations')renderAnimations();
   if(n==='bin')renderBin();
 }
 
@@ -8725,6 +8760,15 @@ function _animationClassify(seg){
   }
   return null;
 }
+function animationStableKey(a){
+  if(!a)return '';
+  const vid=a.sourceVideoId||a.video?.id||'video';
+  const type=a.type||'animation';
+  const ss=Number(a.sourceStartSec??a.rawStart??a.startSec??0).toFixed(2);
+  const es=Number(a.sourceEndSec??a.rawEnd??a.endSec??0).toFixed(2);
+  const box=(a.bbox||[]).map(n=>Number(n).toFixed(2)).join('_');
+  return `${vid}:${type}:${ss}:${es}:${box}`;
+}
 async function detectExportAnimations(targetVideos,opts={}){
   const sourceVideos=(targetVideos||[]).filter(v=>v&&v.frames?.length);
   const all=[];
@@ -8798,11 +8842,14 @@ async function detectExportAnimations(targetVideos,opts={}){
     });
     if(!dup)filtered.push(seg);
   });
-  const animations=filtered.map((a,idx)=>{
+  const excluded=opts.excludeKeys instanceof Set?opts.excludeKeys:new Set(opts.excludeKeys||[]);
+  const visible=filtered.filter(a=>!excluded.has(animationStableKey(a)));
+  const animations=visible.map((a,idx)=>{
     const id=`anim_${String(idx+1).padStart(3,'0')}`;
     const duration=Math.max(.001,a.endSec-a.startSec);
+    const key=animationStableKey(a);
     return {
-      id,index:idx+1,type:a.type,confidence:+a.confidence.toFixed(2),reason:a.reason,
+      id,key,index:idx+1,type:a.type,confidence:+a.confidence.toFixed(2),reason:a.reason,
       startSec:+a.startSec.toFixed(3),endSec:+a.endSec.toFixed(3),durationSec:+duration.toFixed(3),
       startTime:exportClockMs(a.startSec),endTime:exportClockMs(a.endSec),durationTime:exportDurationMs(duration),
       sourceVideoId:a.video.id,sourceVideoName:a.video.name,
@@ -8813,7 +8860,94 @@ async function detectExportAnimations(targetVideos,opts={}){
       ffmpegCut:`ffmpeg -ss ${a.startSec.toFixed(3)} -to ${a.endSec.toFixed(3)} -i video.webm -c copy ${id}_${a.type}.webm`
     };
   });
-  return {animations,stats:{sourceVideoCount:sourceVideos.length,candidateCount:all.length,keptCount:animations.length,mode:'certain-macro-metadata-only',statusbarIgnored:true,keyboardIgnored:true,pageScrollExcluded:true,typingExcluded:true}};
+  return {animations,stats:{sourceVideoCount:sourceVideos.length,candidateCount:all.length,removedCount:filtered.length-visible.length,keptCount:animations.length,mode:'certain-macro-metadata-only',statusbarIgnored:true,keyboardIgnored:true,pageScrollExcluded:true,typingExcluded:true}};
+}
+function animationTypeLabel(type){
+  return String(type||'animation').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+}
+function animationByKey(key){
+  return animations.find(a=>(a.key||animationStableKey(a))===key)||null;
+}
+async function scanAnimationsForSession(){
+  const targetVideos=videos.filter(v=>v&&v.frames?.length);
+  if(!targetVideos.length){toast('âš ï¸','Extract frames first, then scan animations');return;}
+  showLd('Scanning animations...');setLdPb(8,'Preparing cleaned frames...');
+  try{
+    const result=await detectExportAnimations(targetVideos,{
+      excludeKeys:removedAnimationKeys,
+      shouldCancel:()=>zipCancelFlag,
+      onProgress:(done,total)=>setLdPb(Math.min(92,10+Math.round(done/Math.max(1,total)*78)),`Scanning animations... ${done} / ${total}`)
+    });
+    animations=result.animations||[];
+    animationScanStats=result.stats||null;
+    setLdPb(100,`${animations.length} certain animation${animations.length!==1?'s':''}`);
+    await yieldUI(120);
+    hideLd();
+    renderAnimations();
+    if(_stageVid)_buildTimeline(_stageVid,combinedSessionMode()?totalRawVideoDuration():(document.getElementById('vid-main')?.duration||_stageVid.duration||0));
+    scheduleSaveSession();
+    toast('âœ“',`${animations.length} certain animation${animations.length!==1?'s':''} found`);
+  }catch(e){
+    hideLd();
+    console.warn('animation scan failed',e);
+    toast('âš ï¸','Animation scan failed');
+  }
+}
+function renderAnimations(){
+  const list=document.getElementById('anim-scroll');
+  const cnt=document.getElementById('anim-count');
+  const sum=document.getElementById('asumcon');
+  const sorted=[...animations].sort((a,b)=>(a.startSec||0)-(b.startSec||0));
+  if(cnt){
+    const removed=removedAnimationKeys.size?` Â· ${removedAnimationKeys.size} hidden`:'';
+    cnt.textContent=`${sorted.length} animation${sorted.length!==1?'s':''}${removed}`;
+  }
+  const renderList=(host,limit=Infinity,compact=false)=>{
+    if(!host)return;
+    host.innerHTML='';
+    if(!sorted.length){
+      host.innerHTML='<div class="anim-empty">No animations scanned yet. Click Scan after extraction.</div>';
+      return;
+    }
+    sorted.slice(0,limit).forEach(a=>{
+      const key=a.key||animationStableKey(a);
+      const d=document.createElement('div');d.className='anim-card';d.dataset.key=key;
+      d.title=`${animationTypeLabel(a.type)} Â· ${a.startTime||fmt(a.startSec)} â†’ ${a.endTime||fmt(a.endSec)} Â· click to jump`;
+      const main=document.createElement('div');main.className='anim-main';
+      const name=document.createElement('div');name.className='anim-name';name.textContent=`${compact?'':String(a.index).padStart(2,'0')+' Â· '}${animationTypeLabel(a.type)}`;
+      const meta=document.createElement('div');meta.className='anim-meta';meta.textContent=`${a.startTime||fmt(a.startSec)}-${a.endTime||fmt(a.endSec)} Â· ${a.durationTime||exportDurationMs(a.durationSec||0)} Â· ${(a.confidence*100||0).toFixed(0)}%`;
+      main.appendChild(name);main.appendChild(meta);
+      const dot=document.createElement('span');dot.className='anim-dot';
+      const del=document.createElement('button');del.className='anim-del';del.textContent='x';del.title='Remove animation';
+      del.onclick=e=>{e.stopPropagation();removeAnimation(key);};
+      d.onclick=()=>goToAnimation(key);
+      d.appendChild(dot);d.appendChild(main);d.appendChild(del);
+      host.appendChild(d);
+    });
+    if(sorted.length>limit){
+      const more=document.createElement('div');more.className='anim-empty';more.style.padding='5px 8px';more.textContent=`+ ${sorted.length-limit} more in Animations tab`;
+      host.appendChild(more);
+    }
+  };
+  renderList(list,Infinity,false);
+  renderList(sum,4,true);
+}
+async function goToAnimation(key){
+  const a=animationByKey(key);if(!a)return;
+  ltab('animations');
+  await seekSessionTime(Math.max(0,a.startSec||0),{play:false});
+  _highlightFilmThumb(Math.max(0,a.startSec||0));
+  document.querySelectorAll('.anim-card').forEach(el=>el.style.borderColor=el.dataset.key===key?'var(--a3)':'');
+  toast('âœ“',`${animationTypeLabel(a.type)} at ${a.startTime||fmt(a.startSec)}`);
+}
+function removeAnimation(key){
+  const a=animationByKey(key);
+  removedAnimationKeys.add(key);
+  animations=animations.filter(x=>(x.key||animationStableKey(x))!==key);
+  renderAnimations();
+  if(_stageVid)_buildTimeline(_stageVid,combinedSessionMode()?totalRawVideoDuration():(document.getElementById('vid-main')?.duration||_stageVid.duration||0));
+  scheduleSaveSession();
+  toast('âœ“',`Removed ${a?animationTypeLabel(a.type):'animation'}`);
 }
 async function exportZip(vid){
   const nameInput=document.getElementById('exp-appname');
@@ -8920,6 +9054,7 @@ async function exportZip(vid){
   setLdPb(31,'Detecting certain animations...');
   const animationStart=performance.now();
   const animationExport=await detectExportAnimations(targetVideos,{
+    excludeKeys:removedAnimationKeys,
     shouldCancel:()=>zipCancelFlag,
     onProgress:(done,total)=>{
       const pct=31+Math.round((total?done/total:0)*3);
@@ -8930,6 +9065,9 @@ async function exportZip(vid){
   if(zipCancelFlag){hideLd();toast('Ã¢Å¡Â Ã¯Â¸Â','Export cancelled');return;}
   manifestData.animations=animationExport.animations||[];
   manifestData.animationDetection=animationExport.stats||{};
+  animations=manifestData.animations;
+  animationScanStats=manifestData.animationDetection;
+  renderAnimations();
   inventory.push(`${sessionFolder}/animations.json,application/json,${JSON.stringify({detection:manifestData.animationDetection,animations:manifestData.animations}).length}`);
   manifestData.animations.forEach(a=>{
     dbAnimations.push([
@@ -9436,6 +9574,7 @@ async function clearAllImages(){
   recyclebin=[];
   // Clear in-memory state
   videos=[];activeVideoId=null;
+  animations=[];animationScanStats=null;removedAnimationKeys.clear();
   _stageVid=null;_markIn=null;_markOut=null;
   clearVideoPreviewOverlay();
   // Await full IndexedDB wipe + localStorage clear
@@ -9444,7 +9583,7 @@ async function clearAllImages(){
   bgReset();
   // Reset all UI
   renderVideoList();updateVDD();renderFrames();updateStats();
-  renderFlows();renderQFlows();updateFSum();toggleExpBtns();
+  renderFlows();renderQFlows();updateFSum();renderAnimations();toggleExpBtns();
   renderBin();
   // Clear filters
   const srch=document.getElementById('srch');if(srch)srch.value='';
@@ -10176,6 +10315,20 @@ function _buildTimeline(vid,dur){
     band.appendChild(lbl);
     bands.appendChild(band);
   });
+  animations.filter(a=>a&&a.endSec>a.startSec).forEach(a=>{
+    const key=a.key||animationStableKey(a);
+    const start=useSession?Number(a.startSec)||0:Math.max(0,(Number(a.startSec)||0)-videoStartSec(vid));
+    const end=useSession?Number(a.endSec)||0:Math.max(start+.05,(Number(a.endSec)||0)-videoStartSec(vid));
+    if(end<0||start>dur)return;
+    const lo=Math.max(0,start),hi=Math.min(dur,end);
+    const band=document.createElement('div');
+    band.className='tl-anim-band';
+    band.style.left=(lo/dur*100)+'%';
+    band.style.width=Math.max(0.45,(hi-lo)/dur*100)+'%';
+    band.title=`${animationTypeLabel(a.type)} Â· ${a.startTime||fmt(a.startSec)} â†’ ${a.endTime||fmt(a.endSec)}`;
+    band.onclick=e=>{e.stopPropagation();goToAnimation(key);};
+    bands.appendChild(band);
+  });
   // Keep all flow bands on one horizontal lane.
   bands.style.height='32px';
   // Scrub click/drag to seek
@@ -10339,6 +10492,9 @@ restoreSession._fn=async function(){
   restoreCancelFlag=false;
   showLd('Restoring session…');
   videos=[];
+  animations=Array.isArray(meta.animations)?meta.animations:[];
+  animationScanStats=meta.animationScanStats||null;
+  removedAnimationKeys=new Set(Array.isArray(meta.removedAnimationKeys)?meta.removedAnimationKeys:[]);
   let loaded=0;
   const total=meta.videos.reduce((s,v)=>s+v.frames.length,0);
   const abortRestore=()=>{
@@ -10346,7 +10502,7 @@ restoreSession._fn=async function(){
     videos=[];activeVideoId=null;
     hideLd();
     renderVideoList();updateVDD();renderFrames();updateStats();
-    renderFlows();renderQFlows();toggleExpBtns();
+    renderFlows();renderQFlows();renderAnimations();toggleExpBtns();
     showSessionBanner(meta.savedAt,total);
     toast('⚠️','Restore cancelled');
     return 'cancelled';
@@ -10373,7 +10529,7 @@ restoreSession._fn=async function(){
   hideLd();
   renderVideoList();updateVDD();renderFrames();updateStats();
   loadVideoStage(null);
-  renderFlows();renderQFlows();toggleExpBtns();
+  renderFlows();renderQFlows();renderAnimations();toggleExpBtns();
   const restoredActive=activeVideoId?getVideo(activeVideoId):null;
   if(restoredActive)loadVideoStage(restoredActive);
   toast('✓',`Session restored · ${total} frames`);
