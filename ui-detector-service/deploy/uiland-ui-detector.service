@@ -1,0 +1,16 @@
+[Unit]
+Description=Uiland UI Detector API
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/uiland/ui-detector
+EnvironmentFile=/opt/uiland/ui-detector/.env
+ExecStart=/opt/uiland/ui-detector/.venv/bin/uvicorn api:app --host 127.0.0.1 --port 8092 --workers 1
+Restart=always
+RestartSec=3
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target
+
