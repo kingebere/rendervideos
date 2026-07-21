@@ -7760,8 +7760,8 @@ function getPhoneScreenRect(phone,frameKey=canvasOptions.frame){
     r:phone.w*PHONE_SCREEN_R.r
   };
 }
-function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH){
-  if(!showVideoRedactions||!events?.length)return;
+function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH,opts={}){
+  if((!opts.force&& !showVideoRedactions)||!events?.length)return;
   events.forEach(ev=>{
     if(t<ev.start||t>ev.end)return;
     (ev.boxes||[]).forEach(b=>{
@@ -7983,7 +7983,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   }else if(!mediaIsPresent(media)){
     drawPhonePlaceholder(mediaCtx,screen.x,screen.y,screen.w,screen.h);
   }
-  if(opts.includeRedactions!==false)drawRedactionsInRect(mediaCtx,t||0,events,dr,srcW,srcH);
+  if(opts.includeRedactions!==false)drawRedactionsInRect(mediaCtx,t||0,events,dr,srcW,srcH,{force:!!opts.forceRedactions});
   mediaCtx.restore();
   if(frameReady){
     try{
@@ -8200,7 +8200,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
         media=sourceCleanCanvas;
       }
       const frameKey=flowFrameKeyAtTime(v,video.currentTime,opts.frameEvents)||exportFrameKey;
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey,requireFrameAsset:!!opts.requireFrameAsset});
+      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,forceRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey,requireFrameAsset:!!opts.requireFrameAsset});
     }else{
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       const island=detectDynamicIslandRect(canvas);
@@ -8209,7 +8209,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
         safeApplyExportStatusBar(canvas,{preserveIsland:!!island,sourceIslandRect:island});
       }
       applyKeyboardBlur(canvas);
-      if(showVideoRedactions)_drawVideoRedactions(ctx,video.currentTime,redactions,canvas.width,canvas.height);
+      _drawVideoRedactions(ctx,video.currentTime,redactions,canvas.width,canvas.height);
     }
     requestCanvasFrame();
   };
@@ -8375,7 +8375,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           media=clean;
         }
         const frameKey=flowFrameKeyAtTime(v,el.currentTime,opts.frameEventsByVideoId?.[v.id])||defaultFrameKey;
-        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey,requireFrameAsset:!!opts.requireFrameAsset});
+        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,forceRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey,requireFrameAsset:!!opts.requireFrameAsset});
       }else{
         ctx.drawImage(el,0,0,canvas.width,canvas.height);
         const island=detectDynamicIslandRect(canvas);
@@ -8384,7 +8384,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           safeApplyExportStatusBar(canvas,{preserveIsland:!!island,sourceIslandRect:island});
         }
         applyKeyboardBlur(canvas);
-        if(showVideoRedactions)_drawVideoRedactions(ctx,el.currentTime,active.redactions,canvas.width,canvas.height);
+        _drawVideoRedactions(ctx,el.currentTime,active.redactions,canvas.width,canvas.height);
       }
       try{canvasTrack?.requestFrame?.();}catch(e){}
     };
