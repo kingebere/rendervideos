@@ -8684,6 +8684,7 @@ async function detectExportAnimations(targetVideos,opts={}){
       const x1=Math.min(...boxes.map(b=>b[0])),y1=Math.min(...boxes.map(b=>b[1]));
       const x2=Math.max(...boxes.map(b=>b[0]+b[2])),y2=Math.max(...boxes.map(b=>b[1]+b[3]));
       const seg={video:v,rawStart,rawEnd,startSec,endSec,duration:endSec-startSec,bbox:[x1,y1,x2-x1,y2-y1],avgScore:group.reduce((n,g)=>n+g.score,0)/group.length,maxChangedArea:Math.max(...group.map(g=>g.area)),sampleCount:group.length};
+      if(seg.sampleCount<2&&seg.bbox[2]>.88&&seg.bbox[3]>.82)return;
       const cls=_animationClassify(seg);
       if(!cls)return;
       if(seg.duration<.18)seg.endSec=seg.startSec+.25,seg.duration=.25;
