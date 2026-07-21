@@ -7563,6 +7563,61 @@ function sourceIslandScreenClip(screen,hideDefaultIsland){
     r:Math.max(screen.r||0,screen.w*.14)
   };
 }
+const _frameApertureMaskCache=new Map();
+function _pointInRoundedRect(px,py,r){
+  if(!r||r.w<=0||r.h<=0)return false;
+  const rad=Math.max(0,Math.min(r.r||0,r.w/2,r.h/2));
+  if(px<r.x||px>r.x+r.w||py<r.y||py>r.y+r.h)return false;
+  const lx=px-r.x,rx=r.x+r.w-px,ty=py-r.y,by=r.y+r.h-py;
+  const dx=Math.max(rad-Math.min(lx,rx),0);
+  const dy=Math.max(rad-Math.min(ty,by),0);
+  return dx*dx+dy*dy<=rad*rad+.5;
+}
+function frameApertureMask(frameKey,img,W,H,phone,screen,islandCutout=null){
+  if(!img||!img.complete||!img.naturalWidth||!W||!H)return null;
+  const ix=islandCutout?`${Math.round(islandCutout.x)},${Math.round(islandCutout.y)},${Math.round(islandCutout.w)},${Math.round(islandCutout.h)}`:'none';
+  const key=`${frameKey}:${W}x${H}:${Math.round(phone.x)},${Math.round(phone.y)},${Math.round(phone.w)},${Math.round(phone.h)}:${Math.round(screen.x)},${Math.round(screen.y)},${Math.round(screen.w)},${Math.round(screen.h)}:${ix}`;
+  const cached=_frameApertureMaskCache.get(key);
+  if(cached)return cached;
+  const mask=document.createElement('canvas');mask.width=W;mask.height=H;
+  const mctx=get2dCtx(mask,true,true);
+  const screenClip=sourceIslandScreenClip(screen,!!islandCutout);
+  roundedRectPath(mctx,screenClip.x,screenClip.y,screenClip.w,screenClip.h,screenClip.r||screen.r||Math.max(12,screen.w*.065));
+  mctx.fillStyle='#fff';mctx.fill();
+  if(islandCutout){
+    roundedRectPath(mctx,islandCutout.x,islandCutout.y,islandCutout.w,islandCutout.h,islandCutout.h/2);
+    mctx.fill();
+  }
+  const asset=document.createElement('canvas');asset.width=W;asset.height=H;
+  const actx=get2dCtx(asset,true,true);
+  actx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
+  try{
+    const md=mctx.getImageData(0,0,W,H);
+    const ad=actx.getImageData(0,0,W,H);
+    const m=md.data,a=ad.data;
+    const islandRounded=islandCutout?{...islandCutout,r:islandCutout.h/2}:null;
+    for(let p=0,i=0;i<m.length;i+=4,p++){
+      if(m[i+3]===0)continue;
+      const x=p%W,y=(p/W)|0;
+      const inIsland=islandRounded&&_pointInRoundedRect(x+.5,y+.5,islandRounded);
+      const assetOpen=a[i+3]<=18;
+      if(assetOpen||inIsland){
+        m[i]=m[i+1]=m[i+2]=255;
+      }else{
+        m[i+3]=0;
+      }
+    }
+    mctx.putImageData(md,0,0);
+  }catch(e){
+    return null;
+  }
+  _frameApertureMaskCache.set(key,mask);
+  if(_frameApertureMaskCache.size>24){
+    const first=_frameApertureMaskCache.keys().next().value;
+    _frameApertureMaskCache.delete(first);
+  }
+  return mask;
+}
 function drawPhoneFrameImage(ctx,img,phone,screen,hideDefaultIsland,islandCutout=null){
   if(!hideDefaultIsland){
     ctx.drawImage(img,phone.x,phone.y,phone.w,phone.h);
@@ -7595,31 +7650,50 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.fill();
     ctx.restore();
   }
-  ctx.save();
-  roundedRectPath(ctx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
-  ctx.clip();
-  ctx.fillStyle='#111';ctx.fillRect(screen.x,screen.y,screen.w,screen.h);
   const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
   const islandCutout=opts.hideNotch?sourceIslandFrameCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
-  if(mediaHasContent(media)){
-    const smoothing={enabled:ctx.imageSmoothingEnabled,quality:ctx.imageSmoothingQuality};
-    ctx.imageSmoothingEnabled=true;
-    try{ctx.imageSmoothingQuality='high';}catch(e){}
-    try{
-      const mediaClip=sourceIslandScreenClip(screen,!!opts.hideNotch);
-      ctx.save();
-      roundedRectPath(ctx,mediaClip.x,mediaClip.y,mediaClip.w,mediaClip.h,mediaClip.r||Math.max(12,mediaClip.w*.065));
-      ctx.clip();
-      ctx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
-      ctx.restore();
-    }catch(e){}
-    ctx.imageSmoothingEnabled=smoothing.enabled;
-    try{ctx.imageSmoothingQuality=smoothing.quality;}catch(e){}
-  }else if(!mediaIsPresent(media)){
-    drawPhonePlaceholder(ctx,screen.x,screen.y,screen.w,screen.h);
+  const aperture=frameReady?frameApertureMask(frameKey,frameImg,W,H,phone,screen,islandCutout):null;
+  const mediaTarget=aperture?document.createElement('canvas'):ctx.canvas;
+  if(aperture){mediaTarget.width=W;mediaTarget.height=H;}
+  const mediaCtx=aperture?get2dCtx(mediaTarget,false,true):ctx;
+  mediaCtx.save();
+  if(!aperture){
+    roundedRectPath(mediaCtx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
+    mediaCtx.clip();
   }
-  if(opts.includeRedactions!==false)drawRedactionsInRect(ctx,t||0,events,dr,srcW,srcH);
-  ctx.restore();
+  if(!mediaHasContent(media)){
+    mediaCtx.fillStyle='#111';mediaCtx.fillRect(screen.x,screen.y,screen.w,screen.h);
+  }
+  if(mediaHasContent(media)){
+    const smoothing={enabled:mediaCtx.imageSmoothingEnabled,quality:mediaCtx.imageSmoothingQuality};
+    mediaCtx.imageSmoothingEnabled=true;
+    try{mediaCtx.imageSmoothingQuality='high';}catch(e){}
+    try{
+      if(aperture){
+        mediaCtx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
+      }else{
+        const mediaClip=sourceIslandScreenClip(screen,!!opts.hideNotch);
+        mediaCtx.save();
+        roundedRectPath(mediaCtx,mediaClip.x,mediaClip.y,mediaClip.w,mediaClip.h,mediaClip.r||Math.max(12,mediaClip.w*.065));
+        mediaCtx.clip();
+        mediaCtx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
+        mediaCtx.restore();
+      }
+    }catch(e){}
+    mediaCtx.imageSmoothingEnabled=smoothing.enabled;
+    try{mediaCtx.imageSmoothingQuality=smoothing.quality;}catch(e){}
+  }else if(!mediaIsPresent(media)){
+    drawPhonePlaceholder(mediaCtx,screen.x,screen.y,screen.w,screen.h);
+  }
+  if(opts.includeRedactions!==false)drawRedactionsInRect(mediaCtx,t||0,events,dr,srcW,srcH);
+  mediaCtx.restore();
+  if(aperture){
+    mediaCtx.save();
+    mediaCtx.globalCompositeOperation='destination-in';
+    mediaCtx.drawImage(aperture,0,0);
+    mediaCtx.restore();
+    ctx.drawImage(mediaTarget,0,0);
+  }
   if(frameReady){
     try{
       ctx.save();
