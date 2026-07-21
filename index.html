@@ -8906,7 +8906,7 @@ function renderAnimations(){
     if(!host)return;
     host.innerHTML='';
     if(!sorted.length){
-      host.innerHTML='<div class="anim-empty">No animations scanned yet. Click Scan after extraction.</div>';
+      host.innerHTML=`<div class="anim-empty">${removedAnimationKeys.size?'No visible animations. Hidden detections stay out of export metadata.':'No animations scanned yet. Click Scan after extraction.'}</div>`;
       return;
     }
     sorted.slice(0,limit).forEach(a=>{
