@@ -3626,13 +3626,14 @@ async function frameCanvasForExport(fr,removeStatusBar,opts={}){
   if(removeStatusBar){
     safeApplyExportStatusBar(canvas,{preserveIsland:!!sourceIsland,sourceIslandRect:sourceIsland});
   }
-  if(opts.compose!==false&&canvasCompositionEnabled()){
-    await waitPhoneFrameReady();
+  if(opts.compose!==false&&(opts.requireFrameAsset||canvasCompositionEnabled())){
+    const frameKey=opts.requireFrameAsset?exportPhoneFrameKey(opts.frameKey||canvasOptions.frame):opts.frameKey;
+    await waitPhoneFrameReady([frameKey||canvasOptions.frame||'black']);
     const size=getCanvasExportSize();
     const out=document.createElement('canvas');
     out.width=size.w;out.height=size.h;
     const ctx=get2dCtx(out,false,false);
-    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland});
+    drawComposedMediaFrame(ctx,canvas,frameSec(fr)||0,[],{includeRedactions:false,sourceW:canvas.width,sourceH:canvas.height,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,frameKey,requireFrameAsset:!!opts.requireFrameAsset});
     return out;
   }
   return canvas;
@@ -7270,9 +7271,13 @@ async function exportFullEditedVideo(){
   disableVexBtns(true);
   const src=_sourceVideoForFrames(sorted);
   const multiSourceIds=[...new Set(sorted.map(fr=>fr.videoId).filter(Boolean))];
+  const fullFlowOrder=flowSortForTagging(flows.filter(f=>sorted.some(fr=>fr.flows.includes(f.id))));
+  const fullFlowFrameKeyById=buildFlowFrameKeyMap(fullFlowOrder,0);
+  const fullFrameEventsByVideoId=buildFlowFrameEventsByVideo(videos.filter(v=>multiSourceIds.includes(v.id)),fullFlowOrder,fullFlowFrameKeyById);
+  const fullDefaultFrameKey=exportPhoneFrameKey(canvasOptions.frame);
   if(src){
-    const ok=await exportSourceEditedVideo(src,_appN+'_full',{frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video')});
-    if(!ok)await reconstructVideo(sorted,_appN+'_full');
+    const ok=await exportSourceEditedVideo(src,_appN+'_full',{frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),frameEvents:fullFrameEventsByVideoId[src.id],frameKey:fullDefaultFrameKey,requireFrameAsset:true});
+    if(!ok)await reconstructVideo(sorted,_appN+'_full',{frameEventsByVideoId:fullFrameEventsByVideoId,frameKey:fullDefaultFrameKey,requireFrameAsset:true});
   }else if(multiSourceIds.length>1){
     const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb'),progD=document.getElementById('vex-pd');
     if(prog){prog.style.display='block';progB.style.width='0%';}
@@ -7282,6 +7287,9 @@ async function exportFullEditedVideo(){
       removeStatusBar:exportStatusBarEnabled('video'),
       fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
       includeCuts:true,
+      frameEventsByVideoId:fullFrameEventsByVideoId,
+      frameKey:fullDefaultFrameKey,
+      requireFrameAsset:true,
       videoBitsPerSecond:12_000_000,
       onProgress:(done,total)=>{
         if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
@@ -7294,6 +7302,9 @@ async function exportFullEditedVideo(){
         removeStatusBar:exportStatusBarEnabled('video'),
         fps:Math.min(24,parseInt(document.getElementById('vex-fps')?.value)||18),
         duration:totalEffectiveDuration(videos),
+        frameEventsByVideoId:fullFrameEventsByVideoId,
+        frameKey:fullDefaultFrameKey,
+        requireFrameAsset:true,
         videoBitsPerSecond:6_000_000,
         onProgress:(done,total)=>{
           if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
@@ -7308,9 +7319,9 @@ async function exportFullEditedVideo(){
       toast('Download',`"${_appN}_full" · ${sorted.length} frames · ${fmt(totalEffectiveDuration(videos))}`);
     }else{
       if(prog)prog.style.display='none';
-      await reconstructVideo(sorted,_appN+'_full');
+      await reconstructVideo(sorted,_appN+'_full',{frameEventsByVideoId:fullFrameEventsByVideoId,frameKey:fullDefaultFrameKey,requireFrameAsset:true});
     }
-  }else await reconstructVideo(sorted,_appN+'_full');
+  }else await reconstructVideo(sorted,_appN+'_full',{frameEventsByVideoId:fullFrameEventsByVideoId,frameKey:fullDefaultFrameKey,requireFrameAsset:true});
   disableVexBtns(false);
 }
 async function exportOneFlowVideo(fid){
@@ -7449,6 +7460,15 @@ const PHONE_FRAME_SRC={
   'deep-blue':'DeepBlue.png'
 };
 const PHONE_FRAME_FLOW_SEQUENCE=['black','natural','cosmic-orange','silver','deep-blue'];
+function isPhoneFrameKey(key){
+  return !!PHONE_FRAME_SRC[key];
+}
+function safePhoneFrameKey(key,fallback='black'){
+  return isPhoneFrameKey(key)?key:fallback;
+}
+function exportPhoneFrameKey(key){
+  return safePhoneFrameKey(key==='none'?null:key,'black');
+}
 function flowFrameKey(flowOrIndex,flowList=null){
   const list=flowList||flows||[];
   let idx=typeof flowOrIndex==='number'?flowOrIndex:list.findIndex(f=>f&&f.id===(flowOrIndex?.id||flowOrIndex));
@@ -7694,8 +7714,8 @@ function drawPhonePlaceholder(ctx,x,y,w,h){
   ctx.fillText('Choose media',cx,y+h*.55);
   ctx.restore();
 }
-function getPhoneRect(W,H){
-  if(canvasOptions.frame==='none'){
+function getPhoneRect(W,H,frameKey=canvasOptions.frame){
+  if(frameKey==='none'){
     const w=W*.84,h=H*.84;
     return {x:(W-w)/2,y:(H-h)/2,w,h};
   }
@@ -7705,8 +7725,8 @@ function getPhoneRect(W,H){
   if(w>maxW){w=maxW;h=w/PHONE_FRAME_ASPECT;}
   return {x:(W-w)/2,y:(H-h)/2,w,h};
 }
-function getPhoneScreenRect(phone){
-  if(canvasOptions.frame==='none')return phone;
+function getPhoneScreenRect(phone,frameKey=canvasOptions.frame){
+  if(frameKey==='none')return phone;
   return {
     x:phone.x+phone.w*PHONE_SCREEN_R.x,
     y:phone.y+phone.h*PHONE_SCREEN_R.y,
@@ -7750,9 +7770,9 @@ function sourceIslandFrameCutout(screen,mediaRect,sourceIslandRect,sourceW,sourc
   const y=mediaRect.y+(sourceIslandRect.y/sourceH)*mediaRect.h;
   const w=(sourceIslandRect.w/sourceW)*mediaRect.w;
   const h=(sourceIslandRect.h/sourceH)*mediaRect.h;
-  const padX=Math.max(0,Math.round(h*.01));
-  const padTop=Math.max(0,Math.round(h*.015));
-  const padBottom=Math.max(0,Math.round(h*.025));
+  const padX=Math.max(1,Math.round(h*.08));
+  const padTop=Math.max(1,Math.round(h*.04));
+  const padBottom=Math.max(1,Math.round(h*.06));
   const topLimit=screen.y;
   const leftLimit=screen.x+screen.w*.18;
   const rightLimit=screen.x+screen.w*.82;
@@ -7893,15 +7913,27 @@ function applyInnerScreenCurveMask(ctx,screen,hideDefaultIsland){
   ctx.fill();
   ctx.restore();
 }
+function drawPhoneBottomSeamSeal(ctx,phone,frameKey=canvasOptions.frame){
+  if(!phone||frameKey==='none')return;
+  const x=phone.x+phone.w*.16;
+  const y=phone.y+phone.h*.981;
+  const w=phone.w*.68;
+  const h=Math.max(2,Math.ceil(phone.h*.007));
+  ctx.save();
+  ctx.fillStyle='#050505';
+  ctx.fillRect(x,y,w,h);
+  ctx.restore();
+}
 function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const W=ctx.canvas.width,H=ctx.canvas.height;
   const srcW=opts.sourceW||media.videoWidth||media.naturalWidth||media.width||W;
   const srcH=opts.sourceH||media.videoHeight||media.naturalHeight||media.height||H;
   ctx.clearRect(0,0,W,H);
   applyCanvasBackground(ctx,W,H,{transparent:!!opts.transparentBackground});
-  const phone=getPhoneRect(W,H);
-  const screen=getPhoneScreenRect(phone);
-  const frameKey=opts.frameKey||canvasOptions.frame||'black';
+  const requestedFrameKey=opts.frameKey!==undefined?opts.frameKey:(canvasOptions.frame||'black');
+  const frameKey=opts.requireFrameAsset?exportPhoneFrameKey(requestedFrameKey):requestedFrameKey;
+  const phone=getPhoneRect(W,H,frameKey);
+  const screen=getPhoneScreenRect(phone,frameKey);
   const frameImg=getPhoneFrameImage(frameKey);
   const frameReady=frameKey!=='none'&&frameImg&&frameImg.complete&&frameImg.naturalWidth;
   const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
@@ -7932,6 +7964,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     try{
       ctx.save();
       applyPhoneShadow(ctx,W,H);
+      drawPhoneBottomSeamSeal(ctx,phone,frameKey);
       ctx.drawImage(frameImg,phone.x,phone.y,phone.w,phone.h);
       const sourceIslandPatch=frameIslandCutout||sourceIslandCutout;
       if(opts.hideNotch&&sourceIslandPatch&&mediaHasContent(media)){
@@ -8061,11 +8094,13 @@ function _playVideoBounded(video,timeout=3000){
 async function exportSourceEditedVideo(v,label,opts={}){
   if(!v||!v.objectURL)return false;
   if(typeof MediaRecorder==='undefined')return false;
-  const transparentBackground=!!opts.transparentBackground&&canvasCompositionEnabled();
+  const compositionOn=!!opts.requireFrameAsset||canvasCompositionEnabled();
+  const transparentBackground=!!opts.transparentBackground&&compositionOn;
   const format=normalizeVideoFormat(transparentBackground?'webm':(opts.format||vexFormat));
   let fps=parseInt(opts.fps??document.getElementById('vex-fps')?.value)||30;
   if(format==='mp4')fps=Math.min(fps,30);
   const removeStatusBar=opts.removeStatusBar!==undefined?!!opts.removeStatusBar:exportStatusBarEnabled('video');
+  const exportFrameKey=opts.requireFrameAsset?exportPhoneFrameKey(opts.frameKey||canvasOptions.frame):opts.frameKey;
   const useProg=!opts.silent;
   const prog=useProg?document.getElementById('vex-prog'):null,progT=useProg?document.getElementById('vex-pt'):null,progB=useProg?document.getElementById('vpb'):null,progD=useProg?document.getElementById('vex-pd'):null;
   if(prog){prog.style.display='block';progB.style.width='0%';}
@@ -8073,8 +8108,9 @@ async function exportSourceEditedVideo(v,label,opts={}){
   video.src=v.objectURL;video.preload='auto';video.playsInline=true;video.muted=true;video.volume=0;
   await new Promise(r=>{video.onloadedmetadata=r;video.onerror=r;setTimeout(r,8000);});
   if(!video.videoWidth||!video.videoHeight){if(prog)prog.style.display='none';if(!opts.silent)toast('⚠️','Could not read source video');video.src='';return false;}
-  if(canvasCompositionEnabled())await waitPhoneFrameReady();
-  const size=canvasCompositionEnabled()?getCanvasExportSize():safeCanvasSize(video.videoWidth,video.videoHeight,1280,1280*1280*2);
+  const exportFrameEventKeys=[...new Set((opts.frameEvents||[]).map(ev=>ev.frameKey).filter(Boolean))];
+  if(compositionOn)await waitPhoneFrameReady([...exportFrameEventKeys,exportFrameKey||canvasOptions.frame||'black']);
+  const size=compositionOn?getCanvasExportSize():safeCanvasSize(video.videoWidth,video.videoHeight,1280,1280*1280*2);
   const canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;
   const ctx=canvas.getContext('2d',{alpha:transparentBackground});
   const sourceCleanCanvas=document.createElement('canvas');
@@ -8124,7 +8160,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
     try{if(mr.state==='paused')mr.resume();}catch(e){}
   };
   const drawFrame=()=>{
-    if(canvasCompositionEnabled()){
+    if(compositionOn){
       let media=video;
       var sourceIsland=null;
       if(removeStatusBar||AUTO_KEYBOARD_BLUR||!v._sourceIslandChecked||v._hasSourceIsland){
@@ -8138,7 +8174,8 @@ async function exportSourceEditedVideo(v,label,opts={}){
         applyKeyboardBlur(sourceCleanCanvas);
         media=sourceCleanCanvas;
       }
-      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey:opts.frameKey});
+      const frameKey=flowFrameKeyAtTime(v,video.currentTime,opts.frameEvents)||exportFrameKey;
+      drawComposedMediaFrame(ctx,media,video.currentTime,redactions,{includeRedactions:true,sourceW:video.videoWidth,sourceH:video.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey,requireFrameAsset:!!opts.requireFrameAsset});
     }else{
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       const island=detectDynamicIslandRect(canvas);
@@ -8236,7 +8273,9 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
   if(!sourceVideos.length||typeof MediaRecorder==='undefined')return null;
   const fps=Math.max(1,Math.min(60,parseInt(opts.fps)||30));
   const removeStatusBar=!!opts.removeStatusBar;
-  const transparentBackground=!!opts.transparentBackground&&canvasCompositionEnabled();
+  const defaultFrameKey=opts.requireFrameAsset?exportPhoneFrameKey(opts.frameKey||canvasOptions.frame):opts.frameKey;
+  const compositionOn=!!opts.requireFrameAsset||canvasCompositionEnabled();
+  const transparentBackground=!!opts.transparentBackground&&compositionOn;
   const videoEls=[];
   try{
     for(const v of sourceVideos){
@@ -8247,9 +8286,9 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       videoEls.push({v,el,redactions:_videoRedactionEvents(v)});
     }
     const frameEventKeys=[...new Set(Object.values(opts.frameEventsByVideoId||{}).flat().map(ev=>ev.frameKey).filter(Boolean))];
-    if(canvasCompositionEnabled())await waitPhoneFrameReady([...frameEventKeys,opts.frameKey||canvasOptions.frame||'black']);
+    if(compositionOn)await waitPhoneFrameReady([...frameEventKeys,defaultFrameKey||canvasOptions.frame||'black']);
     const first=videoEls[0].el;
-    const size=canvasCompositionEnabled()?getCanvasExportSize():safeCanvasSize(first.videoWidth,first.videoHeight,1280,1280*1280*2);
+    const size=compositionOn?getCanvasExportSize():safeCanvasSize(first.videoWidth,first.videoHeight,1280,1280*1280*2);
     const canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;
     const ctx=canvas.getContext('2d',{alpha:transparentBackground});
     const clean=document.createElement('canvas');
@@ -8297,7 +8336,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
     const drawActiveFrame=()=>{
       if(!active)return;
       const el=active.el,v=active.v;
-      if(canvasCompositionEnabled()){
+      if(compositionOn){
         let media=el,sourceIsland=null;
         if(removeStatusBar||AUTO_KEYBOARD_BLUR||!v._sourceIslandChecked||v._hasSourceIsland){
           if(clean.width!==el.videoWidth||clean.height!==el.videoHeight){
@@ -8310,8 +8349,8 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
           applyKeyboardBlur(clean);
           media=clean;
         }
-        const frameKey=flowFrameKeyAtTime(v,el.currentTime,opts.frameEventsByVideoId?.[v.id])||opts.frameKey;
-        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey});
+        const frameKey=flowFrameKeyAtTime(v,el.currentTime,opts.frameEventsByVideoId?.[v.id])||defaultFrameKey;
+        drawComposedMediaFrame(ctx,media,el.currentTime,active.redactions,{includeRedactions:true,sourceW:el.videoWidth,sourceH:el.videoHeight,hideNotch:removeStatusBar&&!!sourceIsland,sourceIslandRect:sourceIsland,transparentBackground,frameKey,requireFrameAsset:!!opts.requireFrameAsset});
       }else{
         ctx.drawImage(el,0,0,canvas.width,canvas.height);
         const island=detectDynamicIslandRect(canvas);
@@ -8504,7 +8543,7 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
     return null;
   }
 }
-async function reconstructVideo(frameList,label){
+async function reconstructVideo(frameList,label,opts={}){
   if(!frameList.length){toast('⚠️',`No frames for "${label}"`);return;}
   const format=normalizeVideoFormat(vexFormat);
   let fps=parseInt(document.getElementById('vex-fps').value)||30;
@@ -8515,8 +8554,13 @@ async function reconstructVideo(frameList,label){
   // Pre-load all canvases from blobs — works even when tab is backgrounded
   const canvases=[];
   const removeStatusBar=exportStatusBarEnabled('video');
+  const frameKeyForExportFrame=fr=>{
+    const v=getVideo(fr?.videoId);
+    const sec=frameSec(fr);
+    return flowFrameKeyAtTime(v,sec,opts.frameEventsByVideoId?.[fr?.videoId])||opts.frameKey;
+  };
   for(let i=0;i<frameList.length;i++){
-    canvases.push(await frameCanvasForExport(frameList[i],removeStatusBar));
+    canvases.push(await frameCanvasForExport(frameList[i],removeStatusBar,{frameKey:frameKeyForExportFrame(frameList[i]),requireFrameAsset:!!opts.requireFrameAsset}));
     if(i%20===0){progB.style.width=Math.round(i/frameList.length*30)+'%';await yieldUI();}
   }
   const W=canvases[0].width,H=canvases[0].height;
@@ -8663,7 +8707,12 @@ async function renderCombinedZipVideo(frameList,label,opts={}){
   const targetDuration=Math.max(0,Number(opts.duration)||0);
   const timelineFps=targetDuration>0?Math.max(0.05,Math.min(60,frames.length/targetDuration)):Math.max(1,Math.min(24,Number(opts.fps)||18));
   const recorderFps=Math.max(6,Math.min(24,Number(opts.fps)||18));
-  const first=await frameCanvasForExport(frames[0],removeStatusBar);
+  const frameKeyForExportFrame=fr=>{
+    const v=getVideo(fr?.videoId);
+    const sec=frameSec(fr);
+    return flowFrameKeyAtTime(v,sec,opts.frameEventsByVideoId?.[fr?.videoId])||opts.frameKey;
+  };
+  const first=await frameCanvasForExport(frames[0],removeStatusBar,{frameKey:frameKeyForExportFrame(frames[0]),requireFrameAsset:!!opts.requireFrameAsset});
   const canvas=document.createElement('canvas');
   canvas.width=first.width;canvas.height=first.height;
   const ctx=get2dCtx(canvas,false,false);
@@ -8694,7 +8743,7 @@ async function renderCombinedZipVideo(frameList,label,opts={}){
       encoder.configure(cfg);
       for(let i=0;i<frames.length;i++){
         if(opts.shouldCancel&&opts.shouldCancel())break;
-        const fc=i===0?first:await frameCanvasForExport(frames[i],removeStatusBar);
+        const fc=i===0?first:await frameCanvasForExport(frames[i],removeStatusBar,{frameKey:frameKeyForExportFrame(frames[i]),requireFrameAsset:!!opts.requireFrameAsset});
         drawZipFrame(fc);
         const vf=new VideoFrame(canvas,{timestamp:Math.round(i*1_000_000/timelineFps),duration:Math.round(1_000_000/timelineFps)});
         encoder.encode(vf,{keyFrame:i%30===0});vf.close();
@@ -8727,7 +8776,7 @@ async function renderCombinedZipVideo(frameList,label,opts={}){
   mr.start(500);
   for(let i=0;i<frames.length;i++){
     if(opts.shouldCancel&&opts.shouldCancel())break;
-    const fc=i===0?first:await frameCanvasForExport(frames[i],removeStatusBar);
+    const fc=i===0?first:await frameCanvasForExport(frames[i],removeStatusBar,{frameKey:frameKeyForExportFrame(frames[i]),requireFrameAsset:!!opts.requireFrameAsset});
     drawZipFrame(fc);
     try{stream.getVideoTracks()[0]?.requestFrame?.();}catch(e){}
     if(opts.onProgress)opts.onProgress(i+1,frames.length);
@@ -9276,6 +9325,8 @@ async function exportZip(vid){
     ? await renderCombinedSourceEditedVideo(targetVideos,'video',{
       removeStatusBar,
       frameEventsByVideoId:zipFrameEventsByVideoId,
+      frameKey:exportPhoneFrameKey(canvasOptions.frame),
+      requireFrameAsset:true,
       fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
       includeCuts:true,
       videoBitsPerSecond:12_000_000,
@@ -9290,6 +9341,9 @@ async function exportZip(vid){
     removeStatusBar,
     fps:Math.min(24,parseInt(document.getElementById('vex-fps')?.value)||18),
     duration:sessionDuration,
+    frameEventsByVideoId:zipFrameEventsByVideoId,
+    frameKey:exportPhoneFrameKey(canvasOptions.frame),
+    requireFrameAsset:true,
     shouldCancel:()=>zipCancelFlag,
     onProgress:(done,total)=>{
       const pct=8+Math.round((total?done/total:0)*22);
