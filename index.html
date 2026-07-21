@@ -849,7 +849,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
   <!-- ANIMATIONS TAB -->
   <div class="tp" id="tp-animations">
     <div class="anim-tools">
-      <button class="btn bp sm" style="flex:1" onclick="scanAnimationsForSession()">Scan</button>
+      <button class="btn bg sm" style="flex:1" onclick="scanAnimationsForSession()">Rescan</button>
       <button class="btn bg sm" onclick="renderAnimations()" title="Refresh list">Refresh</button>
     </div>
     <div style="font-size:9px;color:var(--m);font-family:'DM Mono',monospace;padding:5px 9px;border-bottom:1px solid var(--b)" id="anim-count">0 animations</div>
@@ -1097,7 +1097,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <div class="sl" style="margin-bottom:5px">Flow Summary</div>
     <div id="fsumcon" style="color:var(--m);font-size:10px">No flows assigned yet.</div>
     <div class="sl" style="margin:10px 0 5px">Animations</div>
-    <div id="asumcon" style="color:var(--m);font-size:10px">No animations scanned yet.</div>
+    <div id="asumcon" style="color:var(--m);font-size:10px">Animations scan automatically after extraction.</div>
   </div>
 <!-- REPLACE with: -->
 <div style="padding:7px 10px;border-top:1px solid var(--b);flex-shrink:0">
@@ -3590,14 +3590,11 @@ function replaceStatusBarFast(canvas,opts={}){
   if(!W||!H||W/H>0.82)return false;
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
   const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
-  if(island&&opts.preserveIsland)paintExactDynamicIsland(ctx,island);
   const islandPatch=island&&opts.preserveIsland?paddedStatusIslandRect(island,W,H):null;
   eraseStatusRecordingArtifacts(ctx,islandPatch);
   const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
   if(!bg)return false;
-  let cleanIsland=island;
-  if(island&&opts.preserveIsland)cleanIsland=cleanDynamicIslandSurround(ctx,island,bg)||island;
-  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:cleanIsland});}catch(e){console.warn('status bar icons failed',e);}
+  try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:island});}catch(e){console.warn('status bar icons failed',e);}
   return true;
 }
 function exportStatusBarEnabled(scope='zip'){
@@ -7910,15 +7907,10 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
   const sourceIslandCutout=opts.hideNotch?sourceIslandFrameCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
   const frameIslandCutout=opts.hideNotch?sourceIslandAssetCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
-  const aperture=frameReady?frameApertureMask(frameKey,frameImg,W,H,phone,screen,frameIslandCutout):null;
-  const mediaTarget=aperture?document.createElement('canvas'):ctx.canvas;
-  if(aperture){mediaTarget.width=W;mediaTarget.height=H;}
-  const mediaCtx=aperture?get2dCtx(mediaTarget,false,true):ctx;
+  const mediaCtx=ctx;
   mediaCtx.save();
-  if(!aperture){
-    roundedRectPath(mediaCtx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
-    mediaCtx.clip();
-  }
+  roundedRectPath(mediaCtx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
+  mediaCtx.clip();
   if(!mediaHasContent(media)){
     mediaCtx.fillStyle='#111';mediaCtx.fillRect(screen.x,screen.y,screen.w,screen.h);
   }
@@ -7927,16 +7919,7 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
     mediaCtx.imageSmoothingEnabled=true;
     try{mediaCtx.imageSmoothingQuality='high';}catch(e){}
     try{
-      if(aperture){
-        mediaCtx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
-      }else{
-        const mediaClip=sourceIslandScreenClip(screen,!!opts.hideNotch);
-        mediaCtx.save();
-        roundedRectPath(mediaCtx,mediaClip.x,mediaClip.y,mediaClip.w,mediaClip.h,mediaClip.r||Math.max(12,mediaClip.w*.065));
-        mediaCtx.clip();
-        mediaCtx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
-        mediaCtx.restore();
-      }
+      mediaCtx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
     }catch(e){}
     mediaCtx.imageSmoothingEnabled=smoothing.enabled;
     try{mediaCtx.imageSmoothingQuality=smoothing.quality;}catch(e){}
@@ -7945,20 +7928,19 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   }
   if(opts.includeRedactions!==false)drawRedactionsInRect(mediaCtx,t||0,events,dr,srcW,srcH);
   mediaCtx.restore();
-  if(aperture){
-    applyInnerScreenCurveMask(mediaCtx,screen,!!opts.hideNotch);
-    mediaCtx.save();
-    mediaCtx.globalCompositeOperation='destination-in';
-    mediaCtx.drawImage(aperture,0,0);
-    mediaCtx.restore();
-    ctx.drawImage(mediaTarget,0,0);
-  }
   if(frameReady){
     try{
       ctx.save();
       applyPhoneShadow(ctx,W,H);
-      drawPhoneFrameImage(ctx,frameImg,phone,screen,!!opts.hideNotch,frameIslandCutout||sourceIslandCutout);
-      if(opts.hideNotch)drawPhoneInnerBandOverlay(ctx,frameImg,phone,screen,frameIslandCutout||sourceIslandCutout);
+      ctx.drawImage(frameImg,phone.x,phone.y,phone.w,phone.h);
+      const sourceIslandPatch=frameIslandCutout||sourceIslandCutout;
+      if(opts.hideNotch&&sourceIslandPatch&&mediaHasContent(media)){
+        ctx.save();
+        roundedRectPath(ctx,sourceIslandPatch.x,sourceIslandPatch.y,sourceIslandPatch.w,sourceIslandPatch.h,sourceIslandPatch.h/2);
+        ctx.clip();
+        ctx.drawImage(media,dr.x,dr.y,dr.w,dr.h);
+        ctx.restore();
+      }
       ctx.restore();
     }catch(e){}
   }
@@ -9116,28 +9098,29 @@ async function scanAnimationsForSession(){
   }
 }
 function renderAnimations(){
+  maybeAutoScanAnimations();
   const list=document.getElementById('anim-scroll');
   const cnt=document.getElementById('anim-count');
   const sum=document.getElementById('asumcon');
   const sorted=[...animations].sort((a,b)=>(a.startSec||0)-(b.startSec||0));
   if(cnt){
-    const removed=removedAnimationKeys.size?` Â· ${removedAnimationKeys.size} hidden`:'';
+    const removed=removedAnimationKeys.size?` - ${removedAnimationKeys.size} hidden`:'';
     cnt.textContent=`${sorted.length} animation${sorted.length!==1?'s':''}${removed}`;
   }
   const renderList=(host,limit=Infinity,compact=false)=>{
     if(!host)return;
     host.innerHTML='';
     if(!sorted.length){
-      host.innerHTML=`<div class="anim-empty">${removedAnimationKeys.size?'No visible animations. Hidden detections stay out of export metadata.':'No animations scanned yet. Click Scan after extraction.'}</div>`;
+      host.innerHTML=`<div class="anim-empty">${removedAnimationKeys.size?'No visible animations. Hidden detections stay out of export metadata.':'Animations scan automatically after extraction.'}</div>`;
       return;
     }
     sorted.slice(0,limit).forEach(a=>{
       const key=a.key||animationStableKey(a);
       const d=document.createElement('div');d.className='anim-card';d.dataset.key=key;
-      d.title=`${animationTypeLabel(a.type)} Â· ${a.startTime||fmt(a.startSec)} â†’ ${a.endTime||fmt(a.endSec)} Â· click to jump`;
+      d.title=`${animationTypeLabel(a.type)} - ${a.startTime||fmt(a.startSec)} -> ${a.endTime||fmt(a.endSec)} - click to jump`;
       const main=document.createElement('div');main.className='anim-main';
-      const name=document.createElement('div');name.className='anim-name';name.textContent=`${compact?'':String(a.index).padStart(2,'0')+' Â· '}${animationTypeLabel(a.type)}`;
-      const meta=document.createElement('div');meta.className='anim-meta';meta.textContent=`${a.startTime||fmt(a.startSec)}-${a.endTime||fmt(a.endSec)} Â· ${a.durationTime||exportDurationMs(a.durationSec||0)} Â· ${(a.confidence*100||0).toFixed(0)}%`;
+      const name=document.createElement('div');name.className='anim-name';name.textContent=`${compact?'':String(a.index).padStart(2,'0')+' - '}${animationTypeLabel(a.type)}`;
+      const meta=document.createElement('div');meta.className='anim-meta';meta.textContent=`${a.startTime||fmt(a.startSec)}-${a.endTime||fmt(a.endSec)} - ${a.durationTime||exportDurationMs(a.durationSec||0)} - ${(a.confidence*100||0).toFixed(0)}%`;
       main.appendChild(name);main.appendChild(meta);
       const dot=document.createElement('span');dot.className='anim-dot';
       const del=document.createElement('button');del.className='anim-del';del.textContent='x';del.title='Remove animation';
@@ -9196,6 +9179,7 @@ function animationsForExport(targetVideos){
 function queueBackgroundAnimationScan(){
   if(!videos.some(v=>v.frames?.length))return;
   if(queueBackgroundAnimationScan._running)return;
+  queueBackgroundAnimationScan._queuedAt=Date.now();
   queueBackgroundAnimationScan._running=true;
   setTimeout(async()=>{
     try{
@@ -9209,6 +9193,14 @@ function queueBackgroundAnimationScan(){
     finally{queueBackgroundAnimationScan._running=false;}
   },250);
 }
+function maybeAutoScanAnimations(){
+  if(animations.length||queueBackgroundAnimationScan._running)return;
+  if(!videos.some(v=>v.frames?.length))return;
+  const last=queueBackgroundAnimationScan._queuedAt||0;
+  if(Date.now()-last<4000)return;
+  queueBackgroundAnimationScan();
+}
+
 async function exportZip(vid){
   const nameInput=document.getElementById('exp-appname');
   const appName=(nameInput?.value||'').trim();
@@ -10591,7 +10583,7 @@ function _buildTimeline(vid,dur){
     band.className='tl-anim-band';
     band.style.left=(lo/dur*100)+'%';
     band.style.width=Math.max(0.45,(hi-lo)/dur*100)+'%';
-    band.title=`${animationTypeLabel(a.type)} Â· ${a.startTime||fmt(a.startSec)} â†’ ${a.endTime||fmt(a.endSec)}`;
+    band.title=`${animationTypeLabel(a.type)} - ${a.startTime||fmt(a.startSec)} -> ${a.endTime||fmt(a.endSec)}`;
     band.onclick=e=>{e.stopPropagation();goToAnimation(key);};
     bands.appendChild(band);
   });
