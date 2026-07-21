@@ -3439,9 +3439,7 @@ function replaceStatusBarFast(canvas,opts={}){
   const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
   if(!bg)return false;
   let cleanIsland=island;
-  if(island&&opts.preserveIsland){
-    cleanIsland=paintCleanDynamicIsland(ctx,island,bg)||island;
-  }
+  if(island&&opts.preserveIsland)cleanIsland=island;
   try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:cleanIsland});}catch(e){console.warn('status bar icons failed',e);}
   return true;
 }
@@ -4780,6 +4778,7 @@ async function extractVideo(v){
   if(!cancelFlag)toast('✓',`${v.frames.length} frames from "${v.name}"`);
   else toast('⚠️',`Stopped · ${v.frames.length} frames kept`);
   // bgQueueFrames called per-frame above during extraction
+  if(!cancelFlag)queueBackgroundAnimationScan();
 }
 
 // ULTRA-FAST extraction:
@@ -7312,15 +7311,33 @@ function buildFlowFrameEventsByVideo(videoList,flowList,frameKeyByFlowId){
   const order=new Map((flowList||[]).map((fl,idx)=>[fl.id,idx]));
   const byVideo={};
   (videoList||[]).forEach(v=>{
-    const step=Math.max(0.08,Math.min(1,_medianFrameStep(v.frames||[])/2));
+    const medianStep=Math.max(0.2,_medianFrameStep(v.frames||[])||1);
+    const pad=Math.max(0.08,Math.min(2.5,medianStep*.6));
+    const splitGap=Math.max(1.25,medianStep*1.8);
     const events=[];
-    (v.frames||[]).forEach(fr=>{
-      const sec=frameSec(fr);
-      if(sec==null||!fr.flows?.length)return;
-      const fid=[...fr.flows].sort((a,b)=>(order.get(a)??9999)-(order.get(b)??9999))[0];
+    (flowList||[]).forEach(fl=>{
+      const fid=fl?.id;
       const frameKey=frameKeyByFlowId?.[fid];
       if(!frameKey)return;
-      events.push({flowId:fid,frameKey,start:Math.max(0,sec-step),end:sec+step,order:order.get(fid)??9999});
+      const secs=(v.frames||[])
+        .filter(fr=>fr.flows?.includes(fid))
+        .map(frameSec)
+        .filter(sec=>sec!=null)
+        .sort((a,b)=>a-b);
+      if(!secs.length)return;
+      let groupStart=secs[0],groupEnd=secs[0];
+      for(let i=1;i<=secs.length;i++){
+        const sec=secs[i];
+        if(sec!=null&&sec-groupEnd<=splitGap){groupEnd=sec;continue;}
+        events.push({
+          flowId:fid,
+          frameKey,
+          start:Math.max(0,groupStart-pad),
+          end:Math.min(Number(v.duration)||Infinity,groupEnd+pad),
+          order:order.get(fid)??9999
+        });
+        groupStart=sec;groupEnd=sec;
+      }
     });
     byVideo[v.id]=events.sort((a,b)=>a.start-b.start||a.order-b.order);
   });
@@ -7395,7 +7412,8 @@ async function waitPhoneFrameReady(keys=null){
   const list=[...(Array.isArray(keys)&&keys.length?keys:[canvasOptions.frame||'black'])].filter(Boolean);
   await Promise.all([...new Set(list)].map(async key=>{
     const img=getPhoneFrameImage(key);
-    if(!img||img.complete)return;
+    if(!img)return;
+    if(img.complete&&img.naturalWidth)return;
     try{if(img.decode)await Promise.race([img.decode(),yieldUI(1200)]);else await yieldUI(250);}catch(e){}
   }));
 }
@@ -7571,9 +7589,9 @@ function sourceIslandFrameCutout(screen,mediaRect,sourceIslandRect,sourceW,sourc
   const y=mediaRect.y+(sourceIslandRect.y/sourceH)*mediaRect.h;
   const w=(sourceIslandRect.w/sourceW)*mediaRect.w;
   const h=(sourceIslandRect.h/sourceH)*mediaRect.h;
-  const padX=Math.max(1,Math.round(h*.035));
-  const padTop=Math.max(1,Math.round(h*.08));
-  const padBottom=Math.max(2,Math.round(h*.34));
+  const padX=Math.max(0,Math.round(h*.01));
+  const padTop=Math.max(0,Math.round(h*.015));
+  const padBottom=Math.max(0,Math.round(h*.025));
   const topLimit=screen.y;
   const leftLimit=screen.x+screen.w*.18;
   const rightLimit=screen.x+screen.w*.82;
@@ -7679,12 +7697,6 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const frameKey=opts.frameKey||canvasOptions.frame||'black';
   const frameImg=getPhoneFrameImage(frameKey);
   const frameReady=frameKey!=='none'&&frameImg&&frameImg.complete&&frameImg.naturalWidth;
-  if(frameKey!=='none'&&!frameReady){
-    ctx.save();
-    ctx.fillStyle=phoneFrameColor(frameKey);
-    roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.fill();
-    ctx.restore();
-  }
   const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
   const islandCutout=opts.hideNotch?sourceIslandFrameCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
   const aperture=frameReady?frameApertureMask(frameKey,frameImg,W,H,phone,screen,islandCutout):null;
@@ -7736,9 +7748,6 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
       drawPhoneFrameImage(ctx,frameImg,phone,screen,!!opts.hideNotch,islandCutout);
       ctx.restore();
     }catch(e){}
-  }else if(frameKey!=='none'){
-    ctx.save();ctx.strokeStyle=phoneFrameColor(frameKey);ctx.lineWidth=Math.max(6,phone.w*.035);
-    roundedRectPath(ctx,phone.x,phone.y,phone.w,phone.h,phone.w*.14);ctx.stroke();ctx.restore();
   }
   return {phone,screen,mediaRect:screen};
 }
@@ -8949,6 +8958,44 @@ function removeAnimation(key){
   scheduleSaveSession();
   toast('âœ“',`Removed ${a?animationTypeLabel(a.type):'animation'}`);
 }
+function animationsForExport(targetVideos){
+  const ids=new Set((targetVideos||[]).map(v=>v.id));
+  const kept=(animations||[])
+    .filter(a=>ids.has(a.sourceVideoId)&&!removedAnimationKeys.has(a.key||animationStableKey(a)))
+    .sort((a,b)=>(a.startSec||0)-(b.startSec||0))
+    .map((a,idx)=>({...a,id:`anim_${String(idx+1).padStart(3,'0')}`,index:idx+1}));
+  return {
+    animations:kept,
+    stats:{
+      ...(animationScanStats||{}),
+      sourceVideoCount:ids.size,
+      keptCount:kept.length,
+      removedCount:removedAnimationKeys.size,
+      mode:'cached-background-metadata',
+      nonBlocking:true,
+      statusbarIgnored:true,
+      keyboardIgnored:true,
+      pageScrollExcluded:true,
+      typingExcluded:true
+    }
+  };
+}
+function queueBackgroundAnimationScan(){
+  if(!videos.some(v=>v.frames?.length))return;
+  if(queueBackgroundAnimationScan._running)return;
+  queueBackgroundAnimationScan._running=true;
+  setTimeout(async()=>{
+    try{
+      const result=await detectExportAnimations(videos,{excludeKeys:removedAnimationKeys});
+      animations=result.animations||[];
+      animationScanStats=result.stats||null;
+      renderAnimations();
+      if(_stageVid)_buildTimeline(_stageVid,combinedSessionMode()?totalRawVideoDuration():(document.getElementById('vid-main')?.duration||_stageVid.duration||0));
+      scheduleSaveSession();
+    }catch(e){console.warn('background animation scan failed',e);}
+    finally{queueBackgroundAnimationScan._running=false;}
+  },250);
+}
 async function exportZip(vid){
   const nameInput=document.getElementById('exp-appname');
   const appName=(nameInput?.value||'').trim();
@@ -9051,17 +9098,11 @@ async function exportZip(vid){
     inventory.push(`${sessionFolder}/video.webm,video/webm,${combinedVideo.blob.size}`);
     renderedVideoSeq=1;
   }
-  setLdPb(31,'Detecting certain animations...');
+  setLdPb(31,'Adding animation metadata...');
   const animationStart=performance.now();
-  const animationExport=await detectExportAnimations(targetVideos,{
-    excludeKeys:removedAnimationKeys,
-    shouldCancel:()=>zipCancelFlag,
-    onProgress:(done,total)=>{
-      const pct=31+Math.round((total?done/total:0)*3);
-      setLdPb(Math.min(34,pct),`Detecting certain animations... ${done} / ${total}`);
-    }
-  });
+  const animationExport=animationsForExport(targetVideos);
   zipRenderTimings.animationDetectMs=performance.now()-animationStart;
+  if(!animationExport.animations.length)queueBackgroundAnimationScan();
   if(zipCancelFlag){hideLd();toast('Ã¢Å¡Â Ã¯Â¸Â','Export cancelled');return;}
   manifestData.animations=animationExport.animations||[];
   manifestData.animationDetection=animationExport.stats||{};
@@ -10166,9 +10207,19 @@ function applyMarkFlow(){
   toast('🏷',`Tagged ${hits.length} frame${hits.length>1?'s':''} → ${fl?.name||fid}`);
 }
 function cutMarkRange(){
-  const hits=_framesInMarkRange();if(!hits)return;
-  if(!confirm(`Delete ${hits.length} frame(s) in marked range?`))return;
+  if(_markIn===null||_markOut===null){toast('!', 'Set both In and Out points first');return;}
+  if(!_stageVid){toast('!', 'No video loaded');return;}
   const lo=Math.min(_markIn,_markOut),hi=Math.max(_markIn,_markOut);
+  if(hi-lo<=0.03){toast('!', 'Marked cut is too short');return;}
+  const sourceFrames=combinedSessionMode()?allFramesInVideoOrder():_stageVid.frames;
+  const hits=sourceFrames.filter(f=>{
+    const sec=combinedSessionMode()?globalFrameSec(f):normalizeFrameTiming(f);
+    return sec!=null&&sec>=lo&&sec<=hi;
+  });
+  const msg=hits.length
+    ? `Cut ${fmt(hi-lo)} from the source video and delete ${hits.length} extracted frame(s)?`
+    : `Cut ${fmt(hi-lo)} from the source video?`;
+  if(!confirm(msg))return;
   if(combinedSessionMode()){
     videos.forEach(v=>{
       const start=videoStartSec(v),end=start+(Number(v.duration)||0);
@@ -10182,14 +10233,16 @@ function cutMarkRange(){
     _stageVid.cutRanges=Array.isArray(_stageVid.cutRanges)?_stageVid.cutRanges:[];
     _stageVid.cutRanges.push({start:lo,end:hi});
   }
-  const ids=new Set(hits.map(f=>f.id));
-  hits.forEach(fr=>{sendToBin(fr);});
-  videos.forEach(v=>{v.frames=v.frames.filter(f=>!ids.has(f.id));});
+  if(hits.length){
+    const ids=new Set(hits.map(f=>f.id));
+    hits.forEach(fr=>{sendToBin(fr);});
+    videos.forEach(v=>{v.frames=v.frames.filter(f=>!ids.has(f.id));});
+  }
   scheduleRenderFrames();updateStats();renderVideoList();scheduleSaveSession();
   renderFilmstrip(_stageVid);_buildTimeline(_stageVid,combinedSessionMode()?totalRawVideoDuration():(document.getElementById('vid-main')?.duration||_stageVid.duration||0));
   drawVideoPreviewOverlay();
   clearMark();
-  toast('Cut',`Cut ${hits.length} frame(s) from timeline`);
+  toast('Cut',`Cut ${fmt(hi-lo)} from export${hits.length?` · ${hits.length} frame(s) removed`:''}`);
 }
 async function trimMarkRange(){
   const hits=_framesInMarkRange();if(!hits)return;
