@@ -2679,13 +2679,28 @@ function statusAssetsReady(set){
   return !!(icons&&icons.time?.complete&&icons.time.naturalWidth&&icons.signal?.complete&&icons.signal.naturalWidth&&icons.wifi?.complete&&icons.wifi.naturalWidth&&icons.battery?.complete&&icons.battery.naturalWidth);
 }
 
+function statusLayoutIslandRect(sX,sY,sW,sH,island){
+  if(!island||island.w<=0||island.h<=0)return null;
+  const maxH=Math.max(10,Math.round(sH*.046));
+  const minH=Math.max(8,Math.round(sH*.032));
+  const maxW=Math.max(20,Math.round(sW*.42));
+  const minW=Math.max(18,Math.round(sW*.24));
+  const h=Math.max(minH,Math.min(maxH,island.h));
+  const w=Math.max(minW,Math.min(maxW,island.w));
+  const cx=island.x+island.w*.5;
+  const x=Math.max(sX,Math.min(sX+sW-w,Math.round(cx-w*.5)));
+  const y=Math.max(sY,Math.min(sY+sH-h,Math.round(island.y)));
+  return {x,y,w,h};
+}
+
 function statusBarAssetLayout(sX,sY,sW,sH,island){
   const sbH=Math.round(sH*.055);
   if(sbH<2||sW<12)return null;
-  const anchorH=island?.h&&island.h>0?island.h:sbH;
+  const layoutIsland=statusLayoutIslandRect(sX,sY,sW,sH,island);
+  const anchorH=layoutIsland?.h&&layoutIsland.h>0?layoutIsland.h:sbH;
   const iconH=Math.max(8,Math.min(sbH*.265,anchorH*.305,sW*.03));
   const scale=iconH/13;
-  const centerY=island?.h?island.y+island.h*.50:sY+sbH*.72;
+  const centerY=layoutIsland?.h?layoutIsland.y+layoutIsland.h*.50:sY+sbH*.72;
   const iconY=Math.round(centerY-iconH*.5);
   const leftX=Math.round(sX+sW*.087);
   const rightPad=Math.round(sW*.071);
@@ -2718,6 +2733,39 @@ function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg,opts={}){
 }
 
 loadStatusBarSVGs().catch(err=>console.warn('Status bar SVG preload failed',err));
+
+function applyStatusBarGlyphRemoval(ctx,sX,sY,sW,sH,opts={}){
+  try{
+    const rawIsland=opts.sourceIslandRect||opts.islandRect||null;
+    const island=rawIsland&&rawIsland.w<sW*.5?rawIsland:null;
+    const statusIsland=statusLayoutIslandRect(sX,sY,sW,sH,island);
+    const layout=statusBarAssetLayout(sX,sY,sW,sH,statusIsland);
+    if(!layout)return null;
+    const protect=statusIsland?{x:statusIsland.x,y:statusIsland.y,w:statusIsland.w,h:statusIsland.h}:null;
+    const bg=sampleCanvasMedian(ctx,{x:sX,y:sY,w:sW,h:layout.sbH},protect,Math.max(3,Math.round(sW/220)),{avgR:255,avgG:255,avgB:255});
+    const sourceSnap=document.createElement('canvas');
+    sourceSnap.width=ctx.canvas.width;sourceSnap.height=ctx.canvas.height;
+    try{get2dCtx(sourceSnap,true,true).drawImage(ctx.canvas,0,0);}catch(e){}
+    const padX=Math.max(3,Math.round(layout.iconH*.55));
+    const stripY=Math.max(sY,Math.round(layout.iconY-layout.iconH*.78));
+    const stripB=Math.min(sY+layout.sbH,Math.round(layout.iconY+layout.iconH*1.85));
+    const stripH=Math.max(1,stripB-stripY);
+    const timeLeft=Math.max(sX,Math.round(sX+sW*.045));
+    const timeRight=statusIsland
+      ? Math.max(layout.time.x+layout.time.w+padX,Math.round(statusIsland.x-Math.max(2,padX*.35)))
+      : layout.time.x+layout.time.w+Math.max(layout.iconH*2.2,sW*.06);
+    const rightX=statusIsland
+      ? Math.min(layout.signal.x-padX,Math.round(statusIsland.x+statusIsland.w+Math.max(2,padX*.35)))
+      : layout.signal.x-padX;
+    const rightR=Math.min(sX+sW-Math.round(sW*.032),Math.max(layout.battery.x+layout.battery.w+padX*1.6,layout.battery.x+layout.battery.w+layout.iconH*1.15));
+    const boxes=[
+      {x:timeLeft,y:stripY,w:Math.max(1,timeRight-timeLeft),h:stripH},
+      {x:rightX,y:stripY,w:Math.max(1,rightR-rightX),h:stripH}
+    ];
+    boxes.forEach(z=>fillStatusStripBackground(ctx,z,bg,protect,sourceSnap));
+    return bg;
+  }catch(e){return null;}
+}
 
 function _rectIntersects(a,b){
   return !!(a&&b&&a.w>0&&a.h>0&&b.w>0&&b.h>0&&a.x+a.w>b.x&&b.x+b.w>a.x&&a.y+a.h>b.y&&b.y+b.h>a.y);
@@ -2779,6 +2827,43 @@ function statusRedRatio(source,rect){
     }
   }
   return seen?red/seen:0;
+}
+
+function fillStatusStripBackground(ctx,rect,fallback,protectRect=null,sourceCanvas=null){
+  const W=ctx.canvas.width,H=ctx.canvas.height;
+  const r=_clipRectToCanvas(rect,W,H);
+  if(r.w<=0||r.h<=0)return;
+  const src=sourceCanvas||ctx.canvas;
+  const sctx=src.getContext?get2dCtx(src,true,true):ctx;
+  const band=4;
+  ctx.save();
+  ctx.beginPath();ctx.rect(r.x,r.y,r.w,r.h);ctx.clip();
+  for(let x=r.x;x<r.x+r.w;x+=band){
+    const w=Math.min(band,r.x+r.w-x);
+    const sampleRect={x,y:r.y,w,h:r.h};
+    let data;
+    const samples=[];
+    try{data=sctx.getImageData(sampleRect.x,sampleRect.y,sampleRect.w,sampleRect.h).data;}catch(e){data=null;}
+    if(data){
+      for(let yy=0;yy<sampleRect.h;yy+=2){
+        for(let xx=0;xx<sampleRect.w;xx++){
+          const px=sampleRect.x+xx,py=sampleRect.y+yy;
+          if(protectRect&&px>=protectRect.x&&px<protectRect.x+protectRect.w&&py>=protectRect.y&&py<protectRect.y+protectRect.h)continue;
+          const i=(yy*sampleRect.w+xx)*4;
+          if(data[i+3]<24)continue;
+          const rr=data[i],gg=data[i+1],bb=data[i+2];
+          const lum=0.299*rr+0.587*gg+0.114*bb;
+          const chroma=Math.max(rr,gg,bb)-Math.min(rr,gg,bb);
+          if(lum<42||lum>238&&chroma<35)continue;
+          samples.push([rr,gg,bb]);
+        }
+      }
+    }
+    const c=samples.length>=3?_medianColor(samples,fallback):sampleCanvasMedian(ctx,{x:x-band,y:r.y,w:w+band*2,h:r.h},protectRect,2,fallback);
+    ctx.fillStyle=`rgb(${Math.round(c.avgR)},${Math.round(c.avgG)},${Math.round(c.avgB)})`;
+    ctx.fillRect(x,r.y,w,r.h);
+  }
+  ctx.restore();
 }
 
 function fillStatusPatch(ctx,rect,fallback,protectRect=null,sourceCanvas=null,opts={}){
@@ -2883,7 +2968,8 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
     const rawIsland=opts.sourceIslandRect||opts.islandRect||null;
     const island=rawIsland&&rawIsland.w<sW*.5?rawIsland:null;
     const protect=opts.protectRect&&(!rawIsland||rawIsland.w<sW*.5)?opts.protectRect:null;
-    const layout=statusBarAssetLayout(sX,sY,sW,sH,island);
+    const statusIsland=statusLayoutIslandRect(sX,sY,sW,sH,island);
+    const layout=statusBarAssetLayout(sX,sY,sW,sH,statusIsland);
     if(!layout)return null;
     const bg=sampleCanvasMedian(ctx,{x:sX,y:sY,w:sW,h:layout.sbH},protect,Math.max(3,Math.round(sW/220)),{avgR:255,avgG:255,avgB:255});
     const padX=Math.max(5,Math.round(layout.iconH*.72));
@@ -2891,10 +2977,10 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
     const timePadX=Math.max(padX,Math.round(layout.iconH*.95));
     const rightW=layout.battery.x+layout.battery.w-layout.signal.x;
     const laneY=island?sY:sY+layout.sbH*.04;
-    const laneH=island?Math.max(layout.sbH,Math.round(island.y+island.h+layout.iconH*.08-sY)):layout.sbH*.86;
+    const laneH=statusIsland?Math.max(layout.sbH,Math.round(statusIsland.y+statusIsland.h+layout.iconH*.08-sY)):layout.sbH*.86;
     const timeZone={x:layout.time.x-timePadX,y:laneY,w:layout.time.w+timePadX*2,h:laneH};
-    if(island){
-      const rightEdge=Math.max(timeZone.x+timeZone.w,Math.min(island.x-Math.max(2,padX*.35),sX+sW*.49));
+    if(statusIsland){
+      const rightEdge=Math.max(timeZone.x+timeZone.w,Math.min(statusIsland.x-Math.max(2,padX*.35),sX+sW*.49));
       timeZone.x=sX;
       timeZone.w=Math.max(1,rightEdge-timeZone.x);
     }else{
@@ -2903,21 +2989,21 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
       timeZone.x=leftEdge;
       timeZone.w=Math.max(1,rightEdge-leftEdge);
     }
-    const rightStart=island?Math.max(island.x+island.w+Math.max(2,padX*.35),sX+sW*.51):layout.signal.x-padX;
+    const rightStart=statusIsland?Math.max(statusIsland.x+statusIsland.w+Math.max(2,padX*.35),sX+sW*.51):layout.signal.x-padX;
     const zones=[
       timeZone,
       {x:rightStart,y:laneY,w:sX+sW-rightStart,h:laneH}
     ];
-    if(island){
+    if(statusIsland){
       const islandPadX=Math.max(2,Math.round(layout.iconH*.18));
-      const topCapH=Math.max(0,Math.round(island.y-sY-Math.max(1,layout.iconH*.04)));
+      const topCapH=Math.max(0,Math.round(statusIsland.y-sY-Math.max(1,layout.iconH*.04)));
       if(topCapH>0)zones.unshift({x:sX,y:sY,w:sW,h:topCapH});
-      const sideY=Math.max(sY,Math.round(island.y-Math.max(1,layout.iconH*.06)));
-      const sideB=Math.min(sY+layout.sbH,Math.round(Math.max(laneY+laneH,island.y+island.h*.62)));
+      const sideY=Math.max(sY,Math.round(statusIsland.y-Math.max(1,layout.iconH*.06)));
+      const sideB=Math.min(sY+layout.sbH,Math.round(Math.max(laneY+laneH,statusIsland.y+statusIsland.h*.62)));
       const sideH=Math.max(0,sideB-sideY);
       if(sideH>0){
-        const leftW=Math.max(0,Math.round(island.x-islandPadX-sX));
-        const rightX=Math.round(island.x+island.w+islandPadX);
+        const leftW=Math.max(0,Math.round(statusIsland.x-islandPadX-sX));
+        const rightX=Math.round(statusIsland.x+statusIsland.w+islandPadX);
         if(leftW>0)zones.push({x:sX,y:sideY,w:leftW,h:sideH});
         if(rightX<sX+sW)zones.push({x:rightX,y:sideY,w:sX+sW-rightX,h:sideH});
       }
@@ -3078,6 +3164,7 @@ function sourceIslandRectForCanvas(v,canvas,opts={}){
   if(!canvas)return null;
   if(opts.useCached&&v&&v._sourceIslandChecked&&!v._hasSourceIsland)return null;
   const cached=cachedSourceIslandRectForCanvas(v,canvas);
+  if(opts.useCached&&cached)return cached;
   if(opts.preferCached&&cached)return cached;
   const found=detectDynamicIslandRect(canvas);
   if(v)v._sourceIslandChecked=true;
@@ -3596,7 +3683,9 @@ function replaceStatusBarFast(canvas,opts={}){
   const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
   const islandPatch=island&&opts.preserveIsland?paddedStatusIslandRect(island,W,H):null;
   eraseStatusRecordingArtifacts(ctx,islandPatch);
-  const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
+  const bg=opts.preserveIsland&&island
+    ? applyStatusBarGlyphRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island})
+    : applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
   if(!bg)return false;
   try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:island});}catch(e){console.warn('status bar icons failed',e);}
   return true;
