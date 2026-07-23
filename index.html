@@ -7528,7 +7528,7 @@ async function exportFullEditedVideo(){
     const sourceVideos=videos.filter(v=>multiSourceIds.includes(v.id));
     let rendered=await renderCombinedSourceEditedVideo(sourceVideos,_appN+'_full',{
       removeStatusBar:exportStatusBarEnabled('video'),
-      fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
+      fps:longSafeVideoExportFps(totalEffectiveDuration(videos),60),
       includeCuts:true,
       transparentBackground:true,
       frameEventsByVideoId:{},
@@ -8387,6 +8387,13 @@ function exportRenderTimeoutMs(durationSec=0,opts={}){
   // be killed by the old 60-90s guard; keep a guard, but scale it with duration.
   return Math.max(120000,Math.ceil(d*2200+120000));
 }
+function selectedVideoExportFps(maxFps=60){
+  return Math.max(1,Math.min(maxFps,parseInt(document.getElementById('vex-fps')?.value)||30));
+}
+function longSafeVideoExportFps(durationSec=0,maxFps=60){
+  const fps=selectedVideoExportFps(maxFps);
+  return Number(durationSec)>300?Math.min(30,fps):fps;
+}
 async function exportSourceEditedVideo(v,label,opts={}){
   if(!v||!v.objectURL)return false;
   if(typeof MediaRecorder==='undefined')return false;
@@ -8740,7 +8747,7 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     const cleanCtx=get2dCtx(clean,false,false);
     const target=new BufferTarget();
     const output=new Output({format:new Mp4OutputFormat({fastStart:'in-memory'}),target});
-    const canvasSource=new CanvasSource(canvas,{codec:'avc',bitrate:opts.videoBitsPerSecond||12_000_000,keyFrameInterval:2});
+    const canvasSource=new CanvasSource(canvas,{codec:'avc',bitrate:opts.videoBitsPerSecond||12_000_000,keyFrameInterval:4,hardwareAcceleration:'prefer-hardware'});
     output.addVideoTrack(canvasSource);
     let audioSource=null,audioConfig=null,audioPlan=[];
     if(sourceWithAudio.length){
@@ -9946,7 +9953,7 @@ async function exportZip(vid){
       frameEventsByVideoId:zipFrameEventsByVideoId,
       frameKey:zipDefaultFrameKey,
       requireFrameAsset:true,
-      fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
+      fps:longSafeVideoExportFps(sessionDuration,60),
       includeCuts:true,
       videoBitsPerSecond:12_000_000,
       maxRenderMs:exportRenderTimeoutMs(sessionDuration),
