@@ -771,34 +771,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <button class="btn bg sm" style="width:100%;margin-top:5px" onclick="document.getElementById('fi-folder').click()">📁 Upload Folder</button>
       <button class="btn bd sm" style="width:100%;margin-top:4px" onclick="clearAllImages()">🗑 Clear All Images</button>
     </div>
-    <details id="exopts" style="padding:0 9px 5px;flex-shrink:0">
-      <summary style="font-size:10px;color:var(--m);cursor:pointer;padding:3px 0;list-style:none">▶ Extraction options</summary>
-      <div style="padding-top:7px;display:flex;flex-direction:column;gap:5px">
-        <div class="or"><div><div class="ol">FPS</div><div class="os">Frames/sec</div></div><input type="number" class="ni" id="o-fps" value="1" min="0.1" max="8" step="0.1"/></div>
-        <div class="or"><div><div class="ol">Skip similar</div><div class="os">Dedup frames</div></div><label class="tog"><input type="checkbox" id="o-dedup" checked><span class="ts"></span></label></div>
-        <div class="or"><div class="ol">Sensitivity</div><input type="number" class="ni" id="o-sens" value="5" min="1" max="30"/></div>
-        <div class="or"><div><div class="ol">Target frames</div><div class="os">Samples entire video</div></div><input type="number" class="ni" id="o-maxframes" value="250" min="25" max="5000" step="25"/></div>
-        <div class="or"><div class="ol">Chunk size</div>
-          <select class="ni sel" id="o-chunk"><option value="3">3 min</option><option value="5" selected>5 min</option><option value="10">10 min</option><option value="0">Off</option></select>
-        </div>
-        <div style="font-size:9px;color:var(--m);line-height:1.5;padding:3px 0">⚡ Smart extraction keeps the frame count manageable. Raise FPS or Max frames when you need denser coverage.</div>
-      </div>
-    </details>
-    <div style="padding:0 9px 5px;flex-shrink:0">
-      <div class="pbw"><div class="pb" id="ex-pb"></div></div>
-      <div class="pl" id="ex-lbl">—</div>
-      <div id="chunk-list" style="margin-top:3px;display:flex;flex-direction:column;gap:2px"></div>
-    </div>
     <div class="cw" id="codec-warn" style="display:none">
       <div><span class="wdot"></span><b>📱 iPhone HEVC video</b></div>
       Browser will attempt native HEVC decode. Frames may take a moment on first extraction.<br>
       <div style="font-size:9px;color:var(--m);margin-top:3px">💡 If frames appear black: Settings → Camera → Formats → Most Compatible</div>
     </div>
     <div class="vlist" id="vlist"></div>
-    <div id="ex-btn-row" style="padding:5px 9px;border-top:1px solid var(--b);flex-shrink:0;display:flex;gap:4px">
-      <button class="btn bp sm" style="flex:1" id="ex-btn" onclick="extractActive()" disabled>▶ Extract</button>
-      <button class="btn bd sm" id="ex-stop-btn" style="display:none" onclick="cancelExtraction()">■ Stop</button>
-    </div>
   </div>
   <!-- FLOWS TAB -->
   <div class="tp" id="tp-flows">
@@ -838,7 +816,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
         </div>
         <div class="tlt"><span id="tr-st">0:00</span><span id="tr-dur" style="color:var(--a)"></span><span id="tr-en">0:00</span></div>
         <button class="btn bgn sm" onclick="downloadTrim()">⬇ Download Clip</button>
-        <button class="btn bg sm" onclick="extractTrimRange()">📷 Extract from Range</button>
       </div>
     </div>
   </div>
@@ -910,7 +887,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <div class="vid-empty-msg" id="vid-empty-msg">
         <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="m10 8 5 3-5 3V8z"/><path d="M8 21h8M12 17v4"/></svg>
         <div>Select a video from the <b>Videos</b> tab</div>
-        <div style="font-size:10px;opacity:.6">Then click ▶ Extract to capture frames</div>
+        <div style="font-size:10px;opacity:.6">Edit directly on the video timeline</div>
       </div>
       <div class="device-wrap" id="device-wrap" style="display:none">
         <div class="device-frame" id="device-frame">
@@ -1074,10 +1051,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <summary style="font-size:10px;color:var(--m);cursor:pointer;list-style:none;display:flex;align-items:center;gap:5px;padding:2px 0"><span style="font-size:12px">📖</span><span style="font-family:'DM Mono',monospace;letter-spacing:1px;text-transform:uppercase;font-size:9px">Usage Guide</span></summary>
     <div style="margin-top:7px;font-size:10px;color:var(--m);line-height:1.8;display:flex;flex-direction:column;gap:5px;overflow-y:auto;max-height:240px;padding-right:3px">
       <div><b style="color:var(--t)">1 · Upload</b><br>Videos tab → drop MP4/MOV/WebM or switch to Screenshots to drop images/folder.</div>
-      <div><b style="color:var(--t)">2 · Extract</b><br>Select a video → ▶ Extract. Frames appear live. Adjust FPS &amp; dedup in options.</div>
-      <div><b style="color:var(--t)">3 · Select &amp; Tag</b><br>Click frames to select (Shift+click range). Then click a flow name in the right panel to assign.</div>
-      <div><b style="color:var(--t)">4 · Edit Frames</b><br>Hover a card → ✏️ Redact boxes · 🔤 Hide words · 👤 Hide faces. Double-click = full preview.</div>
-      <div><b style="color:var(--t)">5 · Export</b><br>Set App Name → ⬇ Export ZIP. Frames organized by flow in folders. Or 🎬 for video export.</div>
+      <div><b style="color:var(--t)">2 · Edit</b><br>Select a video and work directly on the video timeline. Use cuts, flow ranges, and redaction boxes without extracting frames first.</div>
+      <div><b style="color:var(--t)">3 · Tag</b><br>Use I/O to mark a range, then choose a flow from the right panel to assign the full range.</div>
+      <div><b style="color:var(--t)">4 · Redact</b><br>Draw redaction boxes on the video preview. They are saved with timestamps and applied during export.</div>
+      <div><b style="color:var(--t)">5 · Export</b><br>Set App Name → export the edited video/ZIP. Flow ranges and redaction details are written to the export metadata.</div>
       <!-- REPLACE WITH: -->
       <div style="border-top:1px solid var(--b);padding-top:5px;margin-top:2px">
         <b style="color:var(--t);font-size:10px">Keyboard Shortcuts</b>
@@ -4798,7 +4775,6 @@ async function addFiles(files){
     return;
   }
   renderVideoList();updateVDD();updateStats();toggleExpBtns();
-  document.getElementById('ex-btn').disabled=false;
   updateCodecWarning();
   try{await loadStatusBarSVGs();}catch(e){console.warn('status assets unavailable',e);}
   for(const vid of added){
@@ -5785,8 +5761,6 @@ function setMode(m){
   document.getElementById('mode-img').classList.toggle('on',m==='img');
   document.getElementById('upload-video').style.display=m==='video'?'':'none';
   document.getElementById('upload-img').style.display=m==='img'?'':'none';
-  document.getElementById('exopts').style.display=m==='video'?'':'none';
-  document.getElementById('ex-btn-row').style.display=m==='video'?'':'none';
 }
 function ltab(n){
   ['videos','flows','animations','trim','words','bin'].forEach(t=>{
