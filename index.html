@@ -7489,7 +7489,7 @@ async function exportFullEditedVideo(){
   const multiSourceIds=[...new Set(sorted.map(fr=>fr.videoId).filter(Boolean))];
   const fullDefaultFrameKey=exportPhoneFrameKey(canvasOptions.frame);
   if(src){
-    const ok=await exportSourceEditedVideo(src,_appN+'_full',{frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),transparentBackground:true,frameEvents:[],frameKey:fullDefaultFrameKey,requireFrameAsset:true});
+    const ok=await exportSourceEditedVideoWithRetry(src,_appN+'_full',{frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),transparentBackground:true,frameEvents:[],frameKey:fullDefaultFrameKey,requireFrameAsset:true});
     if(!ok)await reconstructVideo(sorted,_appN+'_full',{transparentBackground:true,frameEventsByVideoId:{},frameKey:fullDefaultFrameKey,requireFrameAsset:true});
   }else if(multiSourceIds.length>1){
     const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb'),progD=document.getElementById('vex-pd');
@@ -7548,7 +7548,7 @@ async function exportOneFlowVideo(fid){
   if(src&&frs.length){
     const secs=frs.map(frameSec).filter(s=>s!=null);
     const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
-    const ok=await exportSourceEditedVideo(src,fl?_appNf+'_'+fl.name:'flow',{
+    const ok=await exportSourceEditedVideoWithRetry(src,fl?_appNf+'_'+fl.name:'flow',{
       start:Math.max(0,Math.min(...secs)-pad),
       end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),
       frames:src.frames,
@@ -7573,7 +7573,7 @@ async function exportAllFlowVideos(){
     if(src&&frs.length){
       const secs=frs.map(frameSec).filter(s=>s!=null);
       const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
-      const ok=await exportSourceEditedVideo(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),format:'webm',transparentBackground:true,frameKey:exportPhoneFrameKey(canvasOptions.frame),requireFrameAsset:true});
+      const ok=await exportSourceEditedVideoWithRetry(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),format:'webm',transparentBackground:true,frameKey:exportPhoneFrameKey(canvasOptions.frame),requireFrameAsset:true});
       if(!ok)await reconstructVideo(frs,fl.name,{transparentBackground:true,frameKey:exportPhoneFrameKey(canvasOptions.frame),requireFrameAsset:true});
     }else await reconstructVideo(frs,fl.name,{transparentBackground:true,frameKey:exportPhoneFrameKey(canvasOptions.frame),requireFrameAsset:true});
     await yieldUI(300);
@@ -8535,6 +8535,13 @@ async function exportSourceEditedVideo(v,label,opts={}){
   ]);
   cleanup();
   return result;
+}
+
+async function exportSourceEditedVideoWithRetry(v,label,opts={}){
+  const first=await exportSourceEditedVideo(v,label,opts);
+  if(first)return first;
+  try{await yieldUI(650);}catch(e){}
+  return await exportSourceEditedVideo(v,label,opts);
 }
 
 async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
@@ -9702,7 +9709,7 @@ async function exportZip(vid){
       if(v.objectURL&&!v.needsTranscode){
         try{
           setLdPb(8,`Rendering edited video ${videoSeq} for ZIP...`);
-          const rendered=await exportSourceEditedVideo(v,`${safeName}_edited`,{
+      const rendered=await exportSourceEditedVideoWithRetry(v,`${safeName}_edited`,{
             returnBlob:true,
             silent:true,
             format:'webm',
