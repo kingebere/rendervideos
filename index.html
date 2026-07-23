@@ -719,6 +719,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <div style="font-weight:700;font-size:12px;margin-bottom:3px;display:flex;align-items:center;gap:5px">🎞️ Full Edited Video <span style="font-size:9px;font-weight:400;color:var(--m);font-family:'DM Mono',monospace;margin-left:auto" id="full-fc"></span></div>
       <div style="font-size:10px;color:var(--m);margin-bottom:8px;line-height:1.6">All remaining frames in order — deleted frames gone, all edits baked in.</div>
       <button class="btn bp" style="width:100%" id="vex-full-btn" onclick="exportFullEditedVideo()">⬇ Download Full Edited Video</button>
+      <button class="btn bgn" style="width:100%;margin-top:7px" id="vex-parts-btn" onclick="exportFiveMinuteVideoParts()">⬇ Download 5-min Parts</button>
+      <div style="font-size:9px;color:var(--m);margin-top:6px;line-height:1.5;font-family:'DM Mono',monospace">Parts adjust around flows and animations so a protected range stays together.</div>
     </div>
     <div><div class="mst" style="margin-bottom:5px">By Flow</div><div id="vex-flows"></div></div>
     <div id="vex-prog" style="display:none;background:var(--s2);border-radius:6px;padding:8px 10px">
@@ -7569,6 +7571,118 @@ async function exportFullEditedVideo(){
   }else await reconstructVideo(sorted,_appN+'_full',{transparentBackground:true,frameEventsByVideoId:{},frameKey:fullDefaultFrameKey,requireFrameAsset:true});
   disableVexBtns(false);
 }
+async function exportFiveMinuteVideoParts(){
+  const sorted=exportableFramesInVideoOrder(allFrames());
+  const _appN=(document.getElementById('exp-appname')?.value||'').trim()||'export';
+  const sourceIds=[...new Set(sorted.map(fr=>fr.videoId).filter(Boolean))];
+  const targetVideos=videos.filter(v=>sourceIds.includes(v.id)&&v.file&&v.objectURL&&(Number(v.duration)||0)>0);
+  if(!targetVideos.length){toast('⚠️','No source video available for parts');return;}
+  const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb'),progD=document.getElementById('vex-pd');
+  const frameKey=exportPhoneFrameKey(canvasOptions.frame);
+  const removeStatusBar=exportStatusBarEnabled('video');
+  disableVexBtns(true);
+  zipCancelFlag=false;
+  if(prog){prog.style.display='block';}
+  if(progB)progB.style.width='0%';
+  await ensureAnimationsReadyForChunkExport(targetVideos,msg=>{if(progT)progT.textContent=msg;});
+  const plan=planFiveMinuteVideoChunks(targetVideos,300);
+  if(!plan.chunks.length){if(prog)prog.style.display='none';disableVexBtns(false);toast('⚠️','Nothing to export');return;}
+  const manifest={
+    title:_appN,
+    exportedAt:new Date().toISOString(),
+    mode:'five-minute-video-parts',
+    chunkTargetSec:300,
+    durationSec:plan.duration,
+    durationFmt:fmt(plan.duration),
+    videoCount:targetVideos.length,
+    protectedIntervalCount:plan.protectedIntervals.length,
+    parts:[]
+  };
+  const started=performance.now();
+  try{
+    for(const chunk of plan.chunks){
+      if(zipCancelFlag)break;
+      const rangesByVideoId=rangesByVideoIdForEffectiveSessionRange(targetVideos,chunk.start,chunk.end);
+      const partBase=`${_appN}_part_${String(chunk.index).padStart(2,'0')}_${exportTimeName(chunk.start)}-${exportTimeName(chunk.end)}`;
+      if(progT)progT.textContent=`Rendering part ${chunk.index}/${plan.chunks.length}...`;
+      if(progB)progB.style.width='0%';
+      if(progD)progD.textContent=`${fmt(chunk.start)}-${fmt(chunk.end)} · ${fmt(chunk.duration)}`;
+      let rendered=await renderCombinedSourceEditedVideo(targetVideos,partBase,{
+        rangesByVideoId,
+        includeCuts:false,
+        removeStatusBar,
+        fps:longSafeVideoExportFps(chunk.duration,60),
+        transparentBackground:true,
+        frameEventsByVideoId:{},
+        frameKey,
+        requireFrameAsset:true,
+        videoBitsPerSecond:12_000_000,
+        maxRenderMs:exportRenderTimeoutMs(chunk.duration,{timeoutMs:Math.max(180000,chunk.duration*1800+90000)}),
+        shouldCancel:()=>zipCancelFlag,
+        onProgress:(done,total)=>{
+          if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
+          if(progD)progD.textContent=`part ${chunk.index}/${plan.chunks.length} · ${fmt(done)} / ${fmt(total)}`;
+        }
+      });
+      if(!rendered&& !zipCancelFlag){
+        if(progT)progT.textContent=`Retrying part ${chunk.index} at 24fps...`;
+        rendered=await renderCombinedSourceEditedVideo(targetVideos,partBase,{
+          rangesByVideoId,
+          includeCuts:false,
+          removeStatusBar,
+          fps:24,
+          transparentBackground:true,
+          frameEventsByVideoId:{},
+          frameKey,
+          requireFrameAsset:true,
+          videoBitsPerSecond:8_000_000,
+          maxRenderMs:exportRenderTimeoutMs(chunk.duration,{timeoutMs:Math.max(240000,chunk.duration*2400+120000)}),
+          shouldCancel:()=>zipCancelFlag,
+          onProgress:(done,total)=>{
+            if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
+            if(progD)progD.textContent=`retry ${chunk.index}/${plan.chunks.length} · ${fmt(done)} / ${fmt(total)}`;
+          }
+        });
+      }
+      if(!rendered||!rendered.blob){
+        manifest.parts.push({index:chunk.index,file:'',startSec:chunk.start,endSec:chunk.end,durationSec:chunk.duration,status:zipCancelFlag?'cancelled':'failed',adjusted:chunk.adjusted,protected:chunk.protected});
+        if(zipCancelFlag)break;
+        toast('⚠️',`Part ${chunk.index} failed`);
+        continue;
+      }
+      const ext=rendered.ext||'mp4';
+      _triggerDownload(rendered.blob,partBase,ext);
+      manifest.parts.push({
+        index:chunk.index,
+        file:`${partBase}.${ext}`,
+        startSec:chunk.start,
+        endSec:chunk.end,
+        durationSec:chunk.duration,
+        startFmt:fmt(chunk.start),
+        endFmt:fmt(chunk.end),
+        durationFmt:fmt(chunk.duration),
+        status:'downloaded',
+        adjusted:chunk.adjusted,
+        protected:chunk.protected.map(p=>({type:p.type,id:p.id,label:p.label,startSec:p.start,endSec:p.end})),
+        rangesByVideoId,
+        engine:rendered.engine||'renderer',
+        fps:rendered.fps||null,
+        size:rendered.blob.size||0,
+        renderMs:rendered.renderMs||null
+      });
+      if(progB)progB.style.width='100%';
+      await yieldUI(900);
+    }
+    manifest.elapsedMs=Math.round(performance.now()-started);
+    const manifestBlob=new Blob([JSON.stringify(manifest,null,2)],{type:'application/json'});
+    _triggerDownload(manifestBlob,`${_appN}_video_parts_manifest`,'json');
+    const ok=manifest.parts.filter(p=>p.status==='downloaded').length;
+    toast(zipCancelFlag?'⚠️':'Download',`${ok}/${plan.chunks.length} video parts ready`);
+  }finally{
+    if(prog)prog.style.display='none';
+    disableVexBtns(false);
+  }
+}
 async function exportOneFlowVideo(fid){
   const fl=flows.find(f=>f.id===fid);
   const frs=exportableFramesInVideoOrder(allFrames().filter(fr=>fr.flows.includes(fid)));
@@ -7611,7 +7725,7 @@ async function exportAllFlowVideos(){
   disableVexBtns(false);toast('✓',`${active.length} flow videos downloaded`);
 }
 function disableVexBtns(on){
-  ['vex-all-btn','vex-full-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=on;});
+  ['vex-all-btn','vex-full-btn','vex-parts-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=on;});
   document.querySelectorAll('#vex-flows .btn').forEach(b=>b.disabled=on);
 }
 function _sourceVideoForFrames(frameList){
@@ -8394,6 +8508,144 @@ function longSafeVideoExportFps(durationSec=0,maxFps=60){
   const fps=selectedVideoExportFps(maxFps);
   return Number(durationSec)>300?Math.min(30,fps):fps;
 }
+function rawRangesForEffectiveVideoRange(v,effStart=0,effEnd=0){
+  if(!v)return[];
+  const lo=Math.max(0,Number(effStart)||0);
+  const hi=Math.max(lo,Number(effEnd)||0);
+  if(!(hi>lo))return[];
+  const segs=_sourceSegments(v,0,Number(v.duration)||0,true);
+  const ranges=[];
+  let acc=0;
+  for(const seg of segs){
+    const len=Math.max(0,seg.end-seg.start);
+    const segEffStart=acc,segEffEnd=acc+len;
+    const a=Math.max(lo,segEffStart),b=Math.min(hi,segEffEnd);
+    if(b>a+0.001)ranges.push({start:seg.start+(a-segEffStart),end:seg.start+(b-segEffStart)});
+    acc=segEffEnd;
+    if(acc>=hi)break;
+  }
+  return ranges.filter(r=>r.end>r.start+0.001);
+}
+function rangesByVideoIdForEffectiveSessionRange(targetVideos,startSec,endSec){
+  const start=Math.max(0,Number(startSec)||0);
+  const end=Math.max(start,Number(endSec)||0);
+  const out={};
+  (targetVideos||[]).forEach(v=>{
+    const vs=effectiveSessionStartSec(v.id,targetVideos);
+    const ve=vs+effectiveVideoDuration(v);
+    const a=Math.max(start,vs),b=Math.min(end,ve);
+    if(b>a+0.001){
+      const ranges=rawRangesForEffectiveVideoRange(v,a-vs,b-vs);
+      if(ranges.length)out[v.id]=ranges;
+    }
+  });
+  return out;
+}
+function protectedFlowIntervalsForChunks(targetVideos){
+  const frames=exportableFramesInVideoOrder((targetVideos||[]).flatMap(v=>v.frames||[]));
+  const intervals=[];
+  const active=flowExportOrderForFrames(flows.filter(f=>frames.some(fr=>fr.flows?.includes(f.id))),frames);
+  active.forEach((flow,idx)=>{
+    const refs=frames.filter(fr=>fr.flows?.includes(flow.id));
+    const times=refs.map(fr=>effectiveGlobalFrameSec(fr,targetVideos)).filter(Number.isFinite).sort((a,b)=>a-b);
+    if(!times.length)return;
+    const pad=Math.max(0.15,Math.min(1,_medianFrameStep(refs)/2));
+    intervals.push({
+      type:'flow',
+      id:flow.id,
+      label:flow.name||`Flow ${idx+1}`,
+      start:Math.max(0,times[0]-pad),
+      end:Math.min(totalEffectiveDuration(targetVideos),times[times.length-1]+pad)
+    });
+  });
+  return intervals.filter(x=>x.end>x.start+0.05);
+}
+function protectedAnimationIntervalsForChunks(targetVideos){
+  const duration=totalEffectiveDuration(targetVideos);
+  const offsets=new Map((targetVideos||[]).map(v=>[v.id,effectiveSessionStartSec(v.id,targetVideos)]));
+  return (animationsForExport(targetVideos).animations||[]).map(a=>{
+    const source=getVideo(a.sourceVideoId);
+    const localStart=Number(a.localStartSec??a.sourceStartSec??a.startLocalSec);
+    const localEnd=Number(a.localEndSec??a.sourceEndSec??a.endLocalSec);
+    let start=Number(a.startSec)||0,end=Number(a.endSec)||0;
+    if(source&&Number.isFinite(localStart)&&Number.isFinite(localEnd)){
+      start=(offsets.get(source.id)||0)+effectiveVideoTimeAt(source,localStart);
+      end=(offsets.get(source.id)||0)+effectiveVideoTimeAt(source,localEnd);
+    }
+    const pad=0.25;
+    return {
+      type:'animation',
+      id:a.id||a.key||animationStableKey(a),
+      label:animationTypeLabel(a.type||'animation'),
+      start:Math.max(0,start-pad),
+      end:Math.min(duration,end+pad)
+    };
+  }).filter(x=>x.end>x.start+0.05);
+}
+function mergeProtectedChunkIntervals(items,duration){
+  const clean=(items||[])
+    .map(x=>({...x,start:Math.max(0,Math.min(duration,Number(x.start)||0)),end:Math.max(0,Math.min(duration,Number(x.end)||0))}))
+    .filter(x=>x.end>x.start+0.05)
+    .sort((a,b)=>a.start-b.start);
+  const merged=[];
+  clean.forEach(x=>{
+    const last=merged[merged.length-1];
+    if(last&&x.start<=last.end+0.05){
+      last.end=Math.max(last.end,x.end);
+      last.items.push(x);
+    }else merged.push({start:x.start,end:x.end,items:[x]});
+  });
+  return merged;
+}
+function planFiveMinuteVideoChunks(targetVideos,chunkSec=300){
+  const duration=totalEffectiveDuration(targetVideos);
+  if(!(duration>0))return{duration:0,chunks:[],protectedIntervals:[]};
+  const protectedIntervals=mergeProtectedChunkIntervals([
+    ...protectedFlowIntervalsForChunks(targetVideos),
+    ...protectedAnimationIntervalsForChunks(targetVideos)
+  ],duration);
+  const chunks=[];
+  let start=0,guard=0;
+  while(start<duration-0.05&&guard++<1000){
+    let end=Math.min(duration,start+chunkSec);
+    if(end<duration-0.05){
+      let hit=protectedIntervals.find(p=>end>p.start+0.001&&end<p.end-0.001);
+      const touched=[];
+      while(hit&&guard++<1000){
+        touched.push(hit);
+        const back=hit.start;
+        const forward=Math.min(duration,hit.end);
+        if(back>start+45&&back-start>=chunkSec*.45){
+          end=back;
+          break;
+        }
+        end=forward;
+        hit=protectedIntervals.find(p=>end>p.start+0.001&&end<p.end-0.001);
+      }
+      if(end<=start+0.25)end=Math.min(duration,start+chunkSec);
+      chunks.push({index:chunks.length+1,start,end,duration:end-start,adjusted:touched.length>0,protected:touched.flatMap(x=>x.items||[])});
+    }else{
+      chunks.push({index:chunks.length+1,start,end,duration:end-start,adjusted:false,protected:[]});
+    }
+    start=end;
+  }
+  return{duration,chunks,protectedIntervals};
+}
+async function ensureAnimationsReadyForChunkExport(targetVideos,setStatus){
+  if(animationsForExport(targetVideos).animations.length)return;
+  if(!(targetVideos||[]).some(v=>v.frames?.length))return;
+  try{
+    setStatus&&setStatus('Checking animations before chunking...');
+    const result=await detectExportAnimations(targetVideos,{excludeKeys:removedAnimationKeys});
+    animations=result.animations||[];
+    animationScanStats=result.stats||null;
+    renderAnimations();
+    if(_stageVid)_buildTimeline(_stageVid,combinedSessionMode()?totalRawVideoDuration():(document.getElementById('vid-main')?.duration||_stageVid.duration||0));
+    scheduleSaveSession();
+  }catch(e){
+    console.warn('chunk export animation preflight failed',e);
+  }
+}
 async function exportSourceEditedVideo(v,label,opts={}){
   if(!v||!v.objectURL)return false;
   if(typeof MediaRecorder==='undefined')return false;
@@ -8760,7 +9012,10 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     for(const src of sources){
       src.island=removeStatusBar?await detectSourceIslandFromTrack(VideoSampleSink,src.track,src.v,src.sourceW,src.sourceH):null;
       src.layout=fastCompositorLayout(size.w,size.h,src.sourceW,src.sourceH,frameKey,src.island);
-      const ranges=[{start:0,end:Number(src.v.duration)||src.duration||0}];
+      const rangesByVideoId=opts.rangesByVideoId||null;
+      const ranges=Array.isArray(rangesByVideoId?.[src.v.id])&&rangesByVideoId[src.v.id].length
+        ? rangesByVideoId[src.v.id]
+        : [{start:0,end:Number(src.v.duration)||src.duration||0}];
       const segments=ranges.flatMap(range=>_sourceSegments(src.v,Math.max(0,Number(range.start)||0),Math.min(Number(src.v.duration)||src.duration||0,Number(range.end)||0),opts.includeCuts!==false));
       if(src.audioTrack&&audioSource){
         const packetSink=new EncodedPacketSink(src.audioTrack);
