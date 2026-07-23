@@ -699,36 +699,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     </div>
   </div>
 </div>
-<!-- Video export modal -->
-<div class="modal-bg" id="vex-modal">
-  <div class="modal" style="max-width:460px">
-    <div class="mt">🎬 Export Video</div>
-    <div style="display:flex;gap:9px;flex-wrap:wrap">
-      <div style="flex:1;min-width:140px"><div class="mst" style="margin-bottom:4px">Format</div>
-        <div class="fmtseg" id="fmt-seg">
-          <div class="fmtb on" data-fmt="webm" onclick="setVexFmt('webm',this)">WebM<span class="fs">Always works</span></div>
-          <div class="fmtb" data-fmt="mp4" onclick="setVexFmt('mp4',this)">MP4<span class="fs">Wide compat</span></div>
-        </div>
-      </div>
-      <div><div class="mst" style="margin-bottom:4px">FPS</div>
-        <select class="ni sel" id="vex-fps"><option value="6">6</option><option value="12">12</option><option value="24">24</option><option value="30">30</option><option value="60" selected>60</option></select>
-      </div>
-    </div>
-    <label class="eor"><input type="checkbox" id="vex-statusbar" checked/> Remove status bar on export</label>
-    <div style="background:#2563eb10;border:1.5px solid #2563eb40;border-radius:8px;padding:11px">
-      <div style="font-weight:700;font-size:12px;margin-bottom:3px;display:flex;align-items:center;gap:5px">🎞️ Full Edited Video <span style="font-size:9px;font-weight:400;color:var(--m);font-family:'DM Mono',monospace;margin-left:auto" id="full-fc"></span></div>
-      <div style="font-size:10px;color:var(--m);margin-bottom:8px;line-height:1.6">All remaining frames in order — deleted frames gone, all edits baked in.</div>
-      <button class="btn bp" style="width:100%" id="vex-full-btn" onclick="exportFullEditedVideo()">⬇ Download Full Edited Video</button>
-    </div>
-    <div><div class="mst" style="margin-bottom:5px">By Flow</div><div id="vex-flows"></div></div>
-    <div id="vex-prog" style="display:none;background:var(--s2);border-radius:6px;padding:8px 10px">
-      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--m);margin-bottom:4px" id="vex-pt">Building…</div>
-      <div class="vpbw"><div class="vpb" id="vpb"></div></div>
-      <div style="font-size:9px;color:var(--m);margin-top:3px;font-family:'DM Mono',monospace" id="vex-pd"></div>
-    </div>
-    <div class="mf"><button class="btn bg" onclick="closeVexModal()">Close</button><button class="btn bgn" id="vex-all-btn" onclick="exportAllFlowVideos()">⬇ All Flows</button></div>
-  </div>
-</div>
 <!-- Export modal -->
 <div class="modal-bg" id="exp-modal">
   <div class="modal" style="max-width:420px">
@@ -765,7 +735,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
   </div>
   <div class="top-r">
     <button class="btn bg sm" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">🌙</button>
-    <button class="btn bg sm" onclick="openVexModal()" id="vex-btn" disabled>🎬</button>
     <button class="btn bgo" id="exp-btn" onclick="openExpModal()" disabled>⬇ Export</button>
   </div>
 </div>
@@ -5654,7 +5623,7 @@ function updateStatsQuick(){
 function updateStats(){updateStatsQuick();updateFSum();renderAnimations();}
 function toggleExpBtns(){
   const has=hasExportableVideoOrFrames();
-  ['exp-btn','exp-btn2','vex-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=!has;});
+  ['exp-btn','exp-btn2'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=!has;});
 }
 
 // ─── VIDEO LIST ──────────────────────────────────────────────────────────────
@@ -10852,7 +10821,7 @@ async function exportZip(vid,opts={}){
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 function toggleExpBtns(){
   const has=hasExportableVideoOrFrames();
-  ['exp-btn','exp-btn2','vex-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=!has;});
+  ['exp-btn','exp-btn2'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=!has;});
 }
 function showLd(t){document.getElementById('ldt').textContent=t;document.getElementById('ldov').classList.add('on');}
 function hideLd(){document.getElementById('ldov').classList.remove('on');document.getElementById('ldp').style.width='0%';}
