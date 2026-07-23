@@ -9000,6 +9000,13 @@ function sourceStatusPatchBgs(ctx,sourceW,sourceH,island){
     right:sampleCanvasMedian(ctx,rightRect,island,step,fallback)
   };
 }
+function eraseSourceStatusbarForComposition(canvas,island=null){
+  if(!canvas||!canvas.width||!canvas.height)return null;
+  const ctx=get2dCtx(canvas,true,true);
+  const protect=island?paddedStatusIslandRect(island,canvas.width,canvas.height):null;
+  try{eraseStatusRecordingArtifacts(ctx,protect);}catch(e){}
+  return applyStatusBarRemoval(ctx,0,0,canvas.width,canvas.height,{protectRect:protect,islandRect:island});
+}
 function fastCompositorLayout(W,H,sourceW,sourceH,frameKey,sourceIslandRect){
   const phone=getPhoneRect(W,H,frameKey);
   const screen=getPhoneScreenRect(phone,frameKey);
@@ -9183,7 +9190,8 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       }
       cleanCtx.clearRect(0,0,clean.width,clean.height);
       sample.draw(cleanCtx,0,0,clean.width,clean.height);
-      if(job.src.island)removeRecordingIndicator(clean,job.src.island);
+      if(removeStatusBar)eraseSourceStatusbarForComposition(clean,job.src.island);
+      else if(job.src.island)removeRecordingIndicator(clean,job.src.island);
       job.src.keyboardCache=job.src.keyboardCache||{step:.25,lastT:null,lastRect:null};
       applyKeyboardBlurThrottled(clean,job.src.keyboardCache,localT);
       job.src.statusBgCache=job.src.statusBgCache||{step:.5,lastT:null,bg:null};
