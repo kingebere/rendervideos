@@ -10356,10 +10356,16 @@ async function exportZip(vid,opts={}){
     videos:manifestVideos,
     flows:[],
     screenshots:[],
-    animations:[]
+    animations:[],
+    flowRanges:[],
+    redactions:[],
+    cuts:[]
   };
   const dbScreens=['screenshot_id,video,flow,time,time_sec,image_file,original_image_file,redaction_count'];
   const dbFlows=['flow_id,index,name,folder,screenshot_count,start_sec,end_sec'];
+  const dbFlowRanges=['range_id,flow_id,flow_name,video_id,video_name,start_sec,end_sec,duration_sec,source_session_start_sec,source_session_end_sec,source_start_sec,source_end_sec'];
+  const dbRedactions=['redaction_id,video_id,video_name,start_sec,end_sec,duration_sec,box_index,x,y,w,h,source,reason,effect'];
+  const dbCuts=['cut_id,video_id,video_name,start_sec,end_sec,duration_sec'];
   const dbAnimations=['animation_id,index,type,start_time,end_time,duration_time,start_sec,end_sec,duration_sec,source_video,source_start_sec,source_end_sec,confidence,ffmpeg_cut'];
   const allFlowsIndex=['flow_index,flow_name,folder,screenshot_count,start_sec,end_sec'];
   const inventory=['path,type,bytes'];
@@ -10382,6 +10388,56 @@ async function exportZip(vid,opts={}){
     sourceSessionStartSec:r.start,
     sourceSessionEndSec:r.end
   })).filter(r=>r.end>r.start+0.001);
+  directFlowRefs.forEach(r=>{
+    const fl=flows.find(f=>f.id===r.flowId);
+    const v=getVideo(r.videoId);
+    const sourceStart=Math.max(0,(Number(r.sourceSessionStartSec)||0)-videoStartSec(r.videoId));
+    const sourceEnd=Math.max(sourceStart,(Number(r.sourceSessionEndSec)||0)-videoStartSec(r.videoId));
+    const meta={
+      id:r.id||`${r.flowId}_${Math.round(r.start*1000)}_${Math.round(r.end*1000)}`,
+      flowId:r.flowId,
+      flowName:fl?.name||'',
+      videoId:r.videoId,
+      videoName:v?.name||'',
+      startSec:+r.start.toFixed(3),
+      endSec:+r.end.toFixed(3),
+      durationSec:+Math.max(0,r.end-r.start).toFixed(3),
+      sourceSessionStartSec:+(Number(r.sourceSessionStartSec)||r.start).toFixed(3),
+      sourceSessionEndSec:+(Number(r.sourceSessionEndSec)||r.end).toFixed(3),
+      sourceStartSec:+sourceStart.toFixed(3),
+      sourceEndSec:+sourceEnd.toFixed(3)
+    };
+    manifestData.flowRanges.push(meta);
+    dbFlowRanges.push([meta.id,meta.flowId,csvCell(meta.flowName),meta.videoId,csvCell(meta.videoName),meta.startSec.toFixed(3),meta.endSec.toFixed(3),meta.durationSec.toFixed(3),meta.sourceSessionStartSec.toFixed(3),meta.sourceSessionEndSec.toFixed(3),meta.sourceStartSec.toFixed(3),meta.sourceEndSec.toFixed(3)].join(','));
+  });
+  targetVideos.forEach(v=>{
+    (v.cutRanges||[]).forEach((c,idx)=>{
+      const start=Math.max(0,Number(c.start)||0),end=Math.max(start,Number(c.end)||0);
+      const meta={id:`${v.id}_cut_${idx+1}`,videoId:v.id,videoName:v.name,startSec:+start.toFixed(3),endSec:+end.toFixed(3),durationSec:+Math.max(0,end-start).toFixed(3)};
+      manifestData.cuts.push(meta);
+      dbCuts.push([meta.id,meta.videoId,csvCell(meta.videoName),meta.startSec.toFixed(3),meta.endSec.toFixed(3),meta.durationSec.toFixed(3)].join(','));
+    });
+    (v.redactionRanges||[]).forEach((rr,idx)=>{
+      const start=Math.max(0,Number(rr.start)||0),end=Math.max(start,Number(rr.end)||0);
+      (Array.isArray(rr.boxes)?rr.boxes:[]).forEach((box,boxIdx)=>{
+        const meta={
+          id:rr.id||`${v.id}_redact_${idx+1}`,
+          videoId:v.id,
+          videoName:v.name,
+          startSec:+start.toFixed(3),
+          endSec:+end.toFixed(3),
+          durationSec:+Math.max(0,end-start).toFixed(3),
+          boxIndex:boxIdx+1,
+          box:{x:+(Number(box.x)||0).toFixed(6),y:+(Number(box.y)||0).toFixed(6),w:+(Number(box.w)||0).toFixed(6),h:+(Number(box.h)||0).toFixed(6)},
+          source:box.source||'manual',
+          reason:box.reason||'manual-video',
+          effect:box.effect||'blur'
+        };
+        manifestData.redactions.push(meta);
+        dbRedactions.push([meta.id,meta.videoId,csvCell(meta.videoName),meta.startSec.toFixed(3),meta.endSec.toFixed(3),meta.durationSec.toFixed(3),meta.boxIndex,meta.box.x,meta.box.y,meta.box.w,meta.box.h,csvCell(meta.source),csvCell(meta.reason),csvCell(meta.effect)].join(','));
+      });
+    });
+  });
   flowSortForTagging(flows.filter(f=>directFlowRefs.some(r=>r.flowId===f.id))).forEach(f=>{
     if(!usedFlowIds.has(f.id))usedFlowIds.add(f.id);
     const idx=[...usedFlowIds].indexOf(f.id);
@@ -10599,7 +10655,7 @@ async function exportZip(vid,opts={}){
       await yieldUI();
     }
   }
-  if(!selectedFramesForZip.length&&directFlowRefs.length){
+  if(false&&!selectedFramesForZip.length&&directFlowRefs.length){
     setLdPb(78,'Capturing direct-flow reference images...');
     for(const r of directFlowRefs){
       if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
@@ -10749,6 +10805,9 @@ async function exportZip(vid,opts={}){
     dbFolder.file('export_timing.json',JSON.stringify(exportTimingReport,null,2),{compression:'STORE'});
     dbFolder.file('screenshots.csv',dbScreens.join('\n'),{compression:'STORE'});
     dbFolder.file('flows.csv',dbFlows.join('\n'),{compression:'STORE'});
+    dbFolder.file('flow_ranges.csv',dbFlowRanges.join('\n'),{compression:'STORE'});
+    dbFolder.file('redactions.csv',dbRedactions.join('\n'),{compression:'STORE'});
+    dbFolder.file('cuts.csv',dbCuts.join('\n'),{compression:'STORE'});
     dbFolder.file('animations.csv',dbAnimations.join('\n'),{compression:'STORE'});
     dbFolder.file('sessions.csv','session_id,title,exported_at\n'+`session_${sessionId},${csvCell(appName)},${csvCell(new Date().toISOString())}` ,{compression:'STORE'});
     dbFolder.file('videos.csv','video_id,name,duration_raw,duration_effective,cuts\n'+targetVideos.map(v=>`${v.id},${csvCell(v.name)},${v.duration||0},${effectiveVideoDuration(v).toFixed(3)},${(v.cutRanges||[]).length}`).join('\n'),{compression:'STORE'});
@@ -10757,14 +10816,17 @@ async function exportZip(vid,opts={}){
   if(expMan){
     sessionRoot.file('manifest.json',JSON.stringify(manifestData,null,2),{compression:'STORE'});
     dbFolder.file('session.json',JSON.stringify(manifestData.session,null,2),{compression:'STORE'});
-    dbFolder.file('db_manifest.json',JSON.stringify({tables:['sessions.csv','videos.csv','flows.csv','screenshots.csv','animations.csv','file_inventory.csv'],exportedAt:new Date().toISOString()},null,2),{compression:'STORE'});
+    dbFolder.file('db_manifest.json',JSON.stringify({tables:['sessions.csv','videos.csv','flows.csv','flow_ranges.csv','redactions.csv','cuts.csv','screenshots.csv','animations.csv','file_inventory.csv'],exportedAt:new Date().toISOString()},null,2),{compression:'STORE'});
     dbFolder.file('flows.jsonl',manifestData.flows.map(f=>JSON.stringify(f)).join('\n'),{compression:'STORE'});
     dbFolder.file('screenshots.jsonl',manifestData.screenshots.map(s=>JSON.stringify(s)).join('\n'),{compression:'STORE'});
     dbFolder.file('animations.jsonl',manifestData.animations.map(a=>JSON.stringify(a)).join('\n'),{compression:'STORE'});
+    dbFolder.file('flow_ranges.jsonl',manifestData.flowRanges.map(r=>JSON.stringify(r)).join('\n'),{compression:'STORE'});
+    dbFolder.file('redactions.jsonl',manifestData.redactions.map(r=>JSON.stringify(r)).join('\n'),{compression:'STORE'});
+    dbFolder.file('cuts.jsonl',manifestData.cuts.map(c=>JSON.stringify(c)).join('\n'),{compression:'STORE'});
   }
   sessionRoot.file('animations.json',JSON.stringify({detection:manifestData.animationDetection,animations:manifestData.animations},null,2),{compression:'STORE'});
   sessionRoot.file('flows_reference.txt',flowInfos.join('\n'),{compression:'STORE'});
-  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- ${manifestData.videoFile||'video.webm'} is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- flow videos are intentionally not exported; cut them later from the master video using manifest.json flow start/end times\n- animations.json contains certain animation metadata only; animation videos are intentionally not exported\n- animation start/end values use seconds with milliseconds so short clips never collapse to 0:00\n- each animation includes an ffmpegCut command that can be run against the master video after export\n- all exported video uses one iPhone mockup asset from start to finish; flow folders keep the same iphoneFrame value for reference\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, flow_info.txt, and timing metadata\n- flows/NNN_Flow_Name/originals contains original JPEG copies only for screenshots that had redactions\n- flows/NNN_Flow_Name/redactions.json links each redacted screenshot to its original copy and redaction boxes\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
+  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- ${manifestData.videoFile||'video.webm'} is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- direct-video exports do not generate PNG/JPEG files unless frames were manually extracted before export\n- flow videos are intentionally not exported; cut them later from the master video using manifest.json flow start/end times or _db/flow_ranges.csv\n- animations.json contains certain animation metadata only; animation videos are intentionally not exported\n- animation start/end values use seconds with milliseconds so short clips never collapse to 0:00\n- each animation includes an ffmpegCut command that can be run against the master video after export\n- all exported video uses one iPhone mockup asset from start to finish; flow folders keep the same iphoneFrame value for reference\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains flow_info.txt and timing metadata; image files only exist when screenshot frames were exported\n- _db/flow_ranges.csv contains exact flow ranges for cutting later\n- _db/redactions.csv contains exact video redaction boxes/time ranges baked into the master video\n- _db/cuts.csv contains exact cut ranges baked into the master video\n- flows/NNN_Flow_Name/originals contains original JPEG copies only for screenshots that had redactions\n- flows/NNN_Flow_Name/redactions.json links each redacted screenshot to its original copy and redaction boxes\n- untagged contains screenshots without a flow only when screenshot frames are exported\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
   sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nAnimations detected: ${manifestData.animations.length}\nStatus bar removed on export: ${removeStatusBar}\nEdited master videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\nFlow videos exported into ZIP: 0\nAnimation videos exported into ZIP: 0\nMaster render: ${exportTimingReport.masterRenderSec}s\nMaster render engine: ${manifestData.videoEngine||'fallback'}\nMaster video file: ${manifestData.videoFile||''}\nAnimation metadata detection: ${exportTimingReport.animationDetectSec}s\nFlow clip/render stage: ${exportTimingReport.flowClipSec}s\n`,{compression:'STORE'});
   setLdPb(94,'Packing Flora-style ZIP...');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
