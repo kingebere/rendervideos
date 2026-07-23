@@ -3294,6 +3294,11 @@ function applyKeyboardBlur(canvas,amount=18){
   if(!AUTO_KEYBOARD_BLUR||!canvas)return null;
   const rect=detectKeyboardRect(canvas);
   if(!rect)return null;
+  paintKeyboardBlurRect(canvas,rect,amount);
+  return rect;
+}
+function paintKeyboardBlurRect(canvas,rect,amount=18){
+  if(!canvas||!rect)return null;
   const ctx=get2dCtx(canvas,true,true);
   if(!ctx)return null;
   const x=Math.max(0,Math.floor(rect.x)),y=Math.max(0,Math.floor(rect.y));
@@ -3317,6 +3322,18 @@ function applyKeyboardBlur(canvas,amount=18){
     blurCanvasRect(ctx,x,y,w,h,Math.max(28,amount*2));
   }
   return rect;
+}
+function applyKeyboardBlurThrottled(canvas,cache,localT,amount=18){
+  if(!AUTO_KEYBOARD_BLUR||!canvas)return null;
+  cache=cache||{};
+  const t=Number.isFinite(localT)?localT:0;
+  const step=Number.isFinite(cache.step)?cache.step:.25;
+  if(cache.lastT==null||Math.abs(t-cache.lastT)>=step){
+    cache.lastT=t;
+    cache.lastRect=detectKeyboardRect(canvas);
+  }
+  if(cache.lastRect)return paintKeyboardBlurRect(canvas,cache.lastRect,amount);
+  return null;
 }
 
 let localUiDetectorEnabled=localStorage.getItem('uilandLocalUiDetectorEnabled')==='1';
@@ -8776,43 +8793,66 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
     await output.start();
     let renderedFrames=0;
+    async function renderSampleFrame(sample,job,localT,outT){
+      if(clean.width!==job.src.sourceW||clean.height!==job.src.sourceH){
+        clean.width=job.src.sourceW;clean.height=job.src.sourceH;
+      }
+      cleanCtx.clearRect(0,0,clean.width,clean.height);
+      sample.draw(cleanCtx,0,0,clean.width,clean.height);
+      if(job.src.island)removeRecordingIndicator(clean,job.src.island);
+      job.src.keyboardCache=job.src.keyboardCache||{step:.25,lastT:null,lastRect:null};
+      applyKeyboardBlurThrottled(clean,job.src.keyboardCache,localT);
+      job.src.statusBgCache=job.src.statusBgCache||{step:.5,lastT:null,bg:null};
+      if(!job.src.statusBgCache.bg||job.src.statusBgCache.lastT==null||Math.abs(localT-job.src.statusBgCache.lastT)>=job.src.statusBgCache.step){
+        job.src.statusBgCache.bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
+        job.src.statusBgCache.lastT=localT;
+      }
+      const bg=job.src.statusBgCache.bg;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.save();
+      roundedRectPath(ctx,job.src.layout.screen.x,job.src.layout.screen.y,job.src.layout.screen.w,job.src.layout.screen.h,job.src.layout.screen.r||Math.max(12,job.src.layout.screen.w*.065));
+      ctx.clip();
+      ctx.imageSmoothingEnabled=true;
+      try{ctx.imageSmoothingQuality='high';}catch(e){}
+      ctx.drawImage(clean,job.src.layout.dr.x,job.src.layout.dr.y,job.src.layout.dr.w,job.src.layout.dr.h);
+      drawRedactionsInRect(ctx,localT,job.src.redactions,job.src.layout.dr,job.src.sourceW,job.src.sourceH,{force:true});
+      if(removeStatusBar)drawFastStatusbarOverlay(ctx,job.src.layout,bg);
+      ctx.restore();
+      ctx.drawImage(job.src.layout.frameLayer,0,0);
+      await canvasSource.add(outT,1/fps,{keyFrame:renderedFrames%Math.max(1,fps*2)===0});
+      if(audioSource&&renderedFrames%Math.max(1,Math.round(fps/2))===0)await addAudioThrough(outT+.75);
+      renderedFrames++;
+      try{opts.onProgress&&opts.onProgress(Math.min(outT,totalDur),totalDur,{frames:renderedFrames});}catch(e){}
+      if(renderedFrames%300===0)await yieldUI();
+    }
     for(const job of renderJobs){
       if(shouldAbort())return null;
-      const times=Array.from({length:job.frames},(_,i)=>job.seg.start+i/fps);
       const sink=new VideoSampleSink(job.src.track);
-      let i=0;
-      for await(const sample of sink.samplesAtTimestamps(times)){
+      let nextT=job.seg.start;
+      const endT=Math.min(job.seg.end,job.seg.start+job.frames/fps);
+      let lastSample=null;
+      for await(const sample of sink.samples(job.seg.start,job.seg.end)){
         if(!sample)continue;
-        if(shouldAbort()){sample.close();return null;}
-        const localT=times[i]??job.seg.start;
-        const outT=job.offset+i/fps;
-        if(clean.width!==job.src.sourceW||clean.height!==job.src.sourceH){
-          clean.width=job.src.sourceW;clean.height=job.src.sourceH;
+        if(shouldAbort()){try{sample.close();}catch(e){};try{lastSample&&lastSample.close();}catch(e){};return null;}
+        if(!lastSample){
+          lastSample=sample;
+          continue;
         }
-        cleanCtx.clearRect(0,0,clean.width,clean.height);
-        sample.draw(cleanCtx,0,0,clean.width,clean.height);
-        if(job.src.island)removeRecordingIndicator(clean,job.src.island);
-        applyKeyboardBlur(clean);
-        const bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
-        ctx.clearRect(0,0,canvas.width,canvas.height);
-        ctx.save();
-        roundedRectPath(ctx,job.src.layout.screen.x,job.src.layout.screen.y,job.src.layout.screen.w,job.src.layout.screen.h,job.src.layout.screen.r||Math.max(12,job.src.layout.screen.w*.065));
-        ctx.clip();
-        ctx.imageSmoothingEnabled=true;
-        try{ctx.imageSmoothingQuality='high';}catch(e){}
-        ctx.drawImage(clean,job.src.layout.dr.x,job.src.layout.dr.y,job.src.layout.dr.w,job.src.layout.dr.h);
-        drawRedactionsInRect(ctx,localT,job.src.redactions,job.src.layout.dr,job.src.sourceW,job.src.sourceH,{force:true});
-        if(removeStatusBar)drawFastStatusbarOverlay(ctx,job.src.layout,bg);
-        ctx.restore();
-        ctx.drawImage(job.src.layout.frameLayer,0,0);
-        await canvasSource.add(outT,1/fps,{keyFrame:renderedFrames%Math.max(1,fps*2)===0});
-        if(audioSource&&renderedFrames%Math.max(1,Math.round(fps/2))===0)await addAudioThrough(outT+.75);
-        renderedFrames++;
-        i++;
-        sample.close();
-        try{opts.onProgress&&opts.onProgress(Math.min(outT,totalDur),totalDur,{frames:renderedFrames});}catch(e){}
-        if(renderedFrames%300===0)await yieldUI();
+        const sampleT=Number.isFinite(sample.timestamp)?sample.timestamp:nextT;
+        while(lastSample&&nextT<=sampleT&&nextT<endT-1e-6){
+          const outT=job.offset+(nextT-job.seg.start);
+          await renderSampleFrame(lastSample,job,nextT,outT);
+          nextT+=1/fps;
+        }
+        try{lastSample.close();}catch(e){}
+        lastSample=sample;
       }
+      while(lastSample&&nextT<endT-1e-6&&!shouldAbort()){
+        const outT=job.offset+(nextT-job.seg.start);
+        await renderSampleFrame(lastSample,job,nextT,outT);
+        nextT+=1/fps;
+      }
+      try{lastSample&&lastSample.close();}catch(e){}
     }
     if(audioSource)await addAudioThrough(totalDur+1);
     const finalizeStart=performance.now();
