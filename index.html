@@ -4766,20 +4766,36 @@ async function addFiles(files){
   const valid=files.filter(f=>(f.type.match(/^video\//)||f.name.match(/\.(mp4|webm|mov)$/i))&&f.name.match(/\.(mp4|webm|mov)$/i));
   if(!valid.length){toast('❌','No valid video files (MP4, WebM, MOV)');return;}
   const added=[];
+  const failed=[];
   for(const f of valid){
     const url=URL.createObjectURL(f);
     const dur=await probeDuration(url);
     const codec=await detectCodec(f,url);
-    const canDecode=!!(dur&&isFinite(dur));
+    const preview=await validateVideoPreviewDecode(url);
+    const canDecode=!!(preview.ok&&preview.duration&&isFinite(preview.duration));
+    if(!preview.ok){
+      failed.push(`${f.name}: ${preview.reason}`);
+      URL.revokeObjectURL(url);
+      continue;
+    }
     const vid={
       id:'v_'+Date.now()+'_'+Math.random().toString(36).slice(2),name:f.name,
-      sizeMB:(f.size/1024/1024).toFixed(1),duration:dur||0,
+      sizeMB:(f.size/1024/1024).toFixed(1),duration:preview.duration||dur||0,
       source:'unknown',objectURL:url,originalObjectURL:url,frames:[],extracted:false,cutRanges:[],flowRanges:[],redactionRanges:[],
-      mimeType:f.type,file:f,codec,needsTranscode:codec==='hevc'&&!canDecode
+      mimeType:f.type,file:f,codec,needsTranscode:codec==='hevc'&&!canDecode,previewDecode:preview
     };
     videos.push(vid);
     added.push(vid);
     if(!activeVideoId){activeVideoId=vid.id;loadVideoStage(vid);}
+  }
+  if(failed.length){
+    toast('⚠️',`Chrome could not preview ${failed.length} video${failed.length!==1?'s':''}. ${failed[0]}`);
+    console.warn('UILand video preview decode failures',failed);
+  }
+  if(!added.length){
+    updateCodecWarning();
+    toggleExpBtns();
+    return;
   }
   renderVideoList();updateVDD();updateStats();toggleExpBtns();
   document.getElementById('ex-btn').disabled=false;
@@ -4840,6 +4856,82 @@ async function probeBlackFrame(url){
     };
     v.onerror=()=>res(false);setTimeout(()=>{v.src='';res(false);},12000);
   });
+}
+async function validateVideoPreviewDecode(url){
+  const result={ok:false,duration:0,width:0,height:0,readyState:0,reason:'unknown'};
+  const v=document.createElement('video');
+  v.muted=true;
+  v.playsInline=true;
+  v.preload='auto';
+  v.crossOrigin='anonymous';
+  v.src=url;
+  try{
+    await new Promise((resolve,reject)=>{
+      const done=()=>{v.onloadedmetadata=null;v.onerror=null;resolve();};
+      v.onloadedmetadata=done;
+      v.onerror=()=>reject(new Error('metadata'));
+      setTimeout(()=>reject(new Error('metadata-timeout')),12000);
+    });
+    result.duration=Number(v.duration)||0;
+    result.width=Number(v.videoWidth)||0;
+    result.height=Number(v.videoHeight)||0;
+    result.readyState=Number(v.readyState)||0;
+    if(!result.width||!result.height){
+      result.reason='no-video-dimensions';
+      return result;
+    }
+    const seekTargets=[Math.min(Math.max(.05,result.duration*.08),Math.max(.05,result.duration-.05)),Math.min(Math.max(.2,result.duration*.35),Math.max(.05,result.duration-.05))].filter(t=>isFinite(t)&&t>=0);
+    let drawn=false,nonBlank=false;
+    for(const t of seekTargets.length?seekTargets:[0]){
+      try{
+        v.currentTime=t;
+        await new Promise(resolve=>{
+          const done=()=>{v.onseeked=null;resolve();};
+          v.onseeked=done;
+          setTimeout(done,4000);
+        });
+      }catch(e){}
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      const c=document.createElement('canvas');
+      c.width=Math.min(96,result.width);
+      c.height=Math.max(1,Math.round(c.width*(result.height/result.width)));
+      const ctx=c.getContext('2d',{alpha:false,willReadFrequently:true});
+      try{
+        ctx.drawImage(v,0,0,c.width,c.height);
+        drawn=true;
+        const data=ctx.getImageData(0,0,c.width,c.height).data;
+        let min=255,max=0,sum=0,count=0;
+        for(let i=0;i<data.length;i+=4){
+          const y=(data[i]+data[i+1]+data[i+2])/3;
+          if(y<min)min=y;if(y>max)max=y;sum+=y;count++;
+        }
+        const avg=sum/Math.max(1,count);
+        if((max-min)>6||avg>8){
+          nonBlank=true;
+          break;
+        }
+      }catch(e){
+        result.reason='canvas-draw-failed';
+      }
+    }
+    if(!drawn){
+      result.reason='frame-draw-failed';
+      return result;
+    }
+    if(!nonBlank){
+      result.reason='blank-frame';
+      return result;
+    }
+    result.ok=true;
+    result.reason='ok';
+    return result;
+  }catch(e){
+    result.reason=e&&e.message?e.message:'decode-error';
+    return result;
+  }finally{
+    v.removeAttribute('src');
+    try{v.load();}catch(e){}
+  }
 }
 function updateCodecWarning(){const w=document.getElementById('codec-warn');if(w)w.style.display=videos.some(v=>v.needsTranscode&&!v.transcoded)?'':'none';}
 
@@ -5670,6 +5762,7 @@ function renderVideoList(){
         <div style="margin-top:2px;display:flex;gap:3px;align-items:center">
           <span class="vsrc ${srcCls}">${src}</span>
           ${v.needsTranscode&&!v.transcoded?'<span style="font-size:8px;color:var(--a2)">⚠️HEVC</span>':''}
+          ${v.previewDecode&&!v.previewDecode.ok?'<span style="font-size:8px;color:var(--r)">Preview failed</span>':''}
           ${v.extracted?`<span class="vbdg">${v.frames.length}</span>`:''}
         </div>
       </div>
