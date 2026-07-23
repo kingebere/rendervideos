@@ -4751,7 +4751,7 @@ async function addFiles(files){
     const preview=await validateVideoPreviewDecode(url);
     const canDecode=!!(preview.ok&&preview.duration&&isFinite(preview.duration));
     if(!preview.ok){
-      failed.push(`${f.name}: ${preview.reason}`);
+      failed.push(videoPreviewFailureText(preview.reason,f));
       URL.revokeObjectURL(url);
       continue;
     }
@@ -4770,6 +4770,7 @@ async function addFiles(files){
     console.warn('UILand video preview decode failures',failed);
   }
   if(!added.length){
+    setVideoStageMessage('Video preview failed',failed[0]||'Chrome could not decode the selected MP4/MOV/WebM for preview.');
     updateCodecWarning();
     toggleExpBtns();
     return;
@@ -4845,7 +4846,7 @@ async function validateVideoPreviewDecode(url){
     await new Promise((resolve,reject)=>{
       const done=()=>{v.onloadedmetadata=null;v.onerror=null;resolve();};
       v.onloadedmetadata=done;
-      v.onerror=()=>reject(new Error('metadata'));
+      v.onerror=()=>reject(new Error(v.error?.code?`media-error-${v.error.code}`:'metadata'));
       setTimeout(()=>reject(new Error('metadata-timeout')),12000);
     });
     result.duration=Number(v.duration)||0;
@@ -4903,6 +4904,7 @@ async function validateVideoPreviewDecode(url){
     return result;
   }catch(e){
     result.reason=e&&e.message?e.message:'decode-error';
+    result.mediaError=v.error?.message||'';
     return result;
   }finally{
     v.removeAttribute('src');
@@ -11504,6 +11506,54 @@ function setCenterView(mode){
   }
 }
 
+function videoPreviewFailureText(reason,file){
+  const name=file?.name||'This video';
+  const ext=(name.split('.').pop()||'').toUpperCase();
+  const r=String(reason||'unknown');
+  if(r.includes('metadata-timeout'))return `${name}: Chrome timed out reading video metadata. This usually means the file is very large, damaged, or encoded in a format Chrome cannot quickly inspect.`;
+  if(r.includes('media-error-4'))return `${name}: Chrome says this ${ext||'video'} format or codec is not supported. Use H.264/AAC MP4 for safest preview playback.`;
+  if(r.includes('media-error-3'))return `${name}: Chrome could not decode this video. The file may be corrupted or encoded with an unsupported profile.`;
+  if(r.includes('media-error-2'))return `${name}: Chrome stopped loading the video before preview could decode. Try the file again or use a smaller H.264 MP4.`;
+  if(r.includes('no-video-dimensions'))return `${name}: Browser loaded metadata but reported 0x0 video size, so the canvas would be white. This is usually a codec/container decode issue.`;
+  if(r.includes('blank-frame'))return `${name}: Browser decoded only blank frames during preview validation, so the canvas would show white/black instead of video.`;
+  if(r.includes('canvas-draw-failed')||r.includes('frame-draw-failed'))return `${name}: Browser loaded the video but failed to draw decoded frames into the preview canvas.`;
+  if(r.includes('metadata'))return `${name}: Browser could not read video metadata.`;
+  return `${name}: Preview decode failed (${r}).`;
+}
+function setVideoStageDefaultMessage(){
+  const empty=document.getElementById('vid-empty-msg');
+  if(!empty)return;
+  empty.innerHTML=`<svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="m10 8 5 3-5 3V8z"/><path d="M8 21h8M12 17v4"/></svg><div>Select a video from the <b>Videos</b> tab</div><div style="font-size:10px;opacity:.6">Edit directly on the video timeline</div>`;
+}
+function setVideoStageMessage(title,detail){
+  const vmain=document.getElementById('vid-main');
+  const wrap=document.getElementById('device-wrap');
+  const empty=document.getElementById('vid-empty-msg');
+  const ctrlBar=document.getElementById('vid-ctrl-bar');
+  const canvasPanel=document.getElementById('canvas-panel');
+  const markBar=document.getElementById('mark-bar');
+  const tlArea=document.getElementById('tl-area');
+  const filmstrip=document.getElementById('filmstrip');
+  if(vmain){try{vmain.pause();}catch(e){};vmain.removeAttribute('src');vmain.dataset.vidId='';try{vmain.load();}catch(e){}}
+  if(wrap)wrap.style.display='none';
+  if(ctrlBar)ctrlBar.style.display='none';
+  if(canvasPanel)canvasPanel.style.display='none';
+  if(markBar)markBar.style.display='none';
+  if(tlArea)tlArea.style.display='none';
+  if(filmstrip)filmstrip.style.display='none';
+  clearVideoPreviewOverlay();
+  if(empty){
+    empty.style.display='flex';
+    empty.innerHTML=`<div style="font-size:13px;font-weight:800;color:var(--r)">${esc(title||'Video preview failed')}</div><div style="font-size:10px;line-height:1.6;max-width:360px;color:var(--m)">${esc(detail||'The browser could not decode this file for preview.')}</div><div style="font-size:10px;line-height:1.6;max-width:360px;color:var(--m)">Recommended: export/record as MP4 with H.264 video and AAC audio. MOV/HEVC may still fail in Chrome depending on the Mac and browser codec support.</div>`;
+  }
+}
+function reportStageVideoFailure(vid,reason){
+  const detail=videoPreviewFailureText(reason,vid?.file||{name:vid?.name||'video'});
+  setVideoStageMessage('Video preview failed',detail);
+  toast('⚠️',detail);
+  console.warn('UILand stage video preview failed',reason,vid);
+}
+
 function loadVideoStage(vid){
   const vmain=document.getElementById('vid-main');
   const wrap=document.getElementById('device-wrap');
@@ -11521,7 +11571,7 @@ function loadVideoStage(vid){
   const hasSource=!!(vid&&vid.objectURL);
   if(!vid||(!hasSource&&!hasFrames)){
     if(wrap)wrap.style.display='none';
-    if(empty)empty.style.display='flex';
+    if(empty){setVideoStageDefaultMessage();empty.style.display='flex';}
     if(ctrlBar)ctrlBar.style.display='none';
     if(canvasPanel)canvasPanel.style.display='none';
     if(markBar)markBar.style.display='none';
@@ -11564,9 +11614,19 @@ function loadVideoStage(vid){
     try{vmain.load();}catch(e){}
   }
   vmain.ontimeupdate=()=>{ _onVidTimeUpdate(vmain); };
-  vmain.onloadedmetadata=()=>{ _buildTimeline(vid,combinedSessionMode()?totalRawVideoDuration():(vmain.duration||vid.duration||0));drawVideoPreviewOverlay(); };
-  vmain.onloadeddata=()=>{drawVideoPreviewOverlay();};
-  vmain.oncanplay=()=>{drawVideoPreviewOverlay();};
+  vmain.onerror=()=>{reportStageVideoFailure(vid,vmain.error?.code?`media-error-${vmain.error.code}`:'video-element-error');};
+  vmain.onloadedmetadata=()=>{
+    if(hasSource&&(!vmain.videoWidth||!vmain.videoHeight)){reportStageVideoFailure(vid,'no-video-dimensions');return;}
+    _buildTimeline(vid,combinedSessionMode()?totalRawVideoDuration():(vmain.duration||vid.duration||0));drawVideoPreviewOverlay();
+  };
+  vmain.onloadeddata=()=>{
+    if(hasSource&&(!vmain.videoWidth||!vmain.videoHeight)){reportStageVideoFailure(vid,'no-video-dimensions');return;}
+    drawVideoPreviewOverlay();
+  };
+  vmain.oncanplay=()=>{
+    if(hasSource&&(!vmain.videoWidth||!vmain.videoHeight)){reportStageVideoFailure(vid,'no-video-dimensions');return;}
+    drawVideoPreviewOverlay();
+  };
   vmain.onplay=()=>{setVideoPlayButton(true);_startPreviewOverlayLoop();};
   vmain.onpause=()=>{setVideoPlayButton(false);drawVideoPreviewOverlay();};
   vmain.onended=()=>{setVideoPlayButton(false);drawVideoPreviewOverlay();};
