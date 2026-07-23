@@ -8396,12 +8396,12 @@ async function exportSourceEditedVideo(v,label,opts={}){
   const segs=_sourceSegments(v,opts.start??0,opts.end??v.duration,opts.includeCuts!==false);
   const totalDur=segs.reduce((s,x)=>s+x.end-x.start,0);
   if(!segs.length){if(!opts.silent)toast('⚠️','No source duration after cuts');if(prog)prog.style.display='none';video.src='';return false;}
-  let doneDur=0,raf=0,stopped=false,lastFrameAt=0,aborted=false;
+  let doneDur=0,drawTimer=0,stopped=false,aborted=false;
   const startedAt=performance.now();
   const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
   const cleanup=()=>{
     stopped=true;
-    cancelAnimationFrame(raf);
+    clearTimeout(drawTimer);
     try{video.pause();}catch(e){}
     try{canvasTrack&&canvasTrack.stop&&canvasTrack.stop();}catch(e){}
     try{stream&&stream.getTracks&&stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
@@ -8455,9 +8455,8 @@ async function exportSourceEditedVideo(v,label,opts={}){
   };
   const draw=()=>{
     if(stopped)return;
-    const now=performance.now();
-    if(now-lastFrameAt>=frameEvery-1){lastFrameAt=now;drawFrame();}
-    raf=requestAnimationFrame(draw);
+    drawFrame();
+    drawTimer=setTimeout(draw,frameEvery);
   };
   const stoppedPromise=new Promise(resolve=>{
     mr.onstop=()=>{
@@ -8494,7 +8493,6 @@ async function exportSourceEditedVideo(v,label,opts={}){
     await _seekVideo(video,seg.start);
     if(shouldAbort()){aborted=true;break;}
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-    lastFrameAt=0;
     startRecorder();
     resumeRecorder();
     drawFrame();
@@ -8524,7 +8522,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
   }
   video.pause();
   stopped=true;
-  cancelAnimationFrame(raf);
+  clearTimeout(drawTimer);
   resumeRecorder();
   drawFrame();
   try{mr.requestData();}catch(e){}
@@ -8606,7 +8604,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
     });
     const totalDur=segments.reduce((sum,s)=>sum+Math.max(0,s.end-s.start),0);
     if(!segments.length||totalDur<=0)return null;
-    let active=null,raf=0,lastFrameAt=0,doneDur=0,stopped=false,aborted=false,recorderStarted=false;
+    let active=null,drawTimer=0,doneDur=0,stopped=false,aborted=false,recorderStarted=false;
     const startedAt=performance.now();
     const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
     const drawActiveFrame=()=>{
@@ -8647,9 +8645,8 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
     };
     const drawLoop=()=>{
       if(stopped)return;
-      const now=performance.now();
-      if(now-lastFrameAt>=1000/fps-1){lastFrameAt=now;drawActiveFrame();}
-      raf=requestAnimationFrame(drawLoop);
+      drawActiveFrame();
+      drawTimer=setTimeout(drawLoop,1000/fps);
     };
     const pauseRecorder=()=>{
       try{if(mr.state==='recording')mr.pause();}catch(e){}
@@ -8666,7 +8663,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
     const stoppedPromise=new Promise(resolve=>{
       mr.onstop=()=>{
         stopped=true;
-        cancelAnimationFrame(raf);
+        clearTimeout(drawTimer);
         try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
         videoEls.forEach(({el})=>{try{el.pause();el.removeAttribute('src');el.load&&el.load();}catch(e){}});
         try{audioNodes.forEach(n=>n.disconnect());audioCtx&&audioCtx.close&&audioCtx.close();}catch(e){}
@@ -8681,7 +8678,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
     for(let i=0;i<segments.length;i++){
       const seg=segments[i];
       if(shouldAbort()){aborted=true;break;}
-      active=seg;lastFrameAt=0;
+      active=seg;
       await _seekVideo(seg.el,seg.start);
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       drawActiveFrame();
@@ -8708,7 +8705,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       try{opts.onProgress&&opts.onProgress(doneDur,totalDur,{segmentIndex:i,segments:segments.length,currentTime:seg.end});}catch(e){}
     }
     stopped=true;
-    cancelAnimationFrame(raf);
+    clearTimeout(drawTimer);
     resumeRecorder();
     drawActiveFrame();
     try{mr.requestData();}catch(e){}
@@ -8758,7 +8755,7 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
       return null;
     }
     mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
-    let stopped=false,raf=0,lastFrameAt=0,doneDur=0,aborted=false,recorderStarted=false,activeRange=null;
+    let stopped=false,drawTimer=0,doneDur=0,aborted=false,recorderStarted=false,activeRange=null;
     const totalDur=cleanRanges.reduce((sum,r)=>sum+r.end-r.start,0);
     const startedAt=performance.now();
     const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
@@ -8769,9 +8766,8 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
     };
     const drawLoop=()=>{
       if(stopped)return;
-      const now=performance.now();
-      if(now-lastFrameAt>=1000/fps-1){lastFrameAt=now;drawFrame();}
-      raf=requestAnimationFrame(drawLoop);
+      drawFrame();
+      drawTimer=setTimeout(drawLoop,1000/fps);
     };
     const pauseRecorder=()=>{try{if(mr.state==='recording')mr.pause();}catch(e){}};
     const resumeRecorder=()=>{try{if(mr.state==='paused')mr.resume();}catch(e){}};
@@ -8781,7 +8777,7 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
     };
     const stoppedPromise=new Promise(resolve=>{
       mr.onstop=()=>{
-        stopped=true;cancelAnimationFrame(raf);
+        stopped=true;clearTimeout(drawTimer);
         try{stream.getTracks().forEach(t=>t.stop&&t.stop());}catch(e){}
         try{audioNode&&audioNode.disconnect();audioCtx&&audioCtx.close&&audioCtx.close();}catch(e){}
         try{video.pause();video.removeAttribute('src');video.load&&video.load();}catch(e){}
@@ -8797,7 +8793,7 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
     for(let i=0;i<cleanRanges.length;i++){
       const range=cleanRanges[i];
       if(shouldAbort()){aborted=true;break;}
-      activeRange=range;lastFrameAt=0;
+      activeRange=range;
       await _seekVideo(video,range.start);
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       drawFrame();startRecorder();
@@ -8822,7 +8818,7 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
       doneDur+=range.end-range.start;
       try{opts.onProgress&&opts.onProgress(doneDur,totalDur,{rangeIndex:i,ranges:cleanRanges.length,currentTime:range.end});}catch(e){}
     }
-    stopped=true;cancelAnimationFrame(raf);resumeRecorder();drawFrame();
+    stopped=true;clearTimeout(drawTimer);resumeRecorder();drawFrame();
     try{mr.requestData();}catch(e){}
     try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
     return await Promise.race([stoppedPromise,new Promise(resolve=>setTimeout(()=>resolve(null),60000))]);
