@@ -1302,6 +1302,8 @@ function saveSession(){
         _hasSourceIsland:!!v._hasSourceIsland,
         _sourceIslandRect:v._sourceIslandRect||null,
         cutRanges:v.cutRanges||[],
+        flowRanges:v.flowRanges||[],
+        redactionRanges:v.redactionRanges||[],
         _gridSrc:v._gridSrc,
         frames:v.frames.map(fr=>({
           id:fr.id,name:fr.name,flows:fr.flows,
@@ -1988,6 +1990,9 @@ function exportableFramesInVideoOrder(frameList){
 function getFrame(id){for(const v of videos){const f=v.frames.find(fr=>fr.id===id);if(f)return f;}return null;}
 function getVideo(id){return videos.find(v=>v.id===id)||null;}
 function activeVideo(){return getVideo(activeVideoId);}
+function hasExportableVideoOrFrames(list=videos){
+  return allFrames().length>0||(list||[]).some(v=>v&&(v.objectURL||v.file)&&(Number(v.duration)||0)>0);
+}
 let _previewRedactionRefreshRaf=0;
 function markFrameRedactionsChanged(fr){
   const v=fr&&fr.videoId?getVideo(fr.videoId):null;
@@ -2058,6 +2063,65 @@ function effectiveGlobalFrameSec(fr,list=videos){
 function effectiveGlobalVideoSec(v,sec,list=videos){
   if(!v)return 0;
   return effectiveSessionStartSec(v.id,list)+effectiveVideoTimeAt(v,sec);
+}
+function rawVideoRangesForSessionRange(targetVideos,startSec,endSec){
+  const start=Math.max(0,Number(startSec)||0);
+  const end=Math.max(start,Number(endSec)||0);
+  const ranges=[];
+  (targetVideos||[]).forEach(v=>{
+    const vs=videoStartSec(v.id),ve=vs+(Number(v.duration)||0);
+    const a=Math.max(start,vs),b=Math.min(end,ve);
+    if(b>a+0.001)ranges.push({video:v,start:a-vs,end:b-vs});
+  });
+  return ranges;
+}
+function directFlowRangesForTimeline(targetVideos=videos,useSession=true){
+  return (targetVideos||[]).flatMap(v=>{
+    const off=useSession?videoStartSec(v.id):0;
+    return (v.flowRanges||[]).map(r=>({
+      ...r,
+      videoId:v.id,
+      start:off+(Number(r.start)||0),
+      end:off+(Number(r.end)||0)
+    }));
+  }).filter(r=>r.end>r.start+0.001);
+}
+function directRedactionEvents(v){
+  return (v?.redactionRanges||[]).map(r=>({
+    start:Math.max(0,Number(r.start)||0),
+    end:Math.max(0,Number(r.end)||0),
+    boxes:(r.boxes||[]).filter(b=>b&&Number.isFinite(+b.x)&&Number.isFinite(+b.y)&&Number.isFinite(+b.w)&&Number.isFinite(+b.h))
+  })).filter(r=>r.end>r.start+0.001&&r.boxes.length);
+}
+function markDirectRedactionsChanged(v){
+  if(!v)return;
+  v._previewRedactionVersion=(v._previewRedactionVersion||0)+1;
+  v._previewRedactionSig='';
+  v._previewRedactionEvents=null;
+  drawVideoPreviewOverlay();
+  scheduleSaveSession();
+}
+function addDirectFlowRangesForMark(flowIds){
+  if(_markIn===null||_markOut===null||!_stageVid)return[];
+  const lo=Math.min(_markIn,_markOut),hi=Math.max(_markIn,_markOut);
+  if(hi-lo<=0.03)return[];
+  const refs=combinedSessionMode()
+    ? rawVideoRangesForSessionRange(videos,lo,hi)
+    : [{video:_stageVid,start:lo,end:hi}];
+  const added=[];
+  refs.forEach(ref=>{
+    const v=ref.video;if(!v)return;
+    v.flowRanges=Array.isArray(v.flowRanges)?v.flowRanges:[];
+    (flowIds||[]).forEach(fid=>{
+      const fl=flows.find(f=>f.id===fid);if(!fl)return;
+      markFlowTagged(fid);
+      const start=Math.max(0,Math.min(Number(ref.start)||0,Number(ref.end)||0));
+      const end=Math.max(start,Math.max(Number(ref.start)||0,Number(ref.end)||0));
+      const item={id:'dflow_'+Date.now()+'_'+Math.random().toString(36).slice(2),flowId:fid,start,end,createdAt:Date.now()};
+      v.flowRanges.push(item);added.push({...item,videoId:v.id,flowName:fl.name});
+    });
+  });
+  return added;
 }
 function flowMasterClipRanges(refs,targetVideos){
   const groups=new Map();
@@ -4105,6 +4169,7 @@ function parseFlowNames(raw){
 function delFlow(id){
   flows=flows.filter(f=>f.id!==id);
   allFrames().forEach(fr=>{fr.flows=fr.flows.filter(x=>x!==id);});
+  videos.forEach(v=>{v.flowRanges=(v.flowRanges||[]).filter(r=>r.flowId!==id);});
   const ffl=document.getElementById('ffl');if(ffl&&ffl.value===id)ffl.value='';
   const mk=document.getElementById('mk-flow-sel');if(mk&&mk.value===id)mk.value='';
   savePersistentFlows();
@@ -4313,14 +4378,16 @@ function updateFSum(){
   const c=document.getElementById('fsumcon');if(!c)return;
   c.innerHTML='';
   const af=allFrames();
-  const active=flowExportOrderForFrames(flows.filter(f=>af.some(fr=>fr.flows.includes(f.id))),af);
+  const directIds=new Set(directFlowRangesForTimeline(videos,true).map(r=>r.flowId));
+  const active=flowExportOrderForFrames(flows.filter(f=>af.some(fr=>fr.flows.includes(f.id))||directIds.has(f.id)),af);
   if(!active.length){c.innerHTML='<span style="color:var(--m);font-size:11px">No flows assigned yet.</span>';return;}
   active.forEach(fl=>{
     const frs=af.filter(fr=>fr.flows.includes(fl.id));
+    const directCount=directFlowRangesForTimeline(videos,true).filter(r=>r.flowId===fl.id).length;
     const d=document.createElement('div');d.className='fsi';
     // Header: name, count, filter-to-flow button, delete-flow button
     const hdr=document.createElement('div');hdr.className='fsih';
-    hdr.innerHTML=`<span class="fsin" style="cursor:pointer" title="Filter grid to this flow">${esc(fl.name)}</span><span class="fsic">${frs.length}</span>`;
+    hdr.innerHTML=`<span class="fsin" style="cursor:pointer" title="Filter grid to this flow">${esc(fl.name)}</span><span class="fsic">${frs.length||directCount}</span>`;
     // Filter-to-flow: set the flow filter dropdown and switch to center
     hdr.querySelector('.fsin').onclick=()=>{
       const ffl=document.getElementById('ffl');
@@ -4741,14 +4808,14 @@ async function addFiles(files){
     const vid={
       id:'v_'+Date.now()+'_'+Math.random().toString(36).slice(2),name:f.name,
       sizeMB:(f.size/1024/1024).toFixed(1),duration:dur||0,
-      source:'unknown',objectURL:url,originalObjectURL:url,frames:[],extracted:false,cutRanges:[],
+      source:'unknown',objectURL:url,originalObjectURL:url,frames:[],extracted:false,cutRanges:[],flowRanges:[],redactionRanges:[],
       mimeType:f.type,file:f,codec,needsTranscode:codec==='hevc'&&!canDecode
     };
     videos.push(vid);
     added.push(vid);
     if(!activeVideoId){activeVideoId=vid.id;loadVideoStage(vid);}
   }
-  renderVideoList();updateVDD();updateStats();
+  renderVideoList();updateVDD();updateStats();toggleExpBtns();
   document.getElementById('ex-btn').disabled=false;
   updateCodecWarning();
   try{await loadStatusBarSVGs();}catch(e){console.warn('status assets unavailable',e);}
@@ -4759,13 +4826,12 @@ async function addFiles(files){
     if(vid.needsTranscode&&!vid.transcoded){
       toast('MOV',`Using fallback decoder if Chrome cannot read "${vid.name}"`);
     }
-    await extractVideo(vid);
   }
   if(videos.length>1&&videos[0]?.objectURL){
     activeVideoId=videos[0].id;
     loadVideoStage(videos[0]);
   }
-  toast('OK',`${added.length} video${added.length!==1?'s':''} added`);
+  toast('OK',`${added.length} video${added.length!==1?'s':''} added - ready for timeline work`);
 }
 
 // CODEC DETECTION ───────────────────────────────────────────────────────
@@ -5590,7 +5656,7 @@ function updateStatsQuick(){
 }
 function updateStats(){updateStatsQuick();updateFSum();renderAnimations();}
 function toggleExpBtns(){
-  const has=allFrames().length>0;
+  const has=hasExportableVideoOrFrames();
   ['exp-btn','exp-btn2','vex-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=!has;});
 }
 
@@ -7495,6 +7561,14 @@ function syncVexFormatControls(){
   document.querySelectorAll('#fmt-seg .fmtb').forEach(b=>b.classList.toggle('on',b.dataset.fmt===vexFormat));
 }
 function openVexModal(){
+  if(hasExportableVideoOrFrames()&&!allFrames().length){
+    const raw=videos.reduce((sum,v)=>sum+(Number(v.duration)||0),0);
+    const eff=totalEffectiveDuration(videos);
+    document.getElementById('full-fc').textContent=`0 extracted frames - ${fmt(eff)}${eff<raw-0.05?' after cuts':''} direct video`;
+    syncVexFormatControls();renderVexFlows();document.getElementById('vex-prog').style.display='none';
+    document.getElementById('vex-modal').classList.add('on');
+    return;
+  }
   if(!allFrames().length){toast('⚠️','Extract frames first');return;}
   const raw=videos.reduce((sum,v)=>sum+(Number(v.duration)||0),0);
   const eff=totalEffectiveDuration(videos);
@@ -7505,7 +7579,17 @@ function openVexModal(){
 function closeVexModal(){document.getElementById('vex-modal').classList.remove('on');}
 function renderVexFlows(){
   const c=document.getElementById('vex-flows');c.innerHTML='';
-  const af=allFrames();const active=flowExportOrderForFrames(flows.filter(f=>af.some(fr=>fr.flows.includes(f.id))),af);
+  const directIds=new Set(directFlowRangesForTimeline(videos,true).map(r=>r.flowId));
+  if(!allFrames().length&&directIds.size){
+    flowSortForTagging(flows.filter(f=>directIds.has(f.id))).forEach(f=>{
+      const drs=directFlowRangesForTimeline(videos,true).filter(r=>r.flowId===f.id);
+      const d=document.createElement('div');d.className='vex-item';
+      d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(f.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${drs.length} timeline range${drs.length!==1?'s':''}</div></div><button class="btn bp sm" onclick="exportOneFlowVideo('${f.id}')">â¬‡</button>`;
+      c.appendChild(d);
+    });
+    return;
+  }
+  const af=allFrames();const active=flowExportOrderForFrames(flows.filter(f=>af.some(fr=>fr.flows.includes(f.id))||directIds.has(f.id)),af);
   if(!active.length){c.innerHTML='<div style="font-size:11px;color:var(--m);padding:4px 0">No flows assigned.</div>';return;}
   active.forEach(f=>{
     const frs=af.filter(fr=>fr.flows.includes(f.id));
@@ -7518,6 +7602,34 @@ async function exportFullEditedVideo(){
   const sorted=exportableFramesInVideoOrder(allFrames());
   const _appN=(document.getElementById('exp-appname')?.value||'').trim()||'export';
   disableVexBtns(true);
+  if(!sorted.length&&videos.some(v=>v.objectURL)){
+    const sourceVideos=videos.filter(v=>v.objectURL&&(Number(v.duration)||0)>0);
+    const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb'),progD=document.getElementById('vex-pd');
+    if(prog){prog.style.display='block';progB.style.width='0%';}
+    if(progT)progT.textContent='Rendering direct source video...';
+    const rendered=await renderCombinedSourceEditedVideo(sourceVideos,_appN+'_full',{
+      removeStatusBar:exportStatusBarEnabled('video'),
+      fps:longSafeVideoExportFps(totalEffectiveDuration(sourceVideos),60),
+      includeCuts:true,
+      transparentBackground:true,
+      frameEventsByVideoId:Object.fromEntries(sourceVideos.map(v=>[v.id,_videoRedactionEvents(v)])),
+      frameKey:exportPhoneFrameKey(canvasOptions.frame),
+      requireFrameAsset:true,
+      videoBitsPerSecond:12_000_000,
+      onProgress:(done,total)=>{
+        if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
+        if(progD)progD.textContent=`${fmt(done)} / ${fmt(total)}`;
+      }
+    });
+    if(rendered?.blob){
+      const a=document.createElement('a');const url=URL.createObjectURL(rendered.blob);
+      a.href=url;a.download=`${exportFileStem(_appN,'video')}.${rendered.ext||'webm'}`;a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),5*60*1000);
+    }else toast('⚠','Direct source render failed');
+    if(prog)prog.style.display='none';
+    disableVexBtns(false);
+    return;
+  }
   const src=_sourceVideoForFrames(sorted);
   const multiSourceIds=[...new Set(sorted.map(fr=>fr.videoId).filter(Boolean))];
   const fullDefaultFrameKey=exportPhoneFrameKey(canvasOptions.frame);
@@ -7630,6 +7742,37 @@ async function exportOneFlowVideo(fid){
   const frs=exportableFramesInVideoOrder(allFrames().filter(fr=>fr.flows.includes(fid)));
   const _appNf=(document.getElementById('exp-appname')?.value||'').trim()||'export';
   disableVexBtns(true);
+  if(!frs.length){
+    const direct=directFlowRangesForTimeline(videos,true).filter(r=>r.flowId===fid);
+    if(direct.length){
+      const rangesByVideoId={};
+      direct.forEach(r=>{
+        const src=getVideo(r.videoId);if(!src?.objectURL)return;
+        if(!rangesByVideoId[src.id])rangesByVideoId[src.id]=[];
+        const off=videoStartSec(src.id);
+        rangesByVideoId[src.id].push({start:Math.max(0,r.start-off),end:Math.min(Number(src.duration)||r.end-off,r.end-off)});
+      });
+      const flowVideos=videos.filter(v=>rangesByVideoId[v.id]?.length);
+      const rendered=await renderCombinedSourceEditedVideo(flowVideos,fl?_appNf+'_'+fl.name:'flow',{
+        rangesByVideoId,
+        includeCuts:true,
+        removeStatusBar:exportStatusBarEnabled('video'),
+        transparentBackground:true,
+        frameEventsByVideoId:Object.fromEntries(flowVideos.map(v=>[v.id,_videoRedactionEvents(v)])),
+        frameKey:exportPhoneFrameKey(canvasOptions.frame),
+        requireFrameAsset:true,
+        fps:Math.min(30,parseInt(document.getElementById('vex-fps')?.value)||30),
+        videoBitsPerSecond:8_000_000
+      });
+      if(rendered?.blob){
+        const a=document.createElement('a');const url=URL.createObjectURL(rendered.blob);
+        a.href=url;a.download=`${exportFileStem(fl?.name||'flow')}.${rendered.ext||'webm'}`;a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),5*60*1000);
+      }else toast('⚠','Flow video render failed');
+      disableVexBtns(false);
+      return;
+    }
+  }
   const src=_sourceVideoForFrames(frs);
   if(src&&frs.length){
     const secs=frs.map(frameSec).filter(s=>s!=null);
@@ -7650,21 +7793,15 @@ async function exportOneFlowVideo(fid){
   disableVexBtns(false);
 }
 async function exportAllFlowVideos(){
-  const af=allFrames();const active=flowExportOrderForFrames(flows.filter(f=>af.some(fr=>fr.flows.includes(f.id))),af);
-  if(!active.length){toast('⚠️','No flows assigned');return;}
-  disableVexBtns(true);
+  const af=allFrames();
+  const directIds=new Set(directFlowRangesForTimeline(videos,true).map(r=>r.flowId));
+  const active=flowExportOrderForFrames(flows.filter(f=>af.some(fr=>fr.flows.includes(f.id))||directIds.has(f.id)),af);
+  if(!active.length){toast('??','No flows assigned');return;}
   for(const fl of active){
-    const frs=exportableFramesInVideoOrder(af.filter(fr=>fr.flows.includes(fl.id)));
-    const src=_sourceVideoForFrames(frs);
-    if(src&&frs.length){
-      const secs=frs.map(frameSec).filter(s=>s!=null);
-      const pad=Math.max(0.08,Math.min(1,_medianFrameStep(src.frames||[])/2));
-      const ok=await exportSourceEditedVideoWithRetry(src,fl.name,{start:Math.max(0,Math.min(...secs)-pad),end:Math.min(src.duration||Math.max(...secs)+pad,Math.max(...secs)+pad),frames:src.frames,includeCuts:true,removeStatusBar:exportStatusBarEnabled('video'),format:'webm',transparentBackground:true,frameKey:exportPhoneFrameKey(canvasOptions.frame),requireFrameAsset:true});
-      if(!ok)await reconstructVideo(frs,fl.name,{transparentBackground:true,frameKey:exportPhoneFrameKey(canvasOptions.frame),requireFrameAsset:true});
-    }else await reconstructVideo(frs,fl.name,{transparentBackground:true,frameKey:exportPhoneFrameKey(canvasOptions.frame),requireFrameAsset:true});
+    await exportOneFlowVideo(fl.id);
     await yieldUI(300);
   }
-  disableVexBtns(false);toast('✓',`${active.length} flow videos downloaded`);
+  toast('?',`${active.length} flow videos downloaded`);
 }
 function disableVexBtns(on){
   ['vex-all-btn','vex-full-btn','vex-parts-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=on;});
@@ -7685,12 +7822,13 @@ function _medianFrameStep(frameList){
 function _videoRedactionEvents(v){
   const guard=0.35;
   const step=Math.max(0.2,Math.min(1.5,_medianFrameStep(v.frames||[])/2+guard));
-  return (v.frames||[]).flatMap(fr=>{
+  const frameEvents=(v.frames||[]).flatMap(fr=>{
     const sec=frameSec(fr);if(sec==null)return[];
     const boxes=[...(fr.redactBoxes||[]),...(fr.wordBoxes||[])].filter(b=>b&&Number.isFinite(+b.x)&&Number.isFinite(+b.y)&&Number.isFinite(+b.w)&&Number.isFinite(+b.h));
     if(!boxes.length)return[];
     return [{start:Math.max(0,sec-step),end:sec+step,boxes}];
   });
+  return [...frameEvents,...directRedactionEvents(v)];
 }
 function blurCanvasRect(ctx,x,y,w,h,amount=10){
   x=Math.max(0,Math.floor(x));y=Math.max(0,Math.floor(y));
@@ -8393,6 +8531,11 @@ function applyCanvasBgPreset(i){
 function toggleRedactionReveal(){showVideoRedactions=!showVideoRedactions;savePrefs();updateCanvasControls();}
 function togglePreviewStatusBarCleanup(){previewStatusBarCleanup=!previewStatusBarCleanup;savePrefs();updateCanvasControls();}
 function addRedactionAtCurrent(){
+  const stageVideo=document.getElementById('vid-main');
+  if(_stageVid&&stageVideo&&stageVideo.src){
+    armDirectVideoRedaction();
+    return;
+  }
   if(!_stageVid||!_stageVid.frames?.length){toast('⚠','Extract frames first');return;}
   const video=document.getElementById('vid-main');
   const t=video&&isFinite(video.currentTime)?video.currentTime:0;
@@ -9073,7 +9216,13 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
 }
 
 async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
-  const fast=await renderCombinedSourceEditedVideoMediabunny(videoList,label,{...opts,format:'mp4'});
+  const bunnyTimeout=Number.isFinite(opts.mediabunnyTimeoutMs)
+    ? opts.mediabunnyTimeoutMs
+    : Math.min(45000,Math.max(8000,((videoList||[]).reduce((s,v)=>s+(Number(v?.duration)||0),0)*500)+8000));
+  const fast=await Promise.race([
+    renderCombinedSourceEditedVideoMediabunny(videoList,label,{...opts,format:'mp4'}),
+    new Promise(resolve=>setTimeout(()=>resolve(null),bunnyTimeout))
+  ]);
   if(fast)return fast;
   const sourceVideos=(videoList||[]).filter(v=>v&&v.objectURL&&(Number(v.duration)||0)>0);
   if(!sourceVideos.length||typeof MediaRecorder==='undefined')return null;
@@ -9613,6 +9762,17 @@ async function renderCombinedZipVideo(frameList,label,opts={}){
 let zipCancelFlag=false;
 
 function openExpModal(){
+  if(hasExportableVideoOrFrames()&&!allFrames().length){
+    renderExpVideoList();
+    const nameInput=document.getElementById('exp-appname');
+    if(nameInput&&!nameInput.value.trim()&&videos.length){
+      const raw=videos[0].name||'';
+      const base=raw.replace(/\.(mp4|webm|mov)$/i,'').replace(/\s*\(\d+\)$/,'').trim();
+      nameInput.value=base||'';
+    }
+    document.getElementById('exp-modal').classList.add('on');
+    return;
+  }
   if(!allFrames().length){toast('⚠️','No frames to export');return;}
   renderExpVideoList();
   // Auto-fill app name from first video/folder name if not already set
@@ -9627,6 +9787,15 @@ function openExpModal(){
 }
 function renderExpVideoList(){
   const c=document.getElementById('exp-vlist');c.innerHTML='';
+  if(videos.some(v=>v.frames.length>0||v.objectURL||v.file)){
+    videos.filter(v=>v.frames.length>0||v.objectURL||v.file).forEach(v=>{
+      const d=document.createElement('div');d.className='vex-item';
+      const label=v.frames.length?`${v.frames.length} frames`:`${fmtDur(v.duration)} source video`;
+      d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${label}</div></div><button class="btn bgn sm" onclick="exportFiveMinuteZipParts('${v.id}')">â¬‡ 5m</button><button class="btn bg sm" onclick="exportZip('${v.id}')">â¬‡ This</button>`;
+      c.appendChild(d);
+    });
+    return;
+  }
   videos.filter(v=>v.frames.length>0).forEach(v=>{
     const d=document.createElement('div');d.className='vex-item';
     d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${v.frames.length} frames</div></div><button class="btn bgn sm" onclick="exportFiveMinuteZipParts('${v.id}')">⬇ 5m</button><button class="btn bg sm" onclick="exportZip('${v.id}')">⬇ This</button>`;
@@ -9715,6 +9884,35 @@ async function frameOriginalBlobForExport(fr){
     console.warn('original frame export failed',fr?.id,e);
     return null;
   }
+}
+async function directVideoSnapshotCanvas(v,timeSec,removeStatusBar=false){
+  if(!v?.objectURL)return null;
+  const video=document.createElement('video');
+  video.muted=true;video.playsInline=true;video.preload='auto';
+  video.src=v.objectURL;
+  await new Promise(res=>{
+    const done=()=>{video.onloadedmetadata=null;video.onerror=null;res();};
+    video.onloadedmetadata=done;video.onerror=done;setTimeout(done,5000);
+  });
+  if(!video.videoWidth||!video.videoHeight)return null;
+  await _seekVideo(video,Math.max(0,Math.min(Number(timeSec)||0,Number(v.duration)||Number(timeSec)||0)),5000);
+  const c=document.createElement('canvas');
+  c.width=video.videoWidth;c.height=video.videoHeight;
+  const ctx=get2dCtx(c,true,false);
+  try{ctx.drawImage(video,0,0,c.width,c.height);}catch(e){return null;}
+  const island=sourceIslandRectForCanvas(v,c,{useCached:true})||detectDynamicIslandInMedia(c,c.width,c.height);
+  if(island)removeRecordingIndicator(c,island);
+  if(removeStatusBar)safeApplyExportStatusBar(c,{preserveIsland:!!island,sourceIslandRect:island});
+  applyKeyboardBlur(c);
+  _videoRedactionEvents(v).forEach(ev=>{
+    if(timeSec<ev.start||timeSec>ev.end)return;
+    (ev.boxes||[]).forEach(b=>{
+      const nx=Math.abs(b.x)<=1&&Math.abs(b.w)<=1;
+      const x=nx?b.x*c.width:b.x,y=nx?b.y*c.height:b.y,w=nx?b.w*c.width:b.w,h=nx?b.h*c.height:b.h;
+      blurCanvasRect(ctx,x,y,w,h,12);
+    });
+  });
+  return c;
 }
 function _animMedianStep(values){
   const clean=[...(values||[])].filter(v=>Number.isFinite(v)&&v>0).sort((a,b)=>a-b);
@@ -10088,7 +10286,7 @@ async function exportZip(vid,opts={}){
     ? [activeVideo()].filter(Boolean)
     : vid&&vid!=='all'
       ? [getVideo(vid)].filter(Boolean)
-      : videos.filter(v=>v.frames.length>0)
+      : videos.filter(v=>v.frames.length>0||v.objectURL||v.file)
   );
   if(!targetVideos.length){toast('⚠️','No frames to export');return;}
   const range=opts.sessionRange&&Number(opts.sessionRange.end)>Number(opts.sessionRange.start)
@@ -10108,10 +10306,12 @@ async function exportZip(vid,opts={}){
     if(!framesByVideoId.has(fr.videoId))framesByVideoId.set(fr.videoId,[]);
     framesByVideoId.get(fr.videoId).push(fr);
   });
-  const totalFramesToExport=selectedFramesForZip.length;
+  const totalFramesToExport=selectedFramesForZip.length||(targetVideos.some(v=>v&&v.objectURL)?1:0);
   const zipFlowOrder=flowExportOrderForFrames(flows.filter(f=>selectedFramesForZip.some(fr=>fr.flows.includes(f.id))),selectedFramesForZip);
   const zipDefaultFrameKey=exportPhoneFrameKey(canvasOptions.frame);
   const zipFrameEventsByVideoId={};
+  targetVideos.forEach(v=>{zipFrameEventsByVideoId[v.id]=_videoRedactionEvents(v);});
+  const hasSourceForZip=targetVideos.some(v=>v&&v.objectURL);
   if(!totalFramesToExport&&!range){toast('⚠️','No matching frames');return;}
   const partLabel=opts.partIndex?` part ${opts.partIndex}${opts.partCount?` / ${opts.partCount}`:''}`:'';
   showLd(`Building ZIP${partLabel}...`);setLdPb(4,'Preparing Flora-style session...');
@@ -10171,6 +10371,26 @@ async function exportZip(vid,opts={}){
   const exportFlowData={};
   const exportFlowFrameRefs={};
   const zipRenderTimings={startedAt:performance.now(),masterRenderMs:0,flowClipMs:0,flowFallbackMs:0,flowFastCount:0,flowFallbackCount:0};
+  const directFlowRefs=directFlowRangesForTimeline(targetVideos,true).filter(r=>{
+    if(!flows.some(f=>f.id===r.flowId))return false;
+    if(!range)return true;
+    return r.end>range.start+0.001&&r.start<range.end-0.001;
+  }).map(r=>({
+    ...r,
+    start:range?Math.max(0,r.start-range.start):r.start,
+    end:range?Math.max(0,Math.min(rangeDuration,r.end-range.start)):r.end,
+    sourceSessionStartSec:r.start,
+    sourceSessionEndSec:r.end
+  })).filter(r=>r.end>r.start+0.001);
+  flowSortForTagging(flows.filter(f=>directFlowRefs.some(r=>r.flowId===f.id))).forEach(f=>{
+    if(!usedFlowIds.has(f.id))usedFlowIds.add(f.id);
+    const idx=[...usedFlowIds].indexOf(f.id);
+    const folderName=flowFolderName(f,idx);
+    if(!exportFlowData[f.id]){
+      exportFlowData[f.id]={folder:flowsRoot.folder(folderName),path:`flows/${folderName}/`,index:idx+1,rows:['index,frame_id,time,time_sec,kind,url,image_files,original_image_file,redaction_count'],frames:[],redactions:[],flow:f,directRanges:[]};
+    }
+    exportFlowData[f.id].directRanges.push(...directFlowRefs.filter(r=>r.flowId===f.id));
+  });
   setLdPb(8,'Rendering source video for ZIP...');
   const masterRenderStart=performance.now();
   let combinedVideo=targetVideos.every(v=>v.objectURL)
@@ -10288,7 +10508,7 @@ async function exportZip(vid,opts={}){
       const idx=[...usedFlowIds].indexOf(f.id);
       const folderName=flowFolderName(f,idx);
       if(!exportFlowData[f.id]){
-        exportFlowData[f.id]={folder:flowsRoot.folder(folderName),path:`flows/${folderName}/`,index:idx+1,rows:['index,frame_id,time,time_sec,kind,url,image_files,original_image_file,redaction_count'],frames:[],redactions:[],flow:f};
+        exportFlowData[f.id]={folder:flowsRoot.folder(folderName),path:`flows/${folderName}/`,index:idx+1,rows:['index,frame_id,time,time_sec,kind,url,image_files,original_image_file,redaction_count'],frames:[],redactions:[],flow:f,directRanges:[]};
       }
       if(!exportFlowFrameRefs[f.id])exportFlowFrameRefs[f.id]=[];
       flowFolders[f.id]=exportFlowData[f.id];
@@ -10376,6 +10596,40 @@ async function exportZip(vid,opts={}){
         manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,localTimeSec:localTs,videoId:v.id,videoName:v.name,kind:'image',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,originalImageFile:firstOriginal,originalImageFiles,redactionCount:redactionMeta.length,redactions:redactionMeta});
       }));
       setLdPb(34+Math.round(globalSeq/totalFramesToExport*48),'Encoding reference frames…');
+      await yieldUI();
+    }
+  }
+  if(!selectedFramesForZip.length&&directFlowRefs.length){
+    setLdPb(78,'Capturing direct-flow reference images...');
+    for(const r of directFlowRefs){
+      if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
+      const data=exportFlowData[r.flowId];
+      const fl=flows.find(f=>f.id===r.flowId);
+      const v=getVideo(r.videoId);
+      if(!data||!fl||!v)continue;
+      const sourceStart=Math.max(0,(Number(r.sourceSessionStartSec)||0)-videoStartSec(v.id));
+      const sourceEnd=Math.max(sourceStart,(Number(r.sourceSessionEndSec)||0)-videoStartSec(v.id));
+      const points=[{kind:'start',source:sourceStart,session:r.start}];
+      if(sourceEnd-sourceStart>0.25)points.push({kind:'end',source:Math.max(sourceStart,sourceEnd-0.05),session:r.end});
+      for(const pt of points){
+        const canvas=await directVideoSnapshotCanvas(v,pt.source,removeStatusBar);
+        if(!canvas)continue;
+        const blob=await canvasToBlobSafe(canvas,'image/png',0.95);
+        if(!blob)continue;
+        globalSeq++;
+        const snapId=`snap_${Date.now()+globalSeq}_${Math.random().toString(36).slice(2,6)}`;
+        const stem=`${String(globalSeq).padStart(5,'0')}_${exportTimeName(pt.session)}_${pt.kind}_${snapId}`;
+        const imgName=`${stem}.png`;
+        data.folder.file(imgName,blob,{binary:true,compression:'STORE'});
+        const imageFile=data.path+imgName;
+        const rowIdx=(data.frames?.length||0)+1;
+        data.rows.push(`${rowIdx},${csvCell(snapId)},${csvCell(exportClock(pt.session))},${pt.session.toFixed(3)},image,${csvCell('')},${csvCell(imageFile)},${csvCell('')},0`);
+        const shot={id:snapId,index:globalSeq,time:exportClock(pt.session),timeSec:pt.session,sourceSessionTimeSec:Number(r.sourceSessionStartSec)||pt.session,localTimeSec:pt.source,videoId:v.id,videoName:v.name,imageFile,originalImageFile:'',redactionCount:0,direct:true,kind:pt.kind};
+        data.frames.push(shot);
+        dbScreens.push([snapId,csvCell(v.name),csvCell(fl.name),exportClock(pt.session),pt.session.toFixed(3),csvCell(imageFile),csvCell(''),0].join(','));
+        manifestData.screenshots.push({index:globalSeq-1,id:snapId,time:exportClock(pt.session),timeSec:pt.session,sourceSessionTimeSec:Number(r.sourceSessionStartSec)||pt.session,localTimeSec:pt.source,videoId:v.id,videoName:v.name,kind:'image',flowIds:[fl.id],flows:[fl.name],imageFile,originalImageFile:'',originalImageFiles:[],redactionCount:0,redactions:[],direct:true});
+        inventory.push(`${sessionFolder}/${imageFile},image/png,${blob.size}`);
+      }
       await yieldUI();
     }
   }
@@ -10469,11 +10723,13 @@ async function exportZip(vid,opts={}){
   const sortedExportFlows=sortedExportFlowData.map(x=>x.flow);
   sortedExportFlowData.forEach(data=>{
     const fl=data.flow,idx=data.index-1,folder=data.folder,path=data.path,shots=data.frames;
-    const start=shots.length?Math.min(...shots.map(s=>s.timeSec)):0,end=shots.length?Math.max(...shots.map(s=>s.timeSec)):0;
+    const directRanges=data.directRanges||[];
+    const start=shots.length?Math.min(...shots.map(s=>s.timeSec)):(directRanges.length?Math.min(...directRanges.map(r=>r.start)):0);
+    const end=shots.length?Math.max(...shots.map(s=>s.timeSec)):(directRanges.length?Math.max(...directRanges.map(r=>r.end)):0);
     folder.file('screenshots_index.csv',data.rows.join('\n'),{compression:'STORE'});
     if(data.redactions?.length)folder.file('redactions.json',JSON.stringify(data.redactions,null,2),{compression:'STORE'});
-    folder.file('flow_info.txt',`Flow: ${fl.name}\nFlow ID: ${fl.id}\nOriginal Flow ID: ${fl.id}\nIndex: ${idx+1} of ${usedFlowIds.size}\nStart: ${exportClock(start)} (${start.toFixed(1)}s)\nEnd: ${exportClock(end)} (${end.toFixed(1)}s)\nLength: ${exportDuration(end-start)}\nScreenshots: ${shots.length}\niPhone frame: ${data.frameKey||zipDefaultFrameKey}\nSegment: ${idx+1}\n`,{compression:'STORE'});
-    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,iphoneFrame:data.frameKey||zipDefaultFrameKey,startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,flowVideoFile:data.flowVideoFile||'',flowVideoSource:data.flowVideoSource||'',screenshotCount:shots.length,redactionCount:(data.redactions||[]).reduce((n,r)=>n+(r.redactions?.length||0),0),screenshots:shots};
+    folder.file('flow_info.txt',`Flow: ${fl.name}\nFlow ID: ${fl.id}\nOriginal Flow ID: ${fl.id}\nIndex: ${idx+1} of ${usedFlowIds.size}\nStart: ${exportClock(start)} (${start.toFixed(1)}s)\nEnd: ${exportClock(end)} (${end.toFixed(1)}s)\nLength: ${exportDuration(end-start)}\nScreenshots: ${shots.length}\nTimeline ranges: ${directRanges.length}\niPhone frame: ${data.frameKey||zipDefaultFrameKey}\nSegment: ${idx+1}\n`,{compression:'STORE'});
+    const flowMeta={id:fl.id,originalId:fl.id,index:idx+1,name:fl.name,color:fl.color,iphoneFrame:data.frameKey||zipDefaultFrameKey,startSec:start,endSec:end,startTime:exportClock(start),endTime:exportClock(end),duration:end-start,durationFmt:exportDuration(end-start),folder:path,flowVideoFile:data.flowVideoFile||'',flowVideoSource:data.flowVideoSource||'',screenshotCount:shots.length,timelineRangeCount:directRanges.length,timelineRanges:directRanges,redactionCount:(data.redactions||[]).reduce((n,r)=>n+(r.redactions?.length||0),0),screenshots:shots};
     manifestData.flows.push(flowMeta);
     allFlowsIndex.push(`${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
     dbFlows.push(`${fl.id},${idx+1},${csvCell(fl.name)},${csvCell(path)},${shots.length},${start.toFixed(3)},${end.toFixed(3)}`);
@@ -10525,7 +10781,7 @@ async function exportZip(vid,opts={}){
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 function toggleExpBtns(){
-  const has=allFrames().length>0;
+  const has=hasExportableVideoOrFrames();
   ['exp-btn','exp-btn2','vex-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=!has;});
 }
 function showLd(t){document.getElementById('ldt').textContent=t;document.getElementById('ldov').classList.add('on');}
@@ -10886,6 +11142,7 @@ function _previewRedactionEvents(v){
 let _previewStatusCanvas=null;
 let _previewCompositeCanvas=null;
 let _previewHasLastPaint=false;
+let directVideoRedact=null;
 function previewSourceIslandForMedia(v,media,sourceW,sourceH){
   let sourceIsland=sourceIslandRectForSize(v,sourceW,sourceH);
   if(!sourceIsland&&media&&media.videoWidth)sourceIsland=detectDynamicIslandInMedia(media,sourceW,sourceH);
@@ -10959,6 +11216,7 @@ function drawVideoPreviewOverlay(){
       drawComposedMediaFrame(tctx,previewMedia.media,video.currentTime||0,_previewRedactionEvents(_stageVid),{includeRedactions:true,sourceW:previewMedia.sourceW,sourceH:previewMedia.sourceH,hideNotch:hasSourceIsland,sourceIslandRect:sourceIsland});
       ctx.clearRect(0,0,canvas.width,canvas.height);
       ctx.drawImage(target,0,0);
+      drawDirectRedactDraft(ctx,video,canvas);
       _previewHasLastPaint=true;
     }catch(e){
       if(!_previewHasLastPaint)clearVideoPreviewOverlay();
@@ -10972,7 +11230,7 @@ function drawVideoPreviewOverlay(){
   }
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const r=_videoPreviewRect(video,canvas);if(!r)return;
-  if(!showVideoRedactions){_previewHasLastPaint=true;return;}
+  if(!showVideoRedactions){drawDirectRedactDraft(ctx,video,canvas);_previewHasLastPaint=true;return;}
   const events=_previewRedactionEvents(_stageVid);
   const t=video.currentTime||0;
   events.forEach(ev=>{
@@ -10996,7 +11254,112 @@ function drawVideoPreviewOverlay(){
       ctx.restore();
     });
   });
+  drawDirectRedactDraft(ctx,video,canvas);
   _previewHasLastPaint=true;
+}
+function drawDirectRedactDraft(ctx,video,canvas){
+  if(!directVideoRedact?.dragging&&!directVideoRedact?.draft)return;
+  const d=directVideoRedact.draft||directVideoRedact;
+  if(!d||!Number.isFinite(d.x1)||!Number.isFinite(d.x2))return;
+  const x=Math.min(d.x1,d.x2),y=Math.min(d.y1,d.y2),w=Math.abs(d.x2-d.x1),h=Math.abs(d.y2-d.y1);
+  if(w<2||h<2)return;
+  ctx.save();
+  ctx.strokeStyle='#00f5d4';
+  ctx.lineWidth=Math.max(2,(window.devicePixelRatio||1)*2);
+  ctx.setLineDash([8,6]);
+  ctx.strokeRect(x,y,w,h);
+  ctx.fillStyle='rgba(0,245,212,.13)';
+  ctx.fillRect(x,y,w,h);
+  ctx.restore();
+}
+function directVideoMediaRect(video,canvas){
+  if(!video||!canvas||!video.videoWidth||!video.videoHeight)return null;
+  if(canvasCompositionEnabled()){
+    const phone=getPhoneRect(canvas.width,canvas.height);
+    const screen=getPhoneScreenRect(phone);
+    const scale=Math.min(screen.w/video.videoWidth,screen.h/video.videoHeight);
+    const w=video.videoWidth*scale,h=video.videoHeight*scale;
+    return {x:screen.x+(screen.w-w)/2,y:screen.y+(screen.h-h)/2,w,h,sourceW:video.videoWidth,sourceH:video.videoHeight};
+  }
+  const r=_videoPreviewRect(video,canvas);
+  return r?{...r,sourceW:video.videoWidth,sourceH:video.videoHeight}:null;
+}
+function armDirectVideoRedaction(){
+  const overlay=document.getElementById('vid-preview-overlay');
+  if(!overlay||!_stageVid){toast('âš ','No video loaded');return;}
+  directVideoRedact={armed:true,dragging:false};
+  overlay.style.pointerEvents='auto';
+  overlay.style.cursor='crosshair';
+  toast('Redact','Drag a blur box on the video preview');
+}
+function stopDirectVideoRedaction(){
+  const overlay=document.getElementById('vid-preview-overlay');
+  directVideoRedact=null;
+  if(overlay){overlay.style.pointerEvents='none';overlay.style.cursor='';}
+  drawVideoPreviewOverlay();
+}
+function directVideoRedactionTimeRanges(){
+  const video=document.getElementById('vid-main');
+  if(_markIn!==null&&_markOut!==null&&Math.abs(_markOut-_markIn)>0.03){
+    const lo=Math.min(_markIn,_markOut),hi=Math.max(_markIn,_markOut);
+    return combinedSessionMode()?rawVideoRangesForSessionRange(videos,lo,hi):[{video:_stageVid,start:lo,end:hi}];
+  }
+  const t=video&&isFinite(video.currentTime)?video.currentTime:0;
+  return [{video:_stageVid,start:Math.max(0,t-0.35),end:Math.min(Number(_stageVid?.duration)||t+1.2,t+1.2)}];
+}
+function commitDirectVideoRedactionBox(box){
+  const ranges=directVideoRedactionTimeRanges();
+  let count=0;
+  ranges.forEach(r=>{
+    const v=r.video;if(!v)return;
+    v.redactionRanges=Array.isArray(v.redactionRanges)?v.redactionRanges:[];
+    v.redactionRanges.push({
+      id:'vred_'+Date.now()+'_'+Math.random().toString(36).slice(2),
+      start:Math.max(0,Number(r.start)||0),
+      end:Math.max(0,Number(r.end)||0),
+      boxes:[{...box,source:'manual',reason:'manual-video',effect:'blur'}],
+      createdAt:Date.now()
+    });
+    markDirectRedactionsChanged(v);
+    count++;
+  });
+  toast('Redact',`Added blur redaction to ${count} video range${count!==1?'s':''}`);
+}
+function initDirectVideoRedactionTools(){
+  const overlay=document.getElementById('vid-preview-overlay');
+  if(!overlay||overlay.dataset.directRedactReady==='1')return;
+  overlay.dataset.directRedactReady='1';
+  overlay.addEventListener('pointerdown',e=>{
+    if(!directVideoRedact?.armed)return;
+    const video=document.getElementById('vid-main');
+    const rect=directVideoMediaRect(video,overlay);
+    if(!rect)return;
+    e.preventDefault();overlay.setPointerCapture?.(e.pointerId);
+    const cr=overlay.getBoundingClientRect();
+    const sx=overlay.width/cr.width,sy=overlay.height/cr.height;
+    directVideoRedact={armed:true,dragging:true,rect,x1:(e.clientX-cr.left)*sx,y1:(e.clientY-cr.top)*sy,x2:(e.clientX-cr.left)*sx,y2:(e.clientY-cr.top)*sy};
+    drawVideoPreviewOverlay();
+  });
+  overlay.addEventListener('pointermove',e=>{
+    if(!directVideoRedact?.dragging)return;
+    const cr=overlay.getBoundingClientRect();
+    directVideoRedact.x2=(e.clientX-cr.left)*(overlay.width/cr.width);
+    directVideoRedact.y2=(e.clientY-cr.top)*(overlay.height/cr.height);
+    drawVideoPreviewOverlay();
+  });
+  const finish=e=>{
+    if(!directVideoRedact?.dragging)return;
+    const d=directVideoRedact,rect=d.rect;
+    const x=Math.max(rect.x,Math.min(d.x1,d.x2)),y=Math.max(rect.y,Math.min(d.y1,d.y2));
+    const x2=Math.min(rect.x+rect.w,Math.max(d.x1,d.x2)),y2=Math.min(rect.y+rect.h,Math.max(d.y1,d.y2));
+    const w=x2-x,h=y2-y;
+    if(w>=6&&h>=6){
+      commitDirectVideoRedactionBox({x:(x-rect.x)/rect.w,y:(y-rect.y)/rect.h,w:w/rect.w,h:h/rect.h});
+    }else toast('Redact','Box too small');
+    stopDirectVideoRedaction();
+  };
+  overlay.addEventListener('pointerup',finish);
+  overlay.addEventListener('pointercancel',stopDirectVideoRedaction);
 }
 function _applyPreviewCut(video){
   if(!video||!_stageVid||_previewCutJumping)return;
@@ -11303,7 +11666,7 @@ function openFlowConfirmModal(){
   document.getElementById('flow-modal-dur').textContent=fmt(hi-lo);
   document.getElementById('flow-modal-count').textContent=hits.length;
   const hint=document.getElementById('flow-confirm-hint');
-  if(hint)hint.textContent=hits.length?'Click results to tag those full flows - type creates only when none selected - Enter confirms':'No extracted frames in this range yet';
+  if(hint)hint.textContent=hits.length?'Click results to tag those full flows - type creates only when none selected - Enter confirms':'No extracted frames yet - this will save a direct video timeline range';
   modal.classList.add('on');
   renderFlowConfirmChoices();
   setTimeout(()=>{const input=document.getElementById('flow-confirm-input');if(input){input.focus();input.select();}},30);
@@ -11364,7 +11727,8 @@ function saveFlowConfirm(){
   if(!chosenFlows.length){toast('⚠️','Could not create flow');return;}
   const sel=document.getElementById('mk-flow-sel');
   if(sel)sel.value=chosenFlows[0].id;
-  const hits=_framesInMarkRange();if(!hits)return;
+  const hits=_framesInMarkRange({silent:true})||[];
+  const direct=addDirectFlowRangesForMark(chosenFlows.map(fl=>fl.id));
   chosenFlows.forEach(fl=>markFlowTagged(fl.id));
   hits.forEach(fr=>{
     chosenFlows.forEach(fl=>{if(!fr.flows.includes(fl.id))fr.flows.push(fl.id);});
@@ -11396,7 +11760,7 @@ function editFlowAtPlayhead(){
 }
 
 // ─── MARK ACTIONS ─────────────────────────────────────────────────────────────
-function _framesInMarkRange(){
+function _framesInMarkRange(opts={}){
   if(_markIn===null||_markOut===null){toast('!', 'Set both In and Out points first');return null;}
   if(!_stageVid){toast('!', 'No video loaded');return null;}
   const lo=Math.min(_markIn,_markOut), hi=Math.max(_markIn,_markOut);
@@ -11405,14 +11769,15 @@ function _framesInMarkRange(){
     const sec=combinedSessionMode()?globalFrameSec(f):normalizeFrameTiming(f);
     return sec!=null&&sec>=lo&&sec<=hi;
   });
-  if(!hits.length){toast('i','No frames in that range');return null;}
+  if(!hits.length){if(!opts.silent)toast('i','No frames in that range');return null;}
   return hits;
 }
 function applyMarkFlow(){
   const sel=document.getElementById('mk-flow-sel');
   const fid=sel&&sel.value;
   if(!fid){toast('⚠️','Select a flow first');return;}
-  const hits=_framesInMarkRange();if(!hits)return;
+  const hits=_framesInMarkRange({silent:true})||[];
+  const direct=addDirectFlowRangesForMark([fid]);
   const fl=flows.find(f=>f.id===fid);
   markFlowTagged(fid);
   hits.forEach(fr=>{if(!fr.flows.includes(fid))fr.flows.push(fid);});
@@ -11567,6 +11932,15 @@ function _buildTimeline(vid,dur){
       if(!flMap[fid]){flMap[fid]={min:sec,max:sec};}
       else{flMap[fid].min=Math.min(flMap[fid].min,sec);flMap[fid].max=Math.max(flMap[fid].max,sec);}
     });
+  });
+  directFlowRangesForTimeline(useSession?videos:[vid],useSession).forEach(r=>{
+    const fid=r.flowId;
+    if(!flows.some(f=>f.id===fid))return;
+    const min=Math.max(0,Math.min(Number(r.start)||0,Number(r.end)||0));
+    const max=Math.min(dur,Math.max(Number(r.start)||0,Number(r.end)||0));
+    if(!(max>min))return;
+    if(!flMap[fid])flMap[fid]={min,max};
+    else{flMap[fid].min=Math.min(flMap[fid].min,min);flMap[fid].max=Math.max(flMap[fid].max,max);}
   });
   Object.entries(flMap).forEach(([fid,{min,max}],rowIdx)=>{
     const fl=flows.find(f=>f.id===fid);
@@ -11736,6 +12110,7 @@ async function init(){
   setView(currentView);
   setCenterView('video');
   updateCanvasControls();
+  initDirectVideoRedactionTools();
   initTrimmer();
   setTimeout(()=>initOcr(),800);
 
