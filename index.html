@@ -2726,6 +2726,18 @@ function drawStatusBarAssetIcons(ctx,sX,sY,sW,sH,bg,opts={}){
   const icons=SB_SVG[set];
   const {time,signal,wifi,battery}=layout;
   ctx.drawImage(icons.time,time.x,time.y,time.w,time.h);
+  if(island&&Number.isFinite(br)&&Number.isFinite(bgc)&&Number.isFinite(bb)){
+    const gapX=Math.round(time.x+time.w+Math.max(2,layout.iconH*.20));
+    const gapR=Math.round(island.x-Math.max(1,layout.iconH*.16));
+    const gapY=Math.max(sY,Math.round(time.y-layout.iconH*.42));
+    const gapB=Math.min(sY+layout.sbH,Math.round(time.y+time.h+layout.iconH*.58));
+    if(gapR>gapX&&gapB>gapY){
+      ctx.save();
+      ctx.fillStyle=`rgb(${Math.round(br)},${Math.round(bgc)},${Math.round(bb)})`;
+      ctx.fillRect(gapX,gapY,gapR-gapX,gapB-gapY);
+      ctx.restore();
+    }
+  }
   ctx.drawImage(icons.battery,battery.x,battery.y,battery.w,battery.h);
   ctx.drawImage(icons.wifi,wifi.x,wifi.y,wifi.w,wifi.h);
   ctx.drawImage(icons.signal,signal.x,signal.y,signal.w,signal.h);
@@ -2762,7 +2774,7 @@ function applyStatusBarGlyphRemoval(ctx,sX,sY,sW,sH,opts={}){
       {x:timeLeft,y:stripY,w:Math.max(1,timeRight-timeLeft),h:stripH},
       {x:rightX,y:stripY,w:Math.max(1,rightR-rightX),h:stripH}
     ];
-    boxes.forEach(z=>fillStatusStripBackground(ctx,z,bg,protect,sourceSnap));
+    boxes.forEach(z=>fillStatusPatch(ctx,z,bg,protect,sourceSnap));
     return bg;
   }catch(e){return null;}
 }
@@ -2973,14 +2985,15 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
     if(!layout)return null;
     const bg=sampleCanvasMedian(ctx,{x:sX,y:sY,w:sW,h:layout.sbH},protect,Math.max(3,Math.round(sW/220)),{avgR:255,avgG:255,avgB:255});
     const padX=Math.max(5,Math.round(layout.iconH*.72));
-    const padY=Math.max(5,Math.round(layout.iconH*.68));
     const timePadX=Math.max(padX,Math.round(layout.iconH*.95));
-    const rightW=layout.battery.x+layout.battery.w-layout.signal.x;
     const laneY=island?sY:sY+layout.sbH*.04;
-    const laneH=statusIsland?Math.max(layout.sbH,Math.round(statusIsland.y+statusIsland.h+layout.iconH*.08-sY)):layout.sbH*.86;
+    const laneH=Math.max(1,Math.min(
+      layout.sbH*.70,
+      Math.max(layout.iconH*2.18,Math.round((layout.iconY+layout.iconH*1.26)-laneY))
+    ));
     const timeZone={x:layout.time.x-timePadX,y:laneY,w:layout.time.w+timePadX*2,h:laneH};
     if(statusIsland){
-      const rightEdge=Math.max(timeZone.x+timeZone.w,Math.min(statusIsland.x-Math.max(2,padX*.35),sX+sW*.49));
+      const rightEdge=Math.max(timeZone.x+timeZone.w,Math.min(statusIsland.x-Math.max(2,padX*.12),sX+sW*.49));
       timeZone.x=sX;
       timeZone.w=Math.max(1,rightEdge-timeZone.x);
     }else{
@@ -3683,9 +3696,7 @@ function replaceStatusBarFast(canvas,opts={}){
   const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
   const islandPatch=island&&opts.preserveIsland?paddedStatusIslandRect(island,W,H):null;
   eraseStatusRecordingArtifacts(ctx,islandPatch);
-  const bg=opts.preserveIsland&&island
-    ? applyStatusBarGlyphRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island})
-    : applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
+  const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
   if(!bg)return false;
   try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:island});}catch(e){console.warn('status bar icons failed',e);}
   return true;
@@ -3706,6 +3717,64 @@ function cloneCanvasForExport(src){
   ctx.drawImage(src,0,0);
   return c;
 }
+function canvasLooksBlankForExport(canvas){
+  if(!canvas||!canvas.width||!canvas.height)return true;
+  const ctx=get2dCtx(canvas,false,true);
+  if(!ctx)return true;
+  const sw=Math.min(16,canvas.width),sh=Math.min(16,canvas.height);
+  const sample=document.createElement('canvas');
+  sample.width=sw;sample.height=sh;
+  const sctx=sample.getContext('2d',{alpha:true,willReadFrequently:true});
+  if(!sctx)return false;
+  sctx.drawImage(canvas,0,0,sw,sh);
+  let data;
+  try{data=sctx.getImageData(0,0,sw,sh).data;}catch(e){return false;}
+  let alpha=0,luma=0,varianceSeed=0,count=0;
+  for(let i=0;i<data.length;i+=4){
+    const a=data[i+3]/255;
+    const y=(data[i]*0.2126+data[i+1]*0.7152+data[i+2]*0.0722)*a;
+    alpha+=a;luma+=y;varianceSeed+=y*y;count++;
+  }
+  if(!count)return true;
+  alpha/=count;luma/=count;varianceSeed/=count;
+  const variance=Math.max(0,varianceSeed-luma*luma);
+  return alpha<0.02||(luma<4&&variance<8);
+}
+async function frameCanvasFromSourceVideo(fr){
+  const v=getVideo(fr?.videoId);
+  const sec=frameSec(fr);
+  if(!v||!v.objectURL||sec==null||!isFinite(sec))return null;
+  const video=document.createElement('video');
+  video.src=v.objectURL;
+  video.preload='auto';
+  video.playsInline=true;
+  video.muted=true;
+  video.volume=0;
+  await new Promise(r=>{video.onloadedmetadata=r;video.onerror=r;setTimeout(r,8000);});
+  if(!video.videoWidth||!video.videoHeight){
+    video.removeAttribute('src');
+    try{video.load&&video.load();}catch(e){}
+    return null;
+  }
+  await _seekVideo(video,Math.max(0,Math.min(sec,Math.max(0,(Number(v.duration)||sec)-0.001))),6000);
+  const size=safeCanvasSize(video.videoWidth,video.videoHeight);
+  const c=document.createElement('canvas');
+  c.width=size.w;c.height=size.h;
+  const ctx=get2dCtx(c,false,true);
+  if(!ctx){
+    video.removeAttribute('src');
+    try{video.load&&video.load();}catch(e){}
+    return null;
+  }
+  try{ctx.drawImage(video,0,0,c.width,c.height);}catch(e){
+    video.removeAttribute('src');
+    try{video.load&&video.load();}catch(_e){}
+    return null;
+  }
+  video.removeAttribute('src');
+  try{video.load&&video.load();}catch(e){}
+  return c;
+}
 function restoreProtectedIslandSnapshot(canvas,snapshot,rect){
   if(!canvas||!snapshot||!rect)return;
   const ctx=get2dCtx(canvas,true,true);
@@ -3724,7 +3793,11 @@ function restoreProtectedIslandSnapshot(canvas,snapshot,rect){
   ctx.restore();
 }
 async function frameCanvasForExport(fr,removeStatusBar,opts={}){
-  const base=await getFrameCanvas(fr);
+  let base=await getFrameCanvas(fr);
+  if(canvasLooksBlankForExport(base)){
+    const sourceBase=await frameCanvasFromSourceVideo(fr).catch(()=>null);
+    if(sourceBase&&!canvasLooksBlankForExport(sourceBase))base=sourceBase;
+  }
   let canvas=(removeStatusBar||opts.cleanKeyboard!==false)?cloneCanvasForExport(base):base;
   const videoForFrame=getVideo(fr.videoId);
   const sourceIsland=removeStatusBar?sourceIslandRectForCanvas(videoForFrame,canvas,{preferCached:true}):null;
@@ -8427,9 +8500,13 @@ async function exportSourceEditedVideo(v,label,opts={}){
     drawFrame();
     const playOk=await _playVideoBounded(video,3000);
     if(!playOk){aborted=true;break;}
+    let stagnantAt=performance.now();
+    let lastSeenTime=video.currentTime;
     await new Promise(resolve=>{
       const tick=()=>{
         if(shouldAbort()){aborted=true;video.pause();resolve();return;}
+        if(Math.abs(video.currentTime-lastSeenTime)>0.02){lastSeenTime=video.currentTime;stagnantAt=performance.now();}
+        else if(performance.now()-stagnantAt>4500){aborted=true;video.pause();resolve();return;}
         if(video.paused||video.ended||video.currentTime>=seg.end-0.015){video.pause();resolve();return;}
         const inSeg=Math.max(0,video.currentTime-seg.start);
         try{opts.onProgress&&opts.onProgress(doneDur+inSeg,totalDur,{segmentIndex:segIndex,segments:segs.length,currentTime:video.currentTime});}catch(e){}
@@ -8604,9 +8681,13 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
       startRecorder();
       const playOk=await _playVideoBounded(seg.el,3000);
       if(!playOk){aborted=true;break;}
+      let stagnantAt=performance.now();
+      let lastSeenTime=seg.el.currentTime;
       await new Promise(resolve=>{
         const tick=()=>{
           if(shouldAbort()){aborted=true;seg.el.pause();resolve();return;}
+          if(Math.abs(seg.el.currentTime-lastSeenTime)>0.02){lastSeenTime=seg.el.currentTime;stagnantAt=performance.now();}
+          else if(performance.now()-stagnantAt>4500){aborted=true;seg.el.pause();resolve();return;}
           if(seg.el.paused||seg.el.ended||seg.el.currentTime>=seg.end-0.015){seg.el.pause();resolve();return;}
           const inSeg=Math.max(0,seg.el.currentTime-seg.start);
           try{opts.onProgress&&opts.onProgress(doneDur+inSeg,totalDur,{segmentIndex:i,segments:segments.length,currentTime:seg.el.currentTime});}catch(e){}
@@ -8715,9 +8796,13 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
       drawFrame();startRecorder();
       const playOk=await _playVideoBounded(video,3000);
       if(!playOk){aborted=true;break;}
+      let stagnantAt=performance.now();
+      let lastSeenTime=video.currentTime;
       await new Promise(resolve=>{
         const tick=()=>{
           if(shouldAbort()){aborted=true;video.pause();resolve();return;}
+          if(Math.abs(video.currentTime-lastSeenTime)>0.02){lastSeenTime=video.currentTime;stagnantAt=performance.now();}
+          else if(performance.now()-stagnantAt>4500){aborted=true;video.pause();resolve();return;}
           if(video.paused||video.ended||video.currentTime>=range.end-0.015){video.pause();resolve();return;}
           const inRange=Math.max(0,video.currentTime-range.start);
           try{opts.onProgress&&opts.onProgress(doneDur+inRange,totalDur,{rangeIndex:i,ranges:cleanRanges.length,currentTime:video.currentTime});}catch(e){}
@@ -9533,6 +9618,7 @@ async function exportZip(vid){
       fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
       includeCuts:true,
       videoBitsPerSecond:12_000_000,
+      maxRenderMs:Math.max(20000,Math.min(90000,sessionDuration*5000+10000)),
       shouldCancel:()=>zipCancelFlag,
       onProgress:(done,total)=>{
         const pct=8+Math.round((total?done/total:0)*22);
@@ -9548,6 +9634,7 @@ async function exportZip(vid){
     frameEventsByVideoId:zipFrameEventsByVideoId,
     frameKey:zipDefaultFrameKey,
     requireFrameAsset:true,
+    maxRenderMs:Math.max(20000,Math.min(90000,sessionDuration*5000+10000)),
     shouldCancel:()=>zipCancelFlag,
     onProgress:(done,total)=>{
       const pct=8+Math.round((total?done/total:0)*22);
@@ -9556,10 +9643,20 @@ async function exportZip(vid){
   });
   zipRenderTimings.masterRenderMs=performance.now()-masterRenderStart;
   if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
-  if(combinedVideo&&combinedVideo.blob){
+  const wroteMasterVideo=!!(combinedVideo&&combinedVideo.blob&&combinedVideo.blob.size>5000);
+  if(wroteMasterVideo){
     sessionRoot.file('video.webm',combinedVideo.blob,{binary:true,compression:'STORE'});
     inventory.push(`${sessionFolder}/video.webm,video/webm,${combinedVideo.blob.size}`);
     renderedVideoSeq=1;
+  }else{
+    targetVideos.forEach((v,idx)=>{
+      if(!v?.file)return;
+      const ext=(v.file.name.match(/\.(mp4|webm|mov)$/i)?.[1]||'mov').toLowerCase();
+      const fallbackName=idx===0?`source_video.${ext}`:`source_video_${idx+1}.${ext}`;
+      sessionRoot.file(fallbackName,v.file,{binary:true,compression:'STORE'});
+      inventory.push(`${sessionFolder}/${fallbackName},video,${v.file.size}`);
+      sourceFallbackSeq++;
+    });
   }
   setLdPb(31,'Adding animation metadata...');
   const animationStart=performance.now();
