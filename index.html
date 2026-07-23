@@ -2988,7 +2988,7 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
     const timePadX=Math.max(padX,Math.round(layout.iconH*.95));
     const laneY=island?sY:sY+layout.sbH*.04;
     const laneH=Math.max(1,Math.min(
-      layout.sbH*.70,
+      layout.sbH*(island?.w?0.82:0.70),
       Math.max(layout.iconH*2.18,Math.round((layout.iconY+layout.iconH*1.26)-laneY))
     ));
     const timeZone={x:layout.time.x-timePadX,y:laneY,w:layout.time.w+timePadX*2,h:laneH};
@@ -3621,6 +3621,17 @@ function paddedStatusIslandRect(rect,W,H){
   return {x,y,w:Math.max(1,r-x),h:Math.max(1,b-y)};
 }
 
+function tightStatusIslandProtectRect(rect,W,H){
+  if(!rect||!W||!H)return null;
+  const padX=Math.max(1,Math.round(rect.h*.045));
+  const padY=Math.max(1,Math.round(rect.h*.035));
+  const x=Math.max(0,Math.round(rect.x-padX));
+  const y=Math.max(0,Math.round(rect.y-padY));
+  const r=Math.min(W,Math.round(rect.x+rect.w+padX));
+  const b=Math.min(H,Math.round(rect.y+rect.h+padY));
+  return {x,y,w:Math.max(1,r-x),h:Math.max(1,b-y)};
+}
+
 function normalizedCleanIslandRect(rect,W,H){
   if(!rect||!W||!H)return null;
   const cx=rect.x+rect.w*.5;
@@ -3695,8 +3706,9 @@ function replaceStatusBarFast(canvas,opts={}){
   const ctx=get2dCtx(canvas,true,true);if(!ctx)return false;
   const island=opts.sourceIslandRect||detectDynamicIslandRect(canvas);
   const islandPatch=island&&opts.preserveIsland?paddedStatusIslandRect(island,W,H):null;
+  const statusProtect=island&&opts.preserveIsland?tightStatusIslandProtectRect(island,W,H):islandPatch;
   eraseStatusRecordingArtifacts(ctx,islandPatch);
-  const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:islandPatch,islandRect:island});
+  const bg=applyStatusBarRemoval(ctx,0,0,W,H,{protectRect:statusProtect,islandRect:island});
   if(!bg)return false;
   try{drawStatusBarAssetIcons(ctx,0,0,W,H,bg,{islandRect:island});}catch(e){console.warn('status bar icons failed',e);}
   return true;
