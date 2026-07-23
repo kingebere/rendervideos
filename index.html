@@ -719,8 +719,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <div style="font-weight:700;font-size:12px;margin-bottom:3px;display:flex;align-items:center;gap:5px">🎞️ Full Edited Video <span style="font-size:9px;font-weight:400;color:var(--m);font-family:'DM Mono',monospace;margin-left:auto" id="full-fc"></span></div>
       <div style="font-size:10px;color:var(--m);margin-bottom:8px;line-height:1.6">All remaining frames in order — deleted frames gone, all edits baked in.</div>
       <button class="btn bp" style="width:100%" id="vex-full-btn" onclick="exportFullEditedVideo()">⬇ Download Full Edited Video</button>
-      <button class="btn bgn" style="width:100%;margin-top:7px" id="vex-parts-btn" onclick="exportFiveMinuteZipParts(null)">⬇ Download 5-min ZIP Parts</button>
-      <div style="font-size:9px;color:var(--m);margin-top:6px;line-height:1.5;font-family:'DM Mono',monospace">Parts adjust around flows and animations so a protected range stays together.</div>
     </div>
     <div><div class="mst" style="margin-bottom:5px">By Flow</div><div id="vex-flows"></div></div>
     <div id="vex-prog" style="display:none;background:var(--s2);border-radius:6px;padding:8px 10px">
@@ -751,7 +749,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <div class="mf">
       <button class="btn bg" onclick="document.getElementById('exp-modal').classList.remove('on')">Cancel</button>
       <button class="btn bgo sm" onclick="exportZip(null)">⬇ All Videos ZIP</button>
-      <button class="btn bgn sm" onclick="exportFiveMinuteZipParts(null)">⬇ 5-min ZIPs</button>
       <button class="btn bg" onclick="exportZip('active')">⬇ Active Video ZIP</button>
     </div>
   </div>
@@ -7616,6 +7613,7 @@ async function exportFullEditedVideo(){
       frameKey:exportPhoneFrameKey(canvasOptions.frame),
       requireFrameAsset:true,
       videoBitsPerSecond:12_000_000,
+      requireMediabunny:true,
       onProgress:(done,total)=>{
         if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
         if(progD)progD.textContent=`${fmt(done)} / ${fmt(total)}`;
@@ -7650,6 +7648,7 @@ async function exportFullEditedVideo(){
       frameKey:fullDefaultFrameKey,
       requireFrameAsset:true,
       videoBitsPerSecond:12_000_000,
+      requireMediabunny:true,
       onProgress:(done,total)=>{
         if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
         if(progD)progD.textContent=`${fmt(done)} / ${fmt(total)}`;
@@ -7804,7 +7803,7 @@ async function exportAllFlowVideos(){
   toast('?',`${active.length} flow videos downloaded`);
 }
 function disableVexBtns(on){
-  ['vex-all-btn','vex-full-btn','vex-parts-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=on;});
+  ['vex-all-btn','vex-full-btn'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=on;});
   document.querySelectorAll('#vex-flows .btn').forEach(b=>b.disabled=on);
 }
 function _sourceVideoForFrames(frameList){
@@ -9216,6 +9215,9 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
 }
 
 async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
+  if(opts.requireMediabunny){
+    return await renderCombinedSourceEditedVideoMediabunny(videoList,label,{...opts,format:'mp4'});
+  }
   const bunnyTimeout=Number.isFinite(opts.mediabunnyTimeoutMs)
     ? opts.mediabunnyTimeoutMs
     : Math.min(45000,Math.max(8000,((videoList||[]).reduce((s,v)=>s+(Number(v?.duration)||0),0)*500)+8000));
@@ -9791,14 +9793,14 @@ function renderExpVideoList(){
     videos.filter(v=>v.frames.length>0||v.objectURL||v.file).forEach(v=>{
       const d=document.createElement('div');d.className='vex-item';
       const label=v.frames.length?`${v.frames.length} frames`:`${fmtDur(v.duration)} source video`;
-      d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${label}</div></div><button class="btn bgn sm" onclick="exportFiveMinuteZipParts('${v.id}')">â¬‡ 5m</button><button class="btn bg sm" onclick="exportZip('${v.id}')">â¬‡ This</button>`;
+      d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${label}</div></div><button class="btn bg sm" onclick="exportZip('${v.id}')">â¬‡ This</button>`;
       c.appendChild(d);
     });
     return;
   }
   videos.filter(v=>v.frames.length>0).forEach(v=>{
     const d=document.createElement('div');d.className='vex-item';
-    d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${v.frames.length} frames</div></div><button class="btn bgn sm" onclick="exportFiveMinuteZipParts('${v.id}')">⬇ 5m</button><button class="btn bg sm" onclick="exportZip('${v.id}')">⬇ This</button>`;
+    d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${v.frames.length} frames</div></div><button class="btn bg sm" onclick="exportZip('${v.id}')">⬇ This</button>`;
     c.appendChild(d);
   });
 }
@@ -10460,6 +10462,7 @@ async function exportZip(vid,opts={}){
       rangesByVideoId,
       includeCuts:!rangesByVideoId,
       videoBitsPerSecond:12_000_000,
+      requireMediabunny:true,
       maxRenderMs:exportRenderTimeoutMs(sessionDuration),
       shouldCancel:()=>zipCancelFlag,
       onProgress:(done,total)=>{
@@ -10468,6 +10471,11 @@ async function exportZip(vid,opts={}){
       }
     })
     : null;
+  if(!combinedVideo&&hasSourceForZip){
+    hideLd();
+    toast('⚠️','Mediabunny MP4 render failed. No WebM fallback was downloaded.');
+    return {ok:false,reason:'mediabunny-render-failed',partIndex:opts.partIndex||0};
+  }
   if(!combinedVideo)combinedVideo=await renderCombinedZipVideo(selectedFramesForZip,'video',{
     removeStatusBar,
     fps:Math.min(24,parseInt(document.getElementById('vex-fps')?.value)||18),
