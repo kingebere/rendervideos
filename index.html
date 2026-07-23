@@ -2774,7 +2774,8 @@ function applyStatusBarGlyphRemoval(ctx,sX,sY,sW,sH,opts={}){
       {x:timeLeft,y:stripY,w:Math.max(1,timeRight-timeLeft),h:stripH},
       {x:rightX,y:stripY,w:Math.max(1,rightR-rightX),h:stripH}
     ];
-    boxes.forEach(z=>fillStatusPatch(ctx,z,bg,protect,sourceSnap));
+    const forceSolid=!!(rawIsland&&(rawIsland.h>sH*.04||rawIsland.w>sW*.34));
+    boxes.forEach(z=>fillStatusPatch(ctx,z,bg,protect,sourceSnap,{forceSolid}));
     return bg;
   }catch(e){return null;}
 }
@@ -8362,6 +8363,13 @@ function _playVideoBounded(video,timeout=3000){
     new Promise(resolve=>setTimeout(()=>resolve(false),timeout))
   ]);
 }
+function exportRenderTimeoutMs(durationSec=0,opts={}){
+  if(Number.isFinite(opts.timeoutMs)&&opts.timeoutMs>0)return opts.timeoutMs;
+  const d=Math.max(0,Number(durationSec)||0);
+  // MediaRecorder source rendering runs close to real time. Long exports must not
+  // be killed by the old 60-90s guard; keep a guard, but scale it with duration.
+  return Math.max(120000,Math.ceil(d*2200+120000));
+}
 async function exportSourceEditedVideo(v,label,opts={}){
   if(!v||!v.objectURL)return false;
   if(typeof MediaRecorder==='undefined')return false;
@@ -8541,7 +8549,7 @@ async function exportSourceEditedVideo(v,label,opts={}){
   try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
   const result=await Promise.race([
     stoppedPromise,
-    new Promise(resolve=>setTimeout(()=>{aborted=true;cleanup();resolve(false);},60000))
+    new Promise(resolve=>setTimeout(()=>{aborted=true;cleanup();resolve(false);},exportRenderTimeoutMs(totalDur,opts)))
   ]);
   cleanup();
   return result;
@@ -8554,7 +8562,275 @@ async function exportSourceEditedVideoWithRetry(v,label,opts={}){
   return await exportSourceEditedVideo(v,label,opts);
 }
 
+let mediabunnyModulePromise=null;
+async function loadMediabunnyModule(){
+  if(mediabunnyModulePromise)return mediabunnyModulePromise;
+  mediabunnyModulePromise=(async()=>{
+    const urls=[
+      './vendor/mediabunny.mjs',
+      './node_modules/mediabunny/dist/bundles/mediabunny.mjs',
+      'https://cdn.jsdelivr.net/npm/mediabunny@1.51.0/dist/bundles/mediabunny.mjs'
+    ];
+    let lastErr=null;
+    for(const url of urls){
+      try{return await import(url);}
+      catch(e){lastErr=e;}
+    }
+    throw lastErr||new Error('Mediabunny module unavailable');
+  })();
+  return mediabunnyModulePromise;
+}
+function cloneCanvasFast(src,alpha=false){
+  const c=document.createElement('canvas');
+  c.width=src.width;c.height=src.height;
+  const ctx=get2dCtx(c,false,alpha);
+  ctx.drawImage(src,0,0);
+  return c;
+}
+function sourceStatusPatchBgs(ctx,sourceW,sourceH,island){
+  const topH=Math.max(18,Math.round(sourceH*.062));
+  const fallback={avgR:255,avgG:255,avgB:255};
+  const leftRect=island
+    ? {x:0,y:0,w:Math.max(1,Math.floor(island.x)),h:topH}
+    : {x:0,y:0,w:Math.max(1,Math.floor(sourceW*.34)),h:topH};
+  const rightRect=island
+    ? {x:Math.min(sourceW-1,Math.ceil(island.x+island.w)),y:0,w:Math.max(1,sourceW-Math.ceil(island.x+island.w)),h:topH}
+    : {x:Math.floor(sourceW*.62),y:0,w:Math.max(1,Math.ceil(sourceW*.38)),h:topH};
+  const step=Math.max(3,Math.round(sourceW/260));
+  return {
+    left:sampleCanvasMedian(ctx,leftRect,island,step,fallback),
+    right:sampleCanvasMedian(ctx,rightRect,island,step,fallback)
+  };
+}
+function fastCompositorLayout(W,H,sourceW,sourceH,frameKey,sourceIslandRect){
+  const phone=getPhoneRect(W,H,frameKey);
+  const screen=getPhoneScreenRect(phone,frameKey);
+  const dr=containRect(sourceW,sourceH,screen.x,screen.y,screen.w,screen.h);
+  const frameAsset=readyPhoneFrameForDraw(frameKey,true);
+  if(!frameAsset.ready)throw new Error('iPhone mockup asset not ready');
+  const sourceIslandCutout=sourceIslandRect?sourceIslandFrameCutout(screen,dr,sourceIslandRect,sourceW,sourceH):null;
+  const frameIslandCutout=sourceIslandRect?sourceIslandAssetCutout(screen,dr,sourceIslandRect,sourceW,sourceH):null;
+  const frameLayer=document.createElement('canvas');
+  frameLayer.width=W;frameLayer.height=H;
+  const fctx=get2dCtx(frameLayer,false,true);
+  drawPhoneBottomSeamSeal?.(fctx,phone,frameKey);
+  drawPhoneFrameImage(fctx,frameAsset.img,phone,screen,!!sourceIslandRect,frameIslandCutout||sourceIslandCutout);
+  drawPhoneInnerBandOverlay?.(fctx,frameAsset.img,phone,screen,frameIslandCutout||sourceIslandCutout);
+  return {phone,screen,dr,frameLayer,sourceIslandCutout};
+}
+function drawFastStatusbarOverlay(ctx,layout,bg){
+  const {screen,sourceIslandCutout}=layout;
+  const island=sourceIslandCutout||null;
+  const sb=statusBarAssetLayout(screen.x,screen.y,screen.w,screen.h,island);
+  if(!sb)return;
+  const bgLeft=bg?.left||bg||{avgR:255,avgG:255,avgB:255};
+  const bgRight=bg?.right||bg||bgLeft;
+  const padX=Math.max(3,Math.round(sb.iconH*.75));
+  const stripY=Math.max(screen.y,Math.round(sb.iconY-sb.iconH*.95));
+  const stripB=Math.min(screen.y+sb.sbH,Math.round(sb.iconY+sb.iconH*2.05));
+  const stripH=Math.max(1,stripB-stripY);
+  const timeLeft=Math.max(screen.x,Math.round(screen.x+screen.w*.045));
+  const timeRight=island
+    ? Math.max(sb.time.x+sb.time.w+padX,Math.round(island.x-padX*.35))
+    : sb.time.x+sb.time.w+Math.max(sb.iconH*2.2,screen.w*.06);
+  const rightX=island
+    ? Math.min(sb.signal.x-padX,Math.round(island.x+island.w+padX*.35))
+    : sb.signal.x-padX;
+  const rightR=Math.min(screen.x+screen.w-Math.round(screen.w*.032),Math.max(sb.battery.x+sb.battery.w+padX*1.6,sb.battery.x+sb.battery.w+sb.iconH*1.15));
+  const boxes=[
+    {x:timeLeft,y:stripY,w:Math.max(1,timeRight-timeLeft),h:stripH,bg:bgLeft},
+    {x:rightX,y:stripY,w:Math.max(1,rightR-rightX),h:stripH,bg:bgRight}
+  ];
+  ctx.save();
+  boxes.forEach(b=>{
+    ctx.fillStyle=`rgb(${Math.round(b.bg.avgR??b.bg.r??255)},${Math.round(b.bg.avgG??b.bg.g??255)},${Math.round(b.bg.avgB??b.bg.b??255)})`;
+    ctx.fillRect(b.x,b.y,b.w,b.h);
+  });
+  ctx.restore();
+  drawStatusBarAssetIcons(ctx,screen.x,screen.y,screen.w,screen.h,bgRight,{islandRect:island});
+}
+async function detectSourceIslandFromTrack(VideoSampleSink,track,v,sourceW,sourceH){
+  const canvas=document.createElement('canvas');
+  canvas.width=sourceW;canvas.height=sourceH;
+  const ctx=get2dCtx(canvas,false,false);
+  const sink=new VideoSampleSink(track);
+  try{
+    for await(const sample of sink.samplesAtTimestamps([Math.min(.1,Math.max(0,(Number(v.duration)||1)-.02))])){
+      if(!sample)break;
+      sample.draw(ctx,0,0,sourceW,sourceH);
+      const rect=sourceIslandRectForCanvas(v,canvas,{preferCached:false});
+      sample.close();
+      return rect||null;
+    }
+  }catch(e){}
+  return null;
+}
+async function encodedPacketsFromSink(sink,limit=200000){
+  const packets=[];
+  let packet=await sink.getFirstPacket({skipLiveWait:true});
+  let guard=0;
+  while(packet&&guard++<limit){
+    packets.push(packet);
+    const next=await Promise.race([
+      sink.getNextPacket(packet,{skipLiveWait:true}),
+      new Promise(resolve=>setTimeout(()=>resolve(null),30))
+    ]);
+    if(!next||!Number.isFinite(next.timestamp)||next.timestamp<=packet.timestamp)break;
+    packet=next;
+  }
+  return packets;
+}
+async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}){
+  const sourceVideos=(videoList||[]).filter(v=>v&&v.objectURL&&v.file&&(Number(v.duration)||0)>0);
+  if(!sourceVideos.length||typeof VideoEncoder==='undefined')return null;
+  if((opts.format||'mp4')!=='mp4')return null;
+  const fps=Math.max(1,Math.min(60,parseInt(opts.fps)||30));
+  const removeStatusBar=!!opts.removeStatusBar;
+  const frameKey=exportPhoneFrameKey(opts.frameKey||canvasOptions.frame||'black');
+  const compositionOn=!!opts.requireFrameAsset||canvasCompositionEnabled();
+  if(!compositionOn)return null;
+  let mb;
+  try{mb=await loadMediabunnyModule();}
+  catch(e){console.warn('Mediabunny unavailable, using fallback renderer',e);return null;}
+  const {
+    Input,BlobSource,ALL_FORMATS,VideoSampleSink,EncodedPacketSink,EncodedAudioPacketSource,
+    Output,Mp4OutputFormat,BufferTarget,CanvasSource
+  }=mb;
+  await loadStatusBarSVGs();
+  await waitPhoneFrameReady([frameKey],{required:!!opts.requireFrameAsset});
+  const sources=[];
+  try{
+    for(const v of sourceVideos){
+      const input=new Input({source:new BlobSource(v.file),formats:ALL_FORMATS});
+      const duration=await input.computeDuration();
+      const track=await input.getPrimaryVideoTrack();
+      const sourceW=await track.getDisplayWidth();
+      const sourceH=await track.getDisplayHeight();
+      let audioTrack=null,audioCodec='';
+      try{audioTrack=await input.getPrimaryAudioTrack();audioCodec=audioTrack?await audioTrack.getCodec?.():'';}catch(e){}
+      sources.push({v,input,duration,track,sourceW,sourceH,audioTrack,audioCodec,redactions:_videoRedactionEvents(v)});
+    }
+    const sourceWithAudio=sources.filter(s=>s.audioTrack);
+    if(sourceWithAudio.length&&sourceWithAudio.some(s=>s.audioCodec!=='aac')){
+      console.warn('Mediabunny fast export skipped: non-AAC audio source');
+      return null;
+    }
+    const size=getCanvasExportSize();
+    const canvas=document.createElement('canvas');
+    canvas.width=size.w;canvas.height=size.h;
+    const ctx=get2dCtx(canvas,false,true);
+    const clean=document.createElement('canvas');
+    const cleanCtx=get2dCtx(clean,false,false);
+    const target=new BufferTarget();
+    const output=new Output({format:new Mp4OutputFormat({fastStart:'in-memory'}),target});
+    const canvasSource=new CanvasSource(canvas,{codec:'avc',bitrate:opts.videoBitsPerSecond||12_000_000,keyFrameInterval:2});
+    output.addVideoTrack(canvasSource);
+    let audioSource=null,audioConfig=null,audioPlan=[];
+    if(sourceWithAudio.length){
+      audioSource=new EncodedAudioPacketSource('aac');
+      output.addAudioTrack(audioSource);
+    }
+    const frameEventsByVideoId=opts.frameEventsByVideoId||{};
+    let outputOffset=0;
+    const renderJobs=[];
+    for(const src of sources){
+      src.island=removeStatusBar?await detectSourceIslandFromTrack(VideoSampleSink,src.track,src.v,src.sourceW,src.sourceH):null;
+      src.layout=fastCompositorLayout(size.w,size.h,src.sourceW,src.sourceH,frameKey,src.island);
+      const ranges=[{start:0,end:Number(src.v.duration)||src.duration||0}];
+      const segments=ranges.flatMap(range=>_sourceSegments(src.v,Math.max(0,Number(range.start)||0),Math.min(Number(src.v.duration)||src.duration||0,Number(range.end)||0),opts.includeCuts!==false));
+      if(src.audioTrack&&audioSource){
+        const packetSink=new EncodedPacketSink(src.audioTrack);
+        const packets=await encodedPacketsFromSink(packetSink);
+        if(!audioConfig)audioConfig=await src.audioTrack.getDecoderConfig?.();
+        segments.forEach(seg=>{
+          packets.forEach(packet=>{
+            const end=packet.timestamp+(packet.duration||0);
+            if(packet.timestamp>=seg.end+.05||end<=seg.start) return;
+            audioPlan.push({packet,timestamp:outputOffset+Math.max(0,packet.timestamp-seg.start)});
+          });
+        });
+      }
+      for(const seg of segments){
+        const len=Math.max(0,seg.end-seg.start);
+        const frames=Math.floor(len*fps);
+        if(frames>0)renderJobs.push({src,seg,offset:outputOffset,frames});
+        outputOffset+=len;
+      }
+    }
+    const totalDur=outputOffset;
+    if(!renderJobs.length||totalDur<=0)return null;
+    audioPlan.sort((a,b)=>a.timestamp-b.timestamp);
+    let audioIndex=0,audioSeq=0,audioFirst=true,audioSamples=0;
+    async function addAudioThrough(maxT){
+      while(audioSource&&audioIndex<audioPlan.length&&audioPlan[audioIndex].timestamp<=maxT){
+        const item=audioPlan[audioIndex++];
+        await audioSource.add(
+          item.packet.clone({timestamp:item.timestamp,sequenceNumber:audioSeq++}),
+          audioFirst&&audioConfig?{decoderConfig:audioConfig}:undefined
+        );
+        audioFirst=false;
+        audioSamples++;
+      }
+    }
+    const startedAt=performance.now();
+    const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
+    await output.start();
+    let renderedFrames=0;
+    for(const job of renderJobs){
+      if(shouldAbort())return null;
+      const times=Array.from({length:job.frames},(_,i)=>job.seg.start+i/fps);
+      const sink=new VideoSampleSink(job.src.track);
+      let i=0;
+      for await(const sample of sink.samplesAtTimestamps(times)){
+        if(!sample)continue;
+        if(shouldAbort()){sample.close();return null;}
+        const localT=times[i]??job.seg.start;
+        const outT=job.offset+i/fps;
+        if(clean.width!==job.src.sourceW||clean.height!==job.src.sourceH){
+          clean.width=job.src.sourceW;clean.height=job.src.sourceH;
+        }
+        cleanCtx.clearRect(0,0,clean.width,clean.height);
+        sample.draw(cleanCtx,0,0,clean.width,clean.height);
+        if(job.src.island)removeRecordingIndicator(clean,job.src.island);
+        applyKeyboardBlur(clean);
+        const bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.save();
+        roundedRectPath(ctx,job.src.layout.screen.x,job.src.layout.screen.y,job.src.layout.screen.w,job.src.layout.screen.h,job.src.layout.screen.r||Math.max(12,job.src.layout.screen.w*.065));
+        ctx.clip();
+        ctx.imageSmoothingEnabled=true;
+        try{ctx.imageSmoothingQuality='high';}catch(e){}
+        ctx.drawImage(clean,job.src.layout.dr.x,job.src.layout.dr.y,job.src.layout.dr.w,job.src.layout.dr.h);
+        drawRedactionsInRect(ctx,localT,job.src.redactions,job.src.layout.dr,job.src.sourceW,job.src.sourceH,{force:true});
+        if(removeStatusBar)drawFastStatusbarOverlay(ctx,job.src.layout,bg);
+        ctx.restore();
+        ctx.drawImage(job.src.layout.frameLayer,0,0);
+        await canvasSource.add(outT,1/fps,{keyFrame:renderedFrames%Math.max(1,fps*2)===0});
+        if(audioSource&&renderedFrames%Math.max(1,Math.round(fps/2))===0)await addAudioThrough(outT+.75);
+        renderedFrames++;
+        i++;
+        sample.close();
+        try{opts.onProgress&&opts.onProgress(Math.min(outT,totalDur),totalDur,{frames:renderedFrames});}catch(e){}
+        if(renderedFrames%300===0)await yieldUI();
+      }
+    }
+    if(audioSource)await addAudioThrough(totalDur+1);
+    const finalizeStart=performance.now();
+    await output.finalize();
+    const blob=new Blob([target.buffer],{type:'video/mp4'});
+    if(blob.size<2048)return null;
+    return {blob,mime:'video/mp4',ext:'mp4',frames:renderedFrames,fps,duration:totalDur,audioTracks:audioSource?1:0,audioPackets:audioSamples,engine:'mediabunny-webcodecs',renderMs:performance.now()-startedAt,finalizeMs:performance.now()-finalizeStart};
+  }catch(e){
+    console.warn('Mediabunny combined render failed, using fallback renderer',e);
+    return null;
+  }finally{
+    sources.forEach(s=>{try{s.input?.dispose?.();}catch(e){}});
+  }
+}
+
 async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
+  const fast=await renderCombinedSourceEditedVideoMediabunny(videoList,label,{...opts,format:'mp4'});
+  if(fast)return fast;
   const sourceVideos=(videoList||[]).filter(v=>v&&v.objectURL&&(Number(v.duration)||0)>0);
   if(!sourceVideos.length||typeof MediaRecorder==='undefined')return null;
   const fps=Math.max(1,Math.min(60,parseInt(opts.fps)||30));
@@ -8722,7 +8998,7 @@ async function renderCombinedSourceEditedVideo(videoList,label,opts={}){
     drawActiveFrame();
     try{mr.requestData();}catch(e){}
     try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
-    return await Promise.race([stoppedPromise,new Promise(resolve=>setTimeout(()=>resolve(null),60000))]);
+    return await Promise.race([stoppedPromise,new Promise(resolve=>setTimeout(()=>resolve(null),exportRenderTimeoutMs(totalDur,opts)))]);
   }catch(e){
     console.warn('combined source video render failed',e);
     try{videoEls.forEach(({el})=>{el.pause();el.removeAttribute('src');});}catch(_e){}
@@ -8833,7 +9109,7 @@ async function renderMasterVideoClip(masterBlob,label,ranges,opts={}){
     stopped=true;clearTimeout(drawTimer);resumeRecorder();drawFrame();
     try{mr.requestData();}catch(e){}
     try{if(mr.state!=='inactive')mr.stop();else aborted=true;}catch(e){aborted=true;}
-    return await Promise.race([stoppedPromise,new Promise(resolve=>setTimeout(()=>resolve(null),60000))]);
+    return await Promise.race([stoppedPromise,new Promise(resolve=>setTimeout(()=>resolve(null),exportRenderTimeoutMs(totalDur,opts)))]);
   }catch(e){
     console.warn('master video clip render failed',e);
     try{video.pause();video.removeAttribute('src');video.load&&video.load();}catch(_e){}
@@ -9633,7 +9909,7 @@ async function exportZip(vid){
       fps:Math.min(60,parseInt(document.getElementById('vex-fps')?.value)||30),
       includeCuts:true,
       videoBitsPerSecond:12_000_000,
-      maxRenderMs:Math.max(20000,Math.min(90000,sessionDuration*5000+10000)),
+      maxRenderMs:exportRenderTimeoutMs(sessionDuration),
       shouldCancel:()=>zipCancelFlag,
       onProgress:(done,total)=>{
         const pct=8+Math.round((total?done/total:0)*22);
@@ -9649,7 +9925,7 @@ async function exportZip(vid){
     frameEventsByVideoId:zipFrameEventsByVideoId,
     frameKey:zipDefaultFrameKey,
     requireFrameAsset:true,
-    maxRenderMs:Math.max(20000,Math.min(90000,sessionDuration*5000+10000)),
+    maxRenderMs:exportRenderTimeoutMs(sessionDuration),
     shouldCancel:()=>zipCancelFlag,
     onProgress:(done,total)=>{
       const pct=8+Math.round((total?done/total:0)*22);
@@ -9660,8 +9936,13 @@ async function exportZip(vid){
   if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
   const wroteMasterVideo=!!(combinedVideo&&combinedVideo.blob&&combinedVideo.blob.size>5000);
   if(wroteMasterVideo){
-    sessionRoot.file('video.webm',combinedVideo.blob,{binary:true,compression:'STORE'});
-    inventory.push(`${sessionFolder}/video.webm,video/webm,${combinedVideo.blob.size}`);
+    const masterExt=combinedVideo.ext||'webm';
+    const masterName=`video.${masterExt}`;
+    sessionRoot.file(masterName,combinedVideo.blob,{binary:true,compression:'STORE'});
+    inventory.push(`${sessionFolder}/${masterName},${combinedVideo.mime||('video/'+masterExt)},${combinedVideo.blob.size}`);
+    manifestData.videoFile=masterName;
+    manifestData.videoEngine=combinedVideo.engine||'mediarecorder';
+    manifestData.videoCodec=masterExt==='mp4'?'avc/aac':'webm';
     renderedVideoSeq=1;
   }else{
     targetVideos.forEach((v,idx)=>{
@@ -9923,8 +10204,8 @@ async function exportZip(vid){
   }
   sessionRoot.file('animations.json',JSON.stringify({detection:manifestData.animationDetection,animations:manifestData.animations},null,2),{compression:'STORE'});
   sessionRoot.file('flows_reference.txt',flowInfos.join('\n'),{compression:'STORE'});
-  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- video.webm is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- flow videos are intentionally not exported; cut them later from video.webm using manifest.json flow start/end times\n- animations.json contains certain animation metadata only; animation videos are intentionally not exported\n- animation start/end values use seconds with milliseconds so short clips never collapse to 0:00\n- each animation includes an ffmpegCut command that can be run against video.webm after export\n- all exported video uses one iPhone mockup asset from start to finish; flow folders keep the same iphoneFrame value for reference\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, flow_info.txt, and timing metadata\n- flows/NNN_Flow_Name/originals contains original JPEG copies only for screenshots that had redactions\n- flows/NNN_Flow_Name/redactions.json links each redacted screenshot to its original copy and redaction boxes\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
-  sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nAnimations detected: ${manifestData.animations.length}\nStatus bar removed on export: ${removeStatusBar}\nEdited master videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\nFlow videos exported into ZIP: 0\nAnimation videos exported into ZIP: 0\nMaster render: ${exportTimingReport.masterRenderSec}s\nAnimation metadata detection: ${exportTimingReport.animationDetectSec}s\nFlow clip/render stage: ${exportTimingReport.flowClipSec}s\n`,{compression:'STORE'});
+  sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- ${manifestData.videoFile||'video.webm'} is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- flow videos are intentionally not exported; cut them later from the master video using manifest.json flow start/end times\n- animations.json contains certain animation metadata only; animation videos are intentionally not exported\n- animation start/end values use seconds with milliseconds so short clips never collapse to 0:00\n- each animation includes an ffmpegCut command that can be run against the master video after export\n- all exported video uses one iPhone mockup asset from start to finish; flow folders keep the same iphoneFrame value for reference\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains PNG screenshots, flow_info.txt, and timing metadata\n- flows/NNN_Flow_Name/originals contains original JPEG copies only for screenshots that had redactions\n- flows/NNN_Flow_Name/redactions.json links each redacted screenshot to its original copy and redaction boxes\n- untagged contains screenshots without a flow\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
+  sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nAnimations detected: ${manifestData.animations.length}\nStatus bar removed on export: ${removeStatusBar}\nEdited master videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\nFlow videos exported into ZIP: 0\nAnimation videos exported into ZIP: 0\nMaster render: ${exportTimingReport.masterRenderSec}s\nMaster render engine: ${manifestData.videoEngine||'fallback'}\nMaster video file: ${manifestData.videoFile||''}\nAnimation metadata detection: ${exportTimingReport.animationDetectSec}s\nFlow clip/render stage: ${exportTimingReport.flowClipSec}s\n`,{compression:'STORE'});
   setLdPb(94,'Packing Flora-style ZIP...');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
   const a=document.createElement('a');const url=URL.createObjectURL(blob);
