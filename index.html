@@ -719,7 +719,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
       <div style="font-weight:700;font-size:12px;margin-bottom:3px;display:flex;align-items:center;gap:5px">🎞️ Full Edited Video <span style="font-size:9px;font-weight:400;color:var(--m);font-family:'DM Mono',monospace;margin-left:auto" id="full-fc"></span></div>
       <div style="font-size:10px;color:var(--m);margin-bottom:8px;line-height:1.6">All remaining frames in order — deleted frames gone, all edits baked in.</div>
       <button class="btn bp" style="width:100%" id="vex-full-btn" onclick="exportFullEditedVideo()">⬇ Download Full Edited Video</button>
-      <button class="btn bgn" style="width:100%;margin-top:7px" id="vex-parts-btn" onclick="exportFiveMinuteVideoParts()">⬇ Download 5-min Parts</button>
+      <button class="btn bgn" style="width:100%;margin-top:7px" id="vex-parts-btn" onclick="exportFiveMinuteZipParts(null)">⬇ Download 5-min ZIP Parts</button>
       <div style="font-size:9px;color:var(--m);margin-top:6px;line-height:1.5;font-family:'DM Mono',monospace">Parts adjust around flows and animations so a protected range stays together.</div>
     </div>
     <div><div class="mst" style="margin-bottom:5px">By Flow</div><div id="vex-flows"></div></div>
@@ -751,6 +751,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height
     <div class="mf">
       <button class="btn bg" onclick="document.getElementById('exp-modal').classList.remove('on')">Cancel</button>
       <button class="btn bgo sm" onclick="exportZip(null)">⬇ All Videos ZIP</button>
+      <button class="btn bgn sm" onclick="exportFiveMinuteZipParts(null)">⬇ 5-min ZIPs</button>
       <button class="btn bg" onclick="exportZip('active')">⬇ Active Video ZIP</button>
     </div>
   </div>
@@ -7571,118 +7572,59 @@ async function exportFullEditedVideo(){
   }else await reconstructVideo(sorted,_appN+'_full',{transparentBackground:true,frameEventsByVideoId:{},frameKey:fullDefaultFrameKey,requireFrameAsset:true});
   disableVexBtns(false);
 }
-async function exportFiveMinuteVideoParts(){
+async function exportFiveMinuteZipParts(vid=null){
   const sorted=exportableFramesInVideoOrder(allFrames());
-  const _appN=(document.getElementById('exp-appname')?.value||'').trim()||'export';
-  const sourceIds=[...new Set(sorted.map(fr=>fr.videoId).filter(Boolean))];
-  const targetVideos=videos.filter(v=>sourceIds.includes(v.id)&&v.file&&v.objectURL&&(Number(v.duration)||0)>0);
-  if(!targetVideos.length){toast('⚠️','No source video available for parts');return;}
+  const nameInput=document.getElementById('exp-appname');
+  if(nameInput&&!nameInput.value.trim()&&videos.length){
+    const raw=videos[0].name||'';
+    nameInput.value=raw.replace(/\.(mp4|webm|mov)$/i,'').replace(/\s*\(\d+\)$/,'').trim()||'export';
+  }
+  const targetVideos=vid==='active'
+    ? [activeVideo()].filter(Boolean)
+    : vid&&vid!=='all'
+      ? [getVideo(vid)].filter(Boolean)
+      : videos.filter(v=>v.frames?.length);
+  const sourceVideos=targetVideos.filter(v=>v&&v.file&&v.objectURL&&(Number(v.duration)||0)>0);
+  if(!sourceVideos.length){toast('⚠️','No source video available for ZIP parts');return;}
   const prog=document.getElementById('vex-prog'),progT=document.getElementById('vex-pt'),progB=document.getElementById('vpb'),progD=document.getElementById('vex-pd');
-  const frameKey=exportPhoneFrameKey(canvasOptions.frame);
-  const removeStatusBar=exportStatusBarEnabled('video');
   disableVexBtns(true);
   zipCancelFlag=false;
   if(prog){prog.style.display='block';}
   if(progB)progB.style.width='0%';
-  await ensureAnimationsReadyForChunkExport(targetVideos,msg=>{if(progT)progT.textContent=msg;});
-  const plan=planFiveMinuteVideoChunks(targetVideos,300);
+  document.getElementById('exp-modal')?.classList.remove('on');
+  await ensureAnimationsReadyForChunkExport(sourceVideos,msg=>{if(progT)progT.textContent=msg;});
+  const plan=planFiveMinuteVideoChunks(sourceVideos,300);
   if(!plan.chunks.length){if(prog)prog.style.display='none';disableVexBtns(false);toast('⚠️','Nothing to export');return;}
-  const manifest={
-    title:_appN,
-    exportedAt:new Date().toISOString(),
-    mode:'five-minute-video-parts',
-    chunkTargetSec:300,
-    durationSec:plan.duration,
-    durationFmt:fmt(plan.duration),
-    videoCount:targetVideos.length,
-    protectedIntervalCount:plan.protectedIntervals.length,
-    parts:[]
-  };
-  const started=performance.now();
+  const results=[];
   try{
     for(const chunk of plan.chunks){
       if(zipCancelFlag)break;
-      const rangesByVideoId=rangesByVideoIdForEffectiveSessionRange(targetVideos,chunk.start,chunk.end);
-      const partBase=`${_appN}_part_${String(chunk.index).padStart(2,'0')}_${exportTimeName(chunk.start)}-${exportTimeName(chunk.end)}`;
-      if(progT)progT.textContent=`Rendering part ${chunk.index}/${plan.chunks.length}...`;
+      if(progT)progT.textContent=`Building ZIP part ${chunk.index}/${plan.chunks.length}...`;
       if(progB)progB.style.width='0%';
       if(progD)progD.textContent=`${fmt(chunk.start)}-${fmt(chunk.end)} · ${fmt(chunk.duration)}`;
-      let rendered=await renderCombinedSourceEditedVideo(targetVideos,partBase,{
-        rangesByVideoId,
-        includeCuts:false,
-        removeStatusBar,
-        fps:longSafeVideoExportFps(chunk.duration,60),
-        transparentBackground:true,
-        frameEventsByVideoId:{},
-        frameKey,
-        requireFrameAsset:true,
-        videoBitsPerSecond:12_000_000,
-        maxRenderMs:exportRenderTimeoutMs(chunk.duration,{timeoutMs:Math.max(180000,chunk.duration*1800+90000)}),
-        shouldCancel:()=>zipCancelFlag,
-        onProgress:(done,total)=>{
-          if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
-          if(progD)progD.textContent=`part ${chunk.index}/${plan.chunks.length} · ${fmt(done)} / ${fmt(total)}`;
-        }
+      const res=await exportZip(vid,{
+        targetVideos:sourceVideos,
+        sessionRange:{start:chunk.start,end:chunk.end},
+        partIndex:chunk.index,
+        partCount:plan.chunks.length,
+        partProtected:chunk.protected,
+        keepCancelState:true,
+        keepModal:true,
+        skipClearSession:true
       });
-      if(!rendered&& !zipCancelFlag){
-        if(progT)progT.textContent=`Retrying part ${chunk.index} at 24fps...`;
-        rendered=await renderCombinedSourceEditedVideo(targetVideos,partBase,{
-          rangesByVideoId,
-          includeCuts:false,
-          removeStatusBar,
-          fps:24,
-          transparentBackground:true,
-          frameEventsByVideoId:{},
-          frameKey,
-          requireFrameAsset:true,
-          videoBitsPerSecond:8_000_000,
-          maxRenderMs:exportRenderTimeoutMs(chunk.duration,{timeoutMs:Math.max(240000,chunk.duration*2400+120000)}),
-          shouldCancel:()=>zipCancelFlag,
-          onProgress:(done,total)=>{
-            if(progB)progB.style.width=Math.min(98,Math.round((total?done/total:0)*96))+'%';
-            if(progD)progD.textContent=`retry ${chunk.index}/${plan.chunks.length} · ${fmt(done)} / ${fmt(total)}`;
-          }
-        });
-      }
-      if(!rendered||!rendered.blob){
-        manifest.parts.push({index:chunk.index,file:'',startSec:chunk.start,endSec:chunk.end,durationSec:chunk.duration,status:zipCancelFlag?'cancelled':'failed',adjusted:chunk.adjusted,protected:chunk.protected});
-        if(zipCancelFlag)break;
-        toast('⚠️',`Part ${chunk.index} failed`);
-        continue;
-      }
-      const ext=rendered.ext||'mp4';
-      _triggerDownload(rendered.blob,partBase,ext);
-      manifest.parts.push({
-        index:chunk.index,
-        file:`${partBase}.${ext}`,
-        startSec:chunk.start,
-        endSec:chunk.end,
-        durationSec:chunk.duration,
-        startFmt:fmt(chunk.start),
-        endFmt:fmt(chunk.end),
-        durationFmt:fmt(chunk.duration),
-        status:'downloaded',
-        adjusted:chunk.adjusted,
-        protected:chunk.protected.map(p=>({type:p.type,id:p.id,label:p.label,startSec:p.start,endSec:p.end})),
-        rangesByVideoId,
-        engine:rendered.engine||'renderer',
-        fps:rendered.fps||null,
-        size:rendered.blob.size||0,
-        renderMs:rendered.renderMs||null
-      });
-      if(progB)progB.style.width='100%';
-      await yieldUI(900);
+      results.push(res);
+      if(!res?.ok||zipCancelFlag)break;
+      await yieldUI(1200);
     }
-    manifest.elapsedMs=Math.round(performance.now()-started);
-    const manifestBlob=new Blob([JSON.stringify(manifest,null,2)],{type:'application/json'});
-    _triggerDownload(manifestBlob,`${_appN}_video_parts_manifest`,'json');
-    const ok=manifest.parts.filter(p=>p.status==='downloaded').length;
-    toast(zipCancelFlag?'⚠️':'Download',`${ok}/${plan.chunks.length} video parts ready`);
+    const ok=results.filter(r=>r?.ok).length;
+    if(!zipCancelFlag&&ok===plan.chunks.length)setTimeout(()=>{clearSession();dismissSessionBanner();},2*60*1000);
+    toast(zipCancelFlag?'⚠️':'Download',`${ok}/${plan.chunks.length} ZIP parts ready`);
   }finally{
     if(prog)prog.style.display='none';
     disableVexBtns(false);
   }
 }
+async function exportFiveMinuteVideoParts(){return exportFiveMinuteZipParts(null);}
 async function exportOneFlowVideo(fid){
   const fl=flows.find(f=>f.id===fid);
   const frs=exportableFramesInVideoOrder(allFrames().filter(fr=>fr.flows.includes(fid)));
@@ -9687,7 +9629,7 @@ function renderExpVideoList(){
   const c=document.getElementById('exp-vlist');c.innerHTML='';
   videos.filter(v=>v.frames.length>0).forEach(v=>{
     const d=document.createElement('div');d.className='vex-item';
-    d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${v.frames.length} frames</div></div><button class="btn bg sm" onclick="exportZip('${v.id}')">⬇ This</button>`;
+    d.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">${esc(v.name)}</div><div style="font-size:10px;color:var(--m);font-family:'DM Mono',monospace">${v.frames.length} frames</div></div><button class="btn bgn sm" onclick="exportFiveMinuteZipParts('${v.id}')">⬇ 5m</button><button class="btn bg sm" onclick="exportZip('${v.id}')">⬇ This</button>`;
     c.appendChild(d);
   });
 }
@@ -10131,39 +10073,59 @@ function maybeAutoScanAnimations(){
   queueBackgroundAnimationScan();
 }
 
-async function exportZip(vid){
+async function exportZip(vid,opts={}){
   const nameInput=document.getElementById('exp-appname');
   const appName=(nameInput?.value||'').trim();
   if(!appName){toast('⚠️','Enter an App Name before exporting');nameInput?.focus();return;}
-  document.getElementById('exp-modal').classList.remove('on');
-  zipCancelFlag=false;
+  if(!opts.keepModal)document.getElementById('exp-modal').classList.remove('on');
+  if(!opts.keepCancelState)zipCancelFlag=false;
   const expAll=document.getElementById('e-all').checked;
   const expMan=document.getElementById('e-manifest').checked;
   const expCsv=document.getElementById('e-csv').checked;
   const removeStatusBar=exportStatusBarEnabled('zip');
-  const targetVideos=vid==='active'
+  const targetVideos=opts.targetVideos||(
+    vid==='active'
     ? [activeVideo()].filter(Boolean)
     : vid&&vid!=='all'
       ? [getVideo(vid)].filter(Boolean)
-      : videos.filter(v=>v.frames.length>0);
+      : videos.filter(v=>v.frames.length>0)
+  );
   if(!targetVideos.length){toast('⚠️','No frames to export');return;}
-  const selectedFramesForZip=exportableFramesInVideoOrder(targetVideos.flatMap(v=>expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0)));
+  const range=opts.sessionRange&&Number(opts.sessionRange.end)>Number(opts.sessionRange.start)
+    ? {start:Math.max(0,Number(opts.sessionRange.start)||0),end:Math.max(0,Number(opts.sessionRange.end)||0)}
+    : null;
+  const rangeDuration=range?Math.max(0,range.end-range.start):0;
+  const rangesByVideoId=range?rangesByVideoIdForEffectiveSessionRange(targetVideos,range.start,range.end):null;
+  const baseFramesForZip=targetVideos.flatMap(v=>expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0));
+  const selectedFramesForZip=exportableFramesInVideoOrder(baseFramesForZip.filter(fr=>{
+    if(!range)return true;
+    const ts=effectiveGlobalFrameSec(fr,targetVideos);
+    const isLastPart=!!(opts.partIndex&&opts.partCount&&opts.partIndex===opts.partCount);
+    return ts>=range.start-0.001&&(isLastPart?ts<=range.end+0.001:ts<range.end-0.001);
+  }));
+  const framesByVideoId=new Map();
+  selectedFramesForZip.forEach(fr=>{
+    if(!framesByVideoId.has(fr.videoId))framesByVideoId.set(fr.videoId,[]);
+    framesByVideoId.get(fr.videoId).push(fr);
+  });
   const totalFramesToExport=selectedFramesForZip.length;
   const zipFlowOrder=flowExportOrderForFrames(flows.filter(f=>selectedFramesForZip.some(fr=>fr.flows.includes(f.id))),selectedFramesForZip);
   const zipDefaultFrameKey=exportPhoneFrameKey(canvasOptions.frame);
   const zipFrameEventsByVideoId={};
-  if(!totalFramesToExport){toast('⚠️','No matching frames');return;}
-  showLd('Building ZIP...');setLdPb(4,'Preparing Flora-style session...');
+  if(!totalFramesToExport&&!range){toast('⚠️','No matching frames');return;}
+  const partLabel=opts.partIndex?` part ${opts.partIndex}${opts.partCount?` / ${opts.partCount}`:''}`:'';
+  showLd(`Building ZIP${partLabel}...`);setLdPb(4,'Preparing Flora-style session...');
   const domainSlug=exportSessionBaseSlug(appName);
   const sessionId=exportSessionId(appName);
   const sessionTitle=exportTitleSlug(domainSlug,'Session');
-  const sessionFolder=`${domainSlug}/session_${sessionId}_${sessionTitle}`;
+  const partSuffix=opts.partIndex?`_part_${String(opts.partIndex).padStart(2,'0')}`:'';
+  const sessionFolder=`${domainSlug}/session_${sessionId}_${sessionTitle}${partSuffix}`;
   const zip=new JSZip();
   const sessionRoot=zip.folder(sessionFolder);
   const flowsRoot=sessionRoot.folder('flows');
   const untaggedFolder=sessionRoot.folder('untagged');
   const dbFolder=sessionRoot.folder('_db');
-  const sessionDuration=totalEffectiveDuration(targetVideos);
+  const sessionDuration=range?rangeDuration:totalEffectiveDuration(targetVideos);
   const manifestVideos=targetVideos.map((v,idx)=>({
     id:v.id,
     index:idx+1,
@@ -10180,6 +10142,16 @@ async function exportZip(vid){
     duration:sessionDuration,
     durationFmt:exportDuration(sessionDuration),
     exportedAt:new Date().toISOString(),
+    part:range?{
+      index:opts.partIndex||1,
+      count:opts.partCount||1,
+      startSec:range.start,
+      endSec:range.end,
+      durationSec:sessionDuration,
+      startTime:exportClock(range.start),
+      endTime:exportClock(range.end),
+      protected:(opts.partProtected||[]).map(p=>({type:p.type,id:p.id,label:p.label,startSec:p.start,endSec:p.end}))
+    }:null,
     session:{id:`session_${sessionId}`,title:appName,url:'',hostname:domainSlug.replace(/_/g,'.'),duration:sessionDuration,durationFmt:exportDuration(sessionDuration),exportedAt:new Date().toISOString()},
     videos:manifestVideos,
     flows:[],
@@ -10208,8 +10180,9 @@ async function exportZip(vid){
       frameEventsByVideoId:zipFrameEventsByVideoId,
       frameKey:zipDefaultFrameKey,
       requireFrameAsset:true,
-      fps:longSafeVideoExportFps(sessionDuration,60),
-      includeCuts:true,
+      fps:opts.partIndex?longSafeVideoExportFps(sessionDuration,30):longSafeVideoExportFps(sessionDuration,60),
+      rangesByVideoId,
+      includeCuts:!rangesByVideoId,
       videoBitsPerSecond:12_000_000,
       maxRenderMs:exportRenderTimeoutMs(sessionDuration),
       shouldCancel:()=>zipCancelFlag,
@@ -10246,6 +10219,10 @@ async function exportZip(vid){
     manifestData.videoEngine=combinedVideo.engine||'mediarecorder';
     manifestData.videoCodec=masterExt==='mp4'?'avc/aac':'webm';
     renderedVideoSeq=1;
+  }else if(range){
+    hideLd();
+    toast('⚠️',`ZIP part ${opts.partIndex||''} video render failed`);
+    return {ok:false,reason:'video-render-failed',partIndex:opts.partIndex||0};
   }else{
     targetVideos.forEach((v,idx)=>{
       if(!v?.file)return;
@@ -10262,11 +10239,35 @@ async function exportZip(vid){
   zipRenderTimings.animationDetectMs=performance.now()-animationStart;
   if(!animationExport.animations.length)queueBackgroundAnimationScan();
   if(zipCancelFlag){hideLd();toast('Ã¢Å¡Â Ã¯Â¸Â','Export cancelled');return;}
-  manifestData.animations=animationExport.animations||[];
+  manifestData.animations=(animationExport.animations||[]).filter(a=>{
+    if(!range)return true;
+    return Number(a.endSec)>range.start+0.001&&Number(a.startSec)<range.end-0.001;
+  }).map((a,idx)=>{
+    if(!range)return {...a,index:idx+1,id:`anim_${String(idx+1).padStart(3,'0')}`};
+    const localStart=Math.max(0,Number(a.startSec)-range.start);
+    const localEnd=Math.max(localStart,Math.min(rangeDuration,Number(a.endSec)-range.start));
+    const duration=Math.max(0.001,localEnd-localStart);
+    return {
+      ...a,
+      id:`anim_${String(idx+1).padStart(3,'0')}`,
+      index:idx+1,
+      sourceSessionStartSec:a.startSec,
+      sourceSessionEndSec:a.endSec,
+      startSec:+localStart.toFixed(3),
+      endSec:+localEnd.toFixed(3),
+      durationSec:+duration.toFixed(3),
+      startTime:exportClockMs(localStart),
+      endTime:exportClockMs(localEnd),
+      durationTime:exportDurationMs(duration),
+      ffmpegCut:`ffmpeg -ss ${localStart.toFixed(3)} -to ${localEnd.toFixed(3)} -i video.mp4 -c copy anim_${String(idx+1).padStart(3,'0')}_${a.type}.mp4`
+    };
+  });
   manifestData.animationDetection=animationExport.stats||{};
-  animations=manifestData.animations;
-  animationScanStats=manifestData.animationDetection;
-  renderAnimations();
+  if(!range){
+    animations=manifestData.animations;
+    animationScanStats=manifestData.animationDetection;
+    renderAnimations();
+  }
   inventory.push(`${sessionFolder}/animations.json,application/json,${JSON.stringify({detection:manifestData.animationDetection,animations:manifestData.animations}).length}`);
   manifestData.animations.forEach(a=>{
     dbAnimations.push([
@@ -10279,7 +10280,7 @@ async function exportZip(vid){
   for(const v of targetVideos){
     const baseName=String(v.name||'video').replace(/\.(mp4|webm|mov)$/i,'');
     const safeName=exportFileStem(baseName,'video');
-    const toExport=exportableFramesInVideoOrder(expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0));
+    const toExport=exportableFramesInVideoOrder(framesByVideoId.get(v.id)||[]);
     const assignedFlows=zipFlowOrder.filter(f=>toExport.some(fr=>fr.flows.includes(f.id)));
     const flowFolders={};
     assignedFlows.forEach(f=>{
@@ -10344,7 +10345,8 @@ async function exportZip(vid){
         const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
         if(!blob)return;
         const localTs=Number(fr.timestamp??fr.timeSec??0)||0;
-        const ts=effectiveGlobalFrameSec(fr,targetVideos);
+        const sourceSessionTs=effectiveGlobalFrameSec(fr,targetVideos);
+        const ts=range?Math.max(0,sourceSessionTs-range.start):sourceSessionTs;
         const snapId=`snap_${Date.now()+seq}_${Math.random().toString(36).slice(2,6)}`;
         const stem=`${String(seq).padStart(5,'0')}_${exportTimeName(ts)}_snap_${snapId}`;
         const imgName=`${stem}.png`;
@@ -10364,14 +10366,14 @@ async function exportZip(vid){
             inventory.push(`${sessionFolder}/${originalPath},image/jpeg,${originalBlob.size}`);
           }
           if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},image,${csvCell('')},${csvCell(t.path+imgName)},${csvCell(originalPath)},${redactionMeta.length}`);
-          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName,originalImageFile:originalPath,redactionCount:redactionMeta.length});
-          if(t.redactions&&redactionMeta.length)t.redactions.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,imageFile:t.path+imgName,originalImageFile:originalPath,redactions:redactionMeta});
+          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName,originalImageFile:originalPath,redactionCount:redactionMeta.length});
+          if(t.redactions&&redactionMeta.length)t.redactions.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,imageFile:t.path+imgName,originalImageFile:originalPath,redactions:redactionMeta});
           if(t.flow&&exportFlowFrameRefs[t.flow.id])exportFlowFrameRefs[t.flow.id].push(fr);
           inventory.push(`${sessionFolder}/${t.path}${imgName},image/png,${blob.size}`);
         });
         const firstOriginal=originalImageFiles[0]||'';
         dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName),csvCell(firstOriginal),redactionMeta.length].join(','));
-        manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,localTimeSec:localTs,videoId:v.id,videoName:v.name,kind:'image',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,originalImageFile:firstOriginal,originalImageFiles,redactionCount:redactionMeta.length,redactions:redactionMeta});
+        manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,localTimeSec:localTs,videoId:v.id,videoName:v.name,kind:'image',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,originalImageFile:firstOriginal,originalImageFiles,redactionCount:redactionMeta.length,redactions:redactionMeta});
       }));
       setLdPb(34+Math.round(globalSeq/totalFramesToExport*48),'Encoding reference frames…');
       await yieldUI();
@@ -10511,13 +10513,14 @@ async function exportZip(vid){
   setLdPb(94,'Packing Flora-style ZIP...');
   const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
   const a=document.createElement('a');const url=URL.createObjectURL(blob);
-  const zipName=`${domainSlug}_session_${sessionId}_uiland.zip`;
+  const zipName=`${domainSlug}_session_${sessionId}_uiland${partSuffix}.zip`;
   window.__uilandLastZip={name:zipName,blob,size:blob.size,createdAt:Date.now()};
   a.href=url;a.download=zipName;a.click();
   setTimeout(()=>URL.revokeObjectURL(url),5*60*1000);
   hideLd();
-  setTimeout(()=>{clearSession();dismissSessionBanner();},2*60*1000);
-  toast('⬇',`ZIP ready · ${globalSeq} frames · session cleared`);
+  if(!opts.skipClearSession)setTimeout(()=>{clearSession();dismissSessionBanner();},2*60*1000);
+  toast('⬇',`ZIP ready${partLabel} · ${globalSeq} frames${opts.skipClearSession?'':' · session cleared'}`);
+  return {ok:true,name:zipName,size:blob.size,frames:globalSeq,duration:sessionDuration,partIndex:opts.partIndex||0};
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
