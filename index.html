@@ -9382,16 +9382,8 @@ function fastCompositorLayout(W,H,sourceW,sourceH,frameKey,sourceIslandRect){
   // sourceIslandFrameCutout/AssetCutout when null) while still hiding the mockup's baked-in
   // island whenever *something* was detected, via the unfiltered boolean below.
   const cutoutIslandRect=plausibleIslandRect(sourceIslandRect)?sourceIslandRect:null;
-  // Gate on sourceIslandRect (the unfiltered boolean the comment above promises), NOT on
-  // cutoutIslandRect: when the detected shape is implausible, cutoutIslandRect is null and
-  // sourceIslandFrameCutout/AssetCutout fall back internally to defaultFrameIslandRect (see
-  // their own null-checks) -- but gating the CALL on cutoutIslandRect short-circuited that
-  // fallback and left both cutouts null, so drawPhoneInnerBandOverlay below got no island
-  // hole to cut and drew the mockup's own baked-in island (glint included) straight through.
-  // drawComposedMediaFrame (the preview path) already gates this correctly on hideNotch
-  // (equivalent to sourceIslandRect here); this mirrors that.
-  const sourceIslandCutout=sourceIslandRect?sourceIslandFrameCutout(screen,dr,cutoutIslandRect,sourceW,sourceH):null;
-  const frameIslandCutout=sourceIslandRect?sourceIslandAssetCutout(screen,dr,cutoutIslandRect,sourceW,sourceH):null;
+  const sourceIslandCutout=cutoutIslandRect?sourceIslandFrameCutout(screen,dr,cutoutIslandRect,sourceW,sourceH):null;
+  const frameIslandCutout=cutoutIslandRect?sourceIslandAssetCutout(screen,dr,cutoutIslandRect,sourceW,sourceH):null;
   const frameLayer=document.createElement('canvas');
   frameLayer.width=W;frameLayer.height=H;
   const fctx=get2dCtx(frameLayer,false,true);
