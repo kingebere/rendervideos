@@ -2986,6 +2986,7 @@ function eraseStatusRecordingArtifacts(ctx,protectRect=null){
   return removed;
 }
 
+let _statusSnapCanvas=null;
 function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
   try{
     const rawIsland=opts.sourceIslandRect||opts.islandRect||null;
@@ -3032,9 +3033,21 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
         if(rightX<sX+sW)zones.push({x:rightX,y:sideY,w:sX+sW-rightX,h:sideH});
       }
     }
-    const sourceSnap=document.createElement('canvas');
-    sourceSnap.width=ctx.canvas.width;sourceSnap.height=ctx.canvas.height;
-    try{get2dCtx(sourceSnap,true,true).drawImage(ctx.canvas,0,0);}catch(e){}
+    // Reuse one snapshot canvas and copy only the status bar band. Allocating a
+    // full source-sized canvas per frame and copying all ~3.6 megapixels cost
+    // ~40ms/frame and churned hundreds of MB/s, and every zone sampled below
+    // lies inside this band anyway. Kept full-size so zone coords still line up.
+    const snapH=Math.max(1,Math.min(ctx.canvas.height,Math.ceil(sY+layout.sbH)+2));
+    let sourceSnap=_statusSnapCanvas;
+    if(!sourceSnap)sourceSnap=_statusSnapCanvas=document.createElement('canvas');
+    if(sourceSnap.width!==ctx.canvas.width||sourceSnap.height!==ctx.canvas.height){
+      sourceSnap.width=ctx.canvas.width;sourceSnap.height=ctx.canvas.height;
+    }
+    try{
+      const _sctx=get2dCtx(sourceSnap,true,true);
+      _sctx.clearRect(0,0,sourceSnap.width,snapH);
+      _sctx.drawImage(ctx.canvas,0,0,ctx.canvas.width,snapH,0,0,ctx.canvas.width,snapH);
+    }catch(e){}
     zones.forEach(z=>fillStatusPatch(ctx,z,bg,protect,sourceSnap,{forceSolid:true}));
     return bg;
   }catch(e){return null;}
@@ -8621,7 +8634,11 @@ function exportRenderTimeoutMs(durationSec=0,opts={}){
   const d=Math.max(0,Number(durationSec)||0);
   // MediaRecorder source rendering runs close to real time. Long exports must not
   // be killed by the old 60-90s guard; keep a guard, but scale it with duration.
-  return Math.max(120000,Math.ceil(d*2200+120000));
+  // 2200 (2.2x realtime) was cutting it too fine: a 34min 1290x2796 HEVC source
+  // measures ~2.8x realtime on the WebCodecs path, so a legitimate render was
+  // being aborted near the end. This is only a stuck-render backstop -- the user
+  // can cancel at any point -- so give it real headroom.
+  return Math.max(120000,Math.ceil(d*6000+120000));
 }
 function selectedVideoExportFps(maxFps=60){
   return Math.max(1,Math.min(maxFps,parseInt(document.getElementById('vex-fps')?.value)||30));
@@ -9099,7 +9116,7 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
   catch(e){console.warn('Mediabunny unavailable, using fallback renderer',e);return null;}
   const {
     Input,BlobSource,ALL_FORMATS,VideoSampleSink,EncodedPacketSink,EncodedAudioPacketSource,
-    Output,Mp4OutputFormat,BufferTarget,CanvasSource
+    Output,Mp4OutputFormat,BufferTarget,AppendOnlyStreamTarget,CanvasSource
   }=mb;
   await loadStatusBarSVGs();
   await waitPhoneFrameReady([frameKey],{required:!!opts.requireFrameAsset});
@@ -9125,9 +9142,22 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     canvas.width=size.w;canvas.height=size.h;
     const ctx=get2dCtx(canvas,false,true);
     const clean=document.createElement('canvas');
-    const cleanCtx=get2dCtx(clean,false,false);
-    const target=new BufferTarget();
-    const output=new Output({format:new Mp4OutputFormat({fastStart:'in-memory'}),target});
+    // willReadFrequently must be set here, at first getContext: the status-bar
+    // erase reads this canvas back several times per frame, and its own
+    // get2dCtx(canvas,true,true) is a no-op because the context already exists.
+    // Without it the canvas stays GPU-backed and every getImageData stalls on a
+    // GPU->CPU sync over ~3.6 megapixels.
+    const cleanCtx=get2dCtx(clean,true,false);
+    // Streaming mode pipes encoded chunks straight out (into the ZIP entry), so
+    // the finished MP4 never has to exist in memory -- a 34min export at 12Mbps
+    // is ~3GB, well past the ~2GB ArrayBuffer ceiling BufferTarget would hit.
+    // Fragmented MP4 is required: it is the only layout guaranteeing the
+    // append-only writes AppendOnlyStreamTarget demands.
+    const streamWrite=typeof opts.streamWrite==='function'?opts.streamWrite:null;
+    const target=streamWrite
+      ? new AppendOnlyStreamTarget(new WritableStream({write:u8=>streamWrite(u8)}))
+      : new BufferTarget();
+    const output=new Output({format:new Mp4OutputFormat(streamWrite?{fastStart:'fragmented'}:{fastStart:'in-memory'}),target});
     const canvasSource=new CanvasSource(canvas,{codec:'avc',bitrate:opts.videoBitsPerSecond||12_000_000,keyFrameInterval:4,hardwareAcceleration:'prefer-hardware'});
     output.addVideoTrack(canvasSource);
     let audioSource=null,audioConfig=null,audioPlan=[];
@@ -9190,8 +9220,11 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       }
       cleanCtx.clearRect(0,0,clean.width,clean.height);
       sample.draw(cleanCtx,0,0,clean.width,clean.height);
+      // The status bar erase protects the Dynamic Island, so the red recording
+      // dot living inside it survived that pass and had to be cleaned
+      // separately -- previously this only ran when the status bar was kept.
       if(removeStatusBar)eraseSourceStatusbarForComposition(clean,job.src.island);
-      else if(job.src.island)removeRecordingIndicator(clean,job.src.island);
+      if(job.src.island)removeRecordingIndicator(clean,job.src.island);
       job.src.keyboardCache=job.src.keyboardCache||{step:.25,lastT:null,lastRect:null};
       applyKeyboardBlurThrottled(clean,job.src.keyboardCache,localT);
       job.src.statusBgCache=job.src.statusBgCache||{step:.5,lastT:null,bg:null};
@@ -9249,9 +9282,11 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     if(audioSource)await addAudioThrough(totalDur+1);
     const finalizeStart=performance.now();
     await output.finalize();
+    const meta={mime:'video/mp4',ext:'mp4',frames:renderedFrames,fps,duration:totalDur,audioTracks:audioSource?1:0,audioPackets:audioSamples,engine:streamWrite?'mediabunny-webcodecs-streamed':'mediabunny-webcodecs',renderMs:performance.now()-startedAt,finalizeMs:performance.now()-finalizeStart};
+    if(streamWrite)return {...meta,blob:null,streamed:true};
     const blob=new Blob([target.buffer],{type:'video/mp4'});
     if(blob.size<2048)return null;
-    return {blob,mime:'video/mp4',ext:'mp4',frames:renderedFrames,fps,duration:totalDur,audioTracks:audioSource?1:0,audioPackets:audioSamples,engine:'mediabunny-webcodecs',renderMs:performance.now()-startedAt,finalizeMs:performance.now()-finalizeStart};
+    return {...meta,blob};
   }catch(e){
     console.warn('Mediabunny combined render failed, using fallback renderer',e);
     return null;
@@ -10319,6 +10354,250 @@ function maybeAutoScanAnimations(){
   queueBackgroundAnimationScan();
 }
 
+// ─── STREAMING ZIP WRITER (large-file safe) ───────────────────────────────────
+// Chrome caps a single ArrayBuffer/Blob just under 2GB, so JSZip's in-memory
+// generateAsync() throws RangeError as soon as a multi-GB source video is
+// embedded, and even a blob that does get built dies at download time with
+// "Failed - Network error". This writer never holds a whole file in memory: it
+// slices entries and pushes them straight to disk through the File System
+// Access API. Without that API (Safari) it assembles Blob parts instead, which
+// stay in browser blob storage rather than on the JS heap.
+const UZIP_CHUNK=8*1024*1024;
+let UZIP_STREAM_THRESHOLD=768*1024*1024;     // prompt for a save location above this
+const UZIP_BLOB_CEILING=1.6*1024*1024*1024;  // a blob: download reliably fails past this
+const _uzipCrcTable=(()=>{
+  const t=new Uint32Array(256);
+  for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}
+  return t;
+})();
+const uzipCrcInit=()=>0xFFFFFFFF;
+function uzipCrcUpdate(c,buf){for(let i=0;i<buf.length;i++)c=(_uzipCrcTable[(c^buf[i])&0xFF]^(c>>>8))>>>0;return c>>>0;}
+const uzipCrcFinal=c=>((c^0xFFFFFFFF)>>>0);
+function uzipSetU64(view,off,val){
+  view.setUint32(off,val>>>0,true);
+  view.setUint32(off+4,Math.floor(val/4294967296)>>>0,true);
+}
+const uzipDosTime=d=>((d.getHours()<<11)|(d.getMinutes()<<5)|Math.floor(d.getSeconds()/2))&0xFFFF;
+const uzipDosDate=d=>(((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate())&0xFFFF;
+
+// Mirrors the slice of the JSZip API this export uses, so every existing
+// .folder()/.file() call site keeps working unchanged.
+class UZipArchive{constructor(){this.entries=[];}}
+class UZipFolderRef{
+  constructor(archive,prefix){this.__archive=archive;this.__prefix=prefix;}
+  folder(name){
+    const clean=String(name==null?'':name).replace(/^\/+|\/+$/g,'');
+    return new UZipFolderRef(this.__archive,this.__prefix+(clean?clean+'/':''));
+  }
+  file(name,data){
+    this.__archive.entries.push({path:this.__prefix+String(name==null?'':name).replace(/^\/+/,''),data});
+    return this;
+  }
+}
+const uzipCreate=()=>new UZipFolderRef(new UZipArchive(),'');
+
+function uzipFileSink(writable){
+  let pos=0;
+  return {
+    streaming:true,
+    get pos(){return pos;},
+    async write(u8){await writable.write(u8);pos+=u8.byteLength;},
+    async writeBody(blob,onChunk){
+      for(let off=0;off<blob.size;off+=UZIP_CHUNK){
+        const u8=new Uint8Array(await blob.slice(off,Math.min(off+UZIP_CHUNK,blob.size)).arrayBuffer());
+        onChunk&&onChunk(u8);
+        await writable.write(u8);pos+=u8.byteLength;
+      }
+    },
+    async finish(){await writable.close();return null;}
+  };
+}
+function uzipBlobSink(){
+  const parts=[];let pos=0;
+  return {
+    streaming:false,
+    get pos(){return pos;},
+    async write(u8){parts.push(u8);pos+=u8.byteLength;},
+    async writeBody(blob,onChunk){
+      for(let off=0;off<blob.size;off+=UZIP_CHUNK){
+        const slice=blob.slice(off,Math.min(off+UZIP_CHUNK,blob.size));
+        if(onChunk)onChunk(new Uint8Array(await slice.arrayBuffer()));
+        parts.push(slice); // keeps the bytes in blob storage, off the JS heap
+      }
+      pos+=blob.size;
+    },
+    async finish(){return new Blob(parts,{type:'application/zip'});}
+  };
+}
+
+// Incremental ZIP writer. Entries go to the sink one at a time, so an entry
+// whose length is unknown up front -- a live video encode, say -- can be
+// streamed in as it is produced; the trailing data descriptor carries the real
+// size and CRC once the stream ends.
+class UZipWriter{
+  constructor(sink){
+    this.sink=sink;this.central=[];this.enc=new TextEncoder();
+    const d=new Date();this.dt=uzipDosTime(d);this.dd=uzipDosDate(d);
+  }
+  async _begin(name){
+    const nameBytes=this.enc.encode(name);
+    const offset=this.sink.pos;
+    const needs64=offset>=0xFFFFFFFF;
+    const lh=new Uint8Array(30+nameBytes.length+(needs64?20:0));
+    const lv=new DataView(lh.buffer);
+    lv.setUint32(0,0x04034b50,true);
+    lv.setUint16(4,needs64?45:20,true);
+    lv.setUint16(6,0x0008|0x0800,true); // data descriptor + UTF-8 filenames
+    lv.setUint16(8,0,true);             // STORE
+    lv.setUint16(10,this.dt,true);lv.setUint16(12,this.dd,true);
+    lv.setUint16(26,nameBytes.length,true);
+    lv.setUint16(28,needs64?20:0,true);
+    lh.set(nameBytes,30);
+    if(needs64){const ev=new DataView(lh.buffer,30+nameBytes.length,20);ev.setUint16(0,0x0001,true);ev.setUint16(2,16,true);}
+    await this.sink.write(lh);
+    return {nameBytes,offset,crc:uzipCrcInit(),size:0};
+  }
+  async _end(e){
+    const z64=e.size>=0xFFFFFFFF||e.offset>=0xFFFFFFFF;
+    const crcVal=uzipCrcFinal(e.crc);
+    const dsc=new Uint8Array(z64?24:16);
+    const dv=new DataView(dsc.buffer);
+    dv.setUint32(0,0x08074b50,true);
+    dv.setUint32(4,crcVal,true);
+    if(z64){uzipSetU64(dv,8,e.size);uzipSetU64(dv,16,e.size);}
+    else{dv.setUint32(8,e.size,true);dv.setUint32(12,e.size,true);}
+    await this.sink.write(dsc);
+    this.central.push({nameBytes:e.nameBytes,crc:crcVal,size:e.size,offset:e.offset,dt:this.dt,dd:this.dd});
+    return e.size;
+  }
+  async add(name,data,onBytes){
+    let d=data;
+    if(typeof d==='string')d=this.enc.encode(d);
+    else if(d instanceof ArrayBuffer)d=new Uint8Array(d);
+    else if(ArrayBuffer.isView(d)&&!(d instanceof Uint8Array))d=new Uint8Array(d.buffer,d.byteOffset,d.byteLength);
+    const e=await this._begin(name);
+    if(typeof Blob!=='undefined'&&d instanceof Blob){
+      await this.sink.writeBody(d,u8=>{e.crc=uzipCrcUpdate(e.crc,u8);e.size+=u8.byteLength;onBytes&&onBytes(u8.byteLength);});
+    }else{
+      e.crc=uzipCrcUpdate(e.crc,d);e.size=d.byteLength;
+      await this.sink.write(d);
+      onBytes&&onBytes(d.byteLength);
+    }
+    return this._end(e);
+  }
+  // pump(write) receives an async write(chunk) and resolves when the stream ends
+  async addStream(name,pump){
+    const e=await this._begin(name);
+    await pump(async chunk=>{
+      const u8=chunk instanceof Uint8Array?chunk:new Uint8Array(chunk);
+      if(!u8.byteLength)return;
+      e.crc=uzipCrcUpdate(e.crc,u8);e.size+=u8.byteLength;
+      await this.sink.write(u8);
+    });
+    return this._end(e);
+  }
+  async finish(){
+    const cdStart=this.sink.pos;
+    for(const c of this.central){
+      const z64=c.size>=0xFFFFFFFF||c.offset>=0xFFFFFFFF;
+      const extraLen=z64?28:0;
+      const ch=new Uint8Array(46+c.nameBytes.length+extraLen);
+      const cv=new DataView(ch.buffer);
+      cv.setUint32(0,0x02014b50,true);
+      cv.setUint16(4,z64?45:20,true);
+      cv.setUint16(6,z64?45:20,true);
+      cv.setUint16(8,0x0008|0x0800,true);
+      cv.setUint16(10,0,true);
+      cv.setUint16(12,c.dt,true);cv.setUint16(14,c.dd,true);
+      cv.setUint32(16,c.crc,true);
+      cv.setUint32(20,z64?0xFFFFFFFF:c.size,true);
+      cv.setUint32(24,z64?0xFFFFFFFF:c.size,true);
+      cv.setUint16(28,c.nameBytes.length,true);
+      cv.setUint16(30,extraLen,true);
+      cv.setUint32(42,z64?0xFFFFFFFF:c.offset,true);
+      ch.set(c.nameBytes,46);
+      if(z64){
+        const ev=new DataView(ch.buffer,46+c.nameBytes.length,28);
+        ev.setUint16(0,0x0001,true);ev.setUint16(2,24,true);
+        uzipSetU64(ev,4,c.size);uzipSetU64(ev,12,c.size);uzipSetU64(ev,20,c.offset);
+      }
+      await this.sink.write(ch);
+    }
+    const cdSize=this.sink.pos-cdStart;
+    if(this.central.length>=0xFFFF||cdStart>=0xFFFFFFFF||cdSize>=0xFFFFFFFF){
+      const z=new Uint8Array(76);
+      const zv=new DataView(z.buffer);
+      zv.setUint32(0,0x06064b50,true);
+      uzipSetU64(zv,4,44);
+      zv.setUint16(12,45,true);zv.setUint16(14,45,true);
+      uzipSetU64(zv,24,this.central.length);uzipSetU64(zv,32,this.central.length);
+      uzipSetU64(zv,40,cdSize);uzipSetU64(zv,48,cdStart);
+      const loc=new DataView(z.buffer,56,20);
+      loc.setUint32(0,0x07064b50,true);
+      uzipSetU64(loc,8,cdStart+cdSize);
+      loc.setUint32(16,1,true);
+      await this.sink.write(z);
+    }
+    const eocd=new Uint8Array(22);
+    const ev=new DataView(eocd.buffer);
+    ev.setUint32(0,0x06054b50,true);
+    ev.setUint16(8,Math.min(this.central.length,0xFFFF),true);
+    ev.setUint16(10,Math.min(this.central.length,0xFFFF),true);
+    ev.setUint32(12,cdSize>=0xFFFFFFFF?0xFFFFFFFF:cdSize,true);
+    ev.setUint32(16,cdStart>=0xFFFFFFFF?0xFFFFFFFF:cdStart,true);
+    await this.sink.write(eocd);
+    const size=this.sink.pos;
+    return {blob:await this.sink.finish(),size};
+  }
+}
+
+async function uzipGenerate(ref,sink,onProgress){
+  const w=new UZipWriter(sink);
+  const items=ref.__archive.entries;
+  const grand=items.reduce((n,e)=>{
+    const d=e.data;
+    return n+(typeof Blob!=='undefined'&&d instanceof Blob?d.size:(typeof d==='string'?d.length:(d&&d.byteLength||0)));
+  },0);
+  let done=0;
+  for(const e of items){
+    await w.add(e.path,e.data,n=>{done+=n;if(onProgress&&grand)onProgress(Math.min(1,done/grand));});
+  }
+  return w.finish();
+}
+
+async function uzipPickSaveHandle(suggestedName){
+  if(typeof window.showSaveFilePicker!=='function')return null;
+  try{
+    return await window.showSaveFilePicker({
+      suggestedName,
+      types:[{description:'ZIP archive',accept:{'application/zip':['.zip']}}]
+    });
+  }catch(e){
+    if(e&&e.name==='AbortError')return null;
+    console.warn('save picker unavailable',e);
+    return null;
+  }
+}
+
+async function uzipSave(ref,zipName,handle,onProgress){
+  if(handle){
+    const writable=await handle.createWritable();
+    try{
+      const {size}=await uzipGenerate(ref,uzipFileSink(writable),onProgress);
+      return {ok:true,streamed:true,name:handle.name||zipName,size,blob:null};
+    }catch(e){
+      try{await writable.abort();}catch(_e){}
+      throw e;
+    }
+  }
+  const {blob,size}=await uzipGenerate(ref,uzipBlobSink(),onProgress);
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=zipName;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),5*60*1000);
+  return {ok:true,streamed:false,name:zipName,size,blob};
+}
+
 async function exportZip(vid,opts={}){
   const nameInput=document.getElementById('exp-appname');
   const appName=(nameInput?.value||'').trim();
@@ -10368,7 +10647,29 @@ async function exportZip(vid,opts={}){
   const sessionTitle=exportTitleSlug(domainSlug,'Session');
   const partSuffix=opts.partIndex?`_part_${String(opts.partIndex).padStart(2,'0')}`:'';
   const sessionFolder=`${domainSlug}/session_${sessionId}_${sessionTitle}${partSuffix}`;
-  const zip=new JSZip();
+  const zipName=`${domainSlug}_session_${sessionId}_uiland${partSuffix}.zip`;
+  // Nothing above this point awaits, so the export click's transient activation
+  // is still valid and showSaveFilePicker() is allowed. By the time the render
+  // finishes (minutes later) it would be long gone, hence grabbing it now.
+  const sourceBytes=targetVideos.reduce((n,v)=>n+(v?.file?.size||0),0);
+  let saveHandle=null;
+  if(!opts.partIndex&&sourceBytes>UZIP_STREAM_THRESHOLD){
+    saveHandle=await uzipPickSaveHandle(zipName);
+    if(!saveHandle&&sourceBytes>UZIP_BLOB_CEILING){
+      hideLd();
+      toast('⚠️','Too big for a normal download — choose a save location, or use "5-min ZIP parts"');
+      return {ok:false,reason:'needs-streaming-save',partIndex:0};
+    }
+  }
+  const zip=uzipCreate();
+  // With a real file handle the encoded master video can be streamed directly
+  // into the archive as its first entry, so neither the video nor the ZIP ever
+  // has to exist in memory.
+  let zipWriter=null,zipWritable=null;
+  if(saveHandle){
+    zipWritable=await saveHandle.createWritable();
+    zipWriter=new UZipWriter(uzipFileSink(zipWritable));
+  }
   const sessionRoot=zip.folder(sessionFolder);
   const flowsRoot=sessionRoot.folder('flows');
   const untaggedFolder=sessionRoot.folder('untagged');
@@ -10495,30 +10796,42 @@ async function exportZip(vid,opts={}){
     }
     exportFlowData[f.id].directRanges.push(...directFlowRefs.filter(r=>r.flowId===f.id));
   });
-  setLdPb(8,'Rendering source video for ZIP...');
+  setLdPb(5,'Rendering source video for ZIP...');
   const masterRenderStart=performance.now();
-  let combinedVideo=targetVideos.every(v=>v.objectURL)
-    ? await renderCombinedSourceEditedVideo(targetVideos,'video',{
-      removeStatusBar,
-      transparentBackground:true,
-      frameEventsByVideoId:zipFrameEventsByVideoId,
-      frameKey:zipDefaultFrameKey,
-      requireFrameAsset:true,
-      fps:opts.partIndex?longSafeVideoExportFps(sessionDuration,30):longSafeVideoExportFps(sessionDuration,60),
-      rangesByVideoId,
-      includeCuts:!rangesByVideoId,
-      videoBitsPerSecond:12_000_000,
-      requireMediabunny:true,
-      maxRenderMs:exportRenderTimeoutMs(sessionDuration),
-      shouldCancel:()=>zipCancelFlag,
-      onProgress:(done,total)=>{
-        const pct=8+Math.round((total?done/total:0)*22);
-        setLdPb(Math.min(30,pct),`Rendering source video for ZIP... ${fmt(done)} / ${fmt(total)}`);
-      }
-    })
-    : null;
+  const masterRenderOpts={
+    removeStatusBar,
+    transparentBackground:true,
+    frameEventsByVideoId:zipFrameEventsByVideoId,
+    frameKey:zipDefaultFrameKey,
+    requireFrameAsset:true,
+    fps:opts.partIndex?longSafeVideoExportFps(sessionDuration,30):longSafeVideoExportFps(sessionDuration,60),
+    rangesByVideoId,
+    includeCuts:!rangesByVideoId,
+    videoBitsPerSecond:12_000_000,
+    requireMediabunny:true,
+    maxRenderMs:exportRenderTimeoutMs(sessionDuration),
+    shouldCancel:()=>zipCancelFlag,
+    onProgress:(done,total)=>{
+      const pct=5+Math.round((total?done/total:0)*80);
+      setLdPb(Math.min(85,pct),`Rendering source video for ZIP... ${fmt(done)} / ${fmt(total)}`);
+    }
+  };
+  const canRenderMaster=targetVideos.every(v=>v.objectURL);
+  let streamedMasterBytes=0;
+  let combinedVideo=null;
+  if(canRenderMaster&&zipWriter){
+    streamedMasterBytes=await zipWriter.addStream(`${sessionFolder}/video.mp4`,async write=>{
+      combinedVideo=await renderCombinedSourceEditedVideo(targetVideos,'video',{...masterRenderOpts,streamWrite:write});
+    });
+    if(!combinedVideo)streamedMasterBytes=0;
+  }else if(canRenderMaster){
+    combinedVideo=await renderCombinedSourceEditedVideo(targetVideos,'video',masterRenderOpts);
+  }
   if(!combinedVideo&&hasSourceForZip){
     hideLd();
+    // A partial entry may already be on disk; drop the whole file rather than
+    // leave a half-written archive behind.
+    try{await zipWritable?.abort();}catch(e){}
     toast('⚠️','Mediabunny MP4 render failed. No WebM fallback was downloaded.');
     return {ok:false,reason:'mediabunny-render-failed',partIndex:opts.partIndex||0};
   }
@@ -10533,18 +10846,20 @@ async function exportZip(vid,opts={}){
     maxRenderMs:exportRenderTimeoutMs(sessionDuration),
     shouldCancel:()=>zipCancelFlag,
     onProgress:(done,total)=>{
-      const pct=8+Math.round((total?done/total:0)*22);
-      setLdPb(Math.min(30,pct),`Rendering combined video for ZIP... ${done} / ${total} frames`);
+      const pct=5+Math.round((total?done/total:0)*80);
+      setLdPb(Math.min(85,pct),`Rendering combined video for ZIP... ${done} / ${total} frames`);
     }
   });
   zipRenderTimings.masterRenderMs=performance.now()-masterRenderStart;
   if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
-  const wroteMasterVideo=!!(combinedVideo&&combinedVideo.blob&&combinedVideo.blob.size>5000);
+  const wroteMasterVideo=!!(combinedVideo&&((combinedVideo.blob&&combinedVideo.blob.size>5000)||streamedMasterBytes>5000));
   if(wroteMasterVideo){
     const masterExt=combinedVideo.ext||'webm';
     const masterName=`video.${masterExt}`;
-    sessionRoot.file(masterName,combinedVideo.blob,{binary:true,compression:'STORE'});
-    inventory.push(`${sessionFolder}/${masterName},${combinedVideo.mime||('video/'+masterExt)},${combinedVideo.blob.size}`);
+    const masterSize=streamedMasterBytes||combinedVideo.blob.size;
+    // When streaming, the entry was already written into the archive above.
+    if(!streamedMasterBytes)sessionRoot.file(masterName,combinedVideo.blob,{binary:true,compression:'STORE'});
+    inventory.push(`${sessionFolder}/${masterName},${combinedVideo.mime||('video/'+masterExt)},${masterSize}`);
     manifestData.videoFile=masterName;
     manifestData.videoEngine=combinedVideo.engine||'mediarecorder';
     manifestData.videoCodec=masterExt==='mp4'?'avc/aac':'webm';
@@ -10563,7 +10878,7 @@ async function exportZip(vid,opts={}){
       sourceFallbackSeq++;
     });
   }
-  setLdPb(31,'Adding animation metadata...');
+  setLdPb(86,'Adding animation metadata...');
   const animationStart=performance.now();
   const animationExport=animationsForExport(targetVideos);
   zipRenderTimings.animationDetectMs=performance.now()-animationStart;
@@ -10641,8 +10956,8 @@ async function exportZip(vid,opts={}){
             videoBitsPerSecond:8_000_000,
             shouldCancel:()=>zipCancelFlag,
             onProgress:(done,total,info)=>{
-              const pct=8+Math.round((total?done/total:0)*24);
-              setLdPb(Math.min(32,pct),`Rendering edited video ${videoSeq} for ZIP... ${fmt(done)} / ${fmt(total||0)}`);
+              const pct=5+Math.round((total?done/total:0)*80);
+              setLdPb(Math.min(85,pct),`Rendering edited video ${videoSeq} for ZIP... ${fmt(done)} / ${fmt(total||0)}`);
             }
           });
           if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
@@ -10710,7 +11025,7 @@ async function exportZip(vid,opts={}){
     }
   }
   if(false&&!selectedFramesForZip.length&&directFlowRefs.length){
-    setLdPb(78,'Capturing direct-flow reference images...');
+    setLdPb(88,'Capturing direct-flow reference images...');
     for(const r of directFlowRefs){
       if(zipCancelFlag){hideLd();toast('âš ï¸','Export cancelled');return;}
       const data=exportFlowData[r.flowId];
@@ -10780,7 +11095,7 @@ async function exportZip(vid,opts={}){
       flowVideos.push({...src,frames:frs});
     });
     if(!flowVideos.length&&!masterRanges.length)continue;
-    setLdPb(83+Math.round(fvi/Math.max(1,flowVideoData.length)*8),`Clipping flow video ${fvi+1} / ${flowVideoData.length} from master...`);
+    setLdPb(89+Math.round(fvi/Math.max(1,flowVideoData.length)*3),`Clipping flow video ${fvi+1} / ${flowVideoData.length} from master...`);
     try{
       const flowStart=performance.now();
       let rendered=null;
@@ -10798,7 +11113,7 @@ async function exportZip(vid,opts={}){
       }
       if(!rendered&&flowVideos.length){
         zipRenderTimings.flowFallbackCount++;
-        setLdPb(83+Math.round(fvi/Math.max(1,flowVideoData.length)*8),`Rendering flow video ${fvi+1} / ${flowVideoData.length}...`);
+        setLdPb(89+Math.round(fvi/Math.max(1,flowVideoData.length)*3),`Rendering flow video ${fvi+1} / ${flowVideoData.length}...`);
         const fallbackStart=performance.now();
         rendered=await renderCombinedSourceEditedVideo(flowVideos,`${exportFileStem(data.flow.name,'flow')}_flow`,{
           rangesByVideoId,
@@ -10882,17 +11197,42 @@ async function exportZip(vid,opts={}){
   sessionRoot.file('flows_reference.txt',flowInfos.join('\n'),{compression:'STORE'});
   sessionRoot.file('README_EXPORT_STRUCTURE.txt',`UILand export\n\nStructure follows the flora_ai_session_1782_uiland reference layout:\n- ${manifestData.videoFile||'video.webm'} is the edited master video with cuts/redactions/status bar removal baked in when the browser can render it\n- direct-video exports do not generate PNG/JPEG files unless frames were manually extracted before export\n- flow videos are intentionally not exported; cut them later from the master video using manifest.json flow start/end times or _db/flow_ranges.csv\n- animations.json contains certain animation metadata only; animation videos are intentionally not exported\n- animation start/end values use seconds with milliseconds so short clips never collapse to 0:00\n- each animation includes an ffmpegCut command that can be run against the master video after export\n- all exported video uses one iPhone mockup asset from start to finish; flow folders keep the same iphoneFrame value for reference\n- source_video.ext is only included when edited rendering is unavailable\n- flows/NNN_Flow_Name contains flow_info.txt and timing metadata; image files only exist when screenshot frames were exported\n- _db/flow_ranges.csv contains exact flow ranges for cutting later\n- _db/redactions.csv contains exact video redaction boxes/time ranges baked into the master video\n- _db/cuts.csv contains exact cut ranges baked into the master video\n- flows/NNN_Flow_Name/originals contains original JPEG copies only for screenshots that had redactions\n- flows/NNN_Flow_Name/redactions.json links each redacted screenshot to its original copy and redaction boxes\n- untagged contains screenshots without a flow only when screenshot frames are exported\n- _db contains CSV/JSON database files\n`,{compression:'STORE'});
   sessionRoot.file('EXPORT_AUDIT.txt',`Exported: ${new Date().toISOString()}\nFrames: ${globalSeq}\nFlows: ${usedFlowIds.size}\nAnimations detected: ${manifestData.animations.length}\nStatus bar removed on export: ${removeStatusBar}\nEdited master videos rendered into ZIP: ${renderedVideoSeq}\nSource fallback videos copied into ZIP: ${sourceFallbackSeq}\nFlow videos exported into ZIP: 0\nAnimation videos exported into ZIP: 0\nMaster render: ${exportTimingReport.masterRenderSec}s\nMaster render engine: ${manifestData.videoEngine||'fallback'}\nMaster video file: ${manifestData.videoFile||''}\nAnimation metadata detection: ${exportTimingReport.animationDetectSec}s\nFlow clip/render stage: ${exportTimingReport.flowClipSec}s\n`,{compression:'STORE'});
-  setLdPb(94,'Packing Flora-style ZIP...');
-  const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true});
-  const a=document.createElement('a');const url=URL.createObjectURL(blob);
-  const zipName=`${domainSlug}_session_${sessionId}_uiland${partSuffix}.zip`;
-  window.__uilandLastZip={name:zipName,blob,size:blob.size,createdAt:Date.now()};
-  a.href=url;a.download=zipName;a.click();
-  setTimeout(()=>URL.revokeObjectURL(url),5*60*1000);
+  setLdPb(93,'Packing Flora-style ZIP...');
+  let saved;
+  try{
+    if(zipWriter){
+      // The master video is already in the archive; append the metadata entries
+      // and close it out.
+      const entries=zip.__archive.entries;
+      for(let i=0;i<entries.length;i++){
+        await zipWriter.add(entries[i].path,entries[i].data);
+        if(!(i%25))setLdPb(93+Math.min(6,(i/Math.max(1,entries.length))*6),'Writing ZIP to disk...');
+      }
+      const {size}=await zipWriter.finish();
+      saved={ok:true,streamed:true,name:saveHandle.name||zipName,size,blob:null};
+    }else{
+      saved=await uzipSave(zip,zipName,null,frac=>{
+        setLdPb(93+Math.min(6,frac*6),'Packing ZIP...');
+      });
+    }
+  }catch(e){
+    hideLd();
+    try{await zipWritable?.abort();}catch(_e){}
+    console.error('zip write failed',e);
+    const quota=e&&(e.name==='QuotaExceededError'||/quota/i.test(e.message||''));
+    const oom=e&&(e.name==='RangeError'||/allocation|memory/i.test(e.message||''));
+    toast('❌',quota?'Ran out of disk space while writing the ZIP'
+      :oom?'Video too large for a single ZIP — use "5-min ZIP parts"'
+      :`ZIP write failed: ${e?.message||e}`);
+    return {ok:false,reason:'zip-write-failed',partIndex:opts.partIndex||0};
+  }
+  // Only keep the blob around when there is one; pinning a multi-GB blob here
+  // is what used to keep the memory pressure alive after a failed export.
+  window.__uilandLastZip={name:saved.name,blob:saved.blob||null,size:saved.size,streamed:saved.streamed,createdAt:Date.now()};
   hideLd();
   if(!opts.skipClearSession)setTimeout(()=>{clearSession();dismissSessionBanner();},2*60*1000);
   toast('⬇',`ZIP ready${partLabel} · ${globalSeq} frames${opts.skipClearSession?'':' · session cleared'}`);
-  return {ok:true,name:zipName,size:blob.size,frames:globalSeq,duration:sessionDuration,partIndex:opts.partIndex||0};
+  return {ok:true,name:saved.name,size:saved.size,frames:globalSeq,duration:sessionDuration,partIndex:opts.partIndex||0};
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────

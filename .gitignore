@@ -1,0 +1,18 @@
+node_modules/
+package-lock.json
+
+# Local export/render proof + test output directories
+proof_*/
+statusbar_*/
+*_test/
+*_test2/
+*_proof/
+direct_video_mode_proof/
+mediabunny_migration_proof/
+non_island_statusbar_proof/
+local_zip_*/
+prod_statusbar_*/
+
+# ML checkpoints are large and distributed separately
+ui-detector-service/models/*.pth
+ui-detector-service/__pycache__/
