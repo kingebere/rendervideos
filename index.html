@@ -8012,23 +8012,55 @@ function flowFrameKeyAtTime(v,t,events){
   const hit=events.find(ev=>t>=ev.start&&t<=ev.end);
   return hit?.frameKey||null;
 }
-const PHONE_DEVICE={
-  frameWidth:629,
-  frameHeight:1304,
-  screenX:23,
-  screenY:17,
-  screenWidth:582,
-  screenHeight:1266,
-  screenRadius:52
+// Screen aperture geometry measured from each mockup PNG's own alpha channel, in that
+// PNG's pixels. These are NOT interchangeable: the shipped assets come in two sizes
+// (876x1808 and 629x1304) whose apertures are not a uniform scale of one another, so
+// every value below is per asset.
+//
+// How the numbers were obtained (the Dynamic Island is baked into these PNGs as OPAQUE
+// pixels *inside* the aperture, so a naive centre-outward alpha scan stops on the island
+// and reports a far-too-low top edge):
+//   left/right - horizontal alpha scan at 60% of frame height, well below the island
+//   top/bottom - vertical scans at x offsets 15-25% and 75-85% across the aperture,
+//                which clear the island on both sides
+//   radii      - the corner boundary was traced row by row and fitted against the
+//                quadratic corner roundedRectPath() actually draws, not a circular arc
+//
+// Two radii, because the two uses want opposite rounding errors:
+//   screenRadius      largest radius that still leaves NO gap between the video and the
+//                     aperture edge. It overshoots a little into the bezel, which is
+//                     opaque there and hides it. Used to clip the video.
+//   screenRadiusOuter smallest radius whose curve stays entirely INSIDE the aperture.
+//                     Used when punching the Dynamic Island hole out of the bezel, so
+//                     the hole can never eat into the bezel's own rounded corner.
+const PHONE_DEVICES={
+  black:{frameWidth:629,frameHeight:1304,screenX:24.66,screenY:21.89,screenWidth:579.68,screenHeight:1260.46,screenRadius:99.5,screenRadiusOuter:105.5},
+  natural:{frameWidth:629,frameHeight:1304,screenX:24.66,screenY:21.89,screenWidth:579.68,screenHeight:1260.46,screenRadius:99.5,screenRadiusOuter:105.5},
+  'cosmic-orange':{frameWidth:876,frameHeight:1808,screenX:37.14,screenY:31.97,screenWidth:801.73,screenHeight:1744.84,screenRadius:141,screenRadiusOuter:162.5},
+  silver:{frameWidth:876,frameHeight:1808,screenX:37.14,screenY:31.97,screenWidth:801.73,screenHeight:1744.84,screenRadius:141,screenRadiusOuter:162.5},
+  'deep-blue':{frameWidth:876,frameHeight:1808,screenX:37.14,screenY:31.97,screenWidth:801.73,screenHeight:1744.84,screenRadius:141,screenRadiusOuter:162.5}
 };
-const PHONE_SCREEN_R={
-  x:PHONE_DEVICE.screenX/PHONE_DEVICE.frameWidth,
-  y:PHONE_DEVICE.screenY/PHONE_DEVICE.frameHeight,
-  w:PHONE_DEVICE.screenWidth/PHONE_DEVICE.frameWidth,
-  h:PHONE_DEVICE.screenHeight/PHONE_DEVICE.frameHeight,
-  r:PHONE_DEVICE.screenRadius/PHONE_DEVICE.frameWidth
-};
-const PHONE_FRAME_ASPECT=PHONE_DEVICE.frameWidth/PHONE_DEVICE.frameHeight;
+function phoneDevice(frameKey){
+  return PHONE_DEVICES[safePhoneFrameKey(frameKey,'black')]||PHONE_DEVICES.black;
+}
+function phoneScreenRatios(frameKey){
+  const d=phoneDevice(frameKey);
+  return {
+    x:d.screenX/d.frameWidth,
+    y:d.screenY/d.frameHeight,
+    w:d.screenWidth/d.frameWidth,
+    h:d.screenHeight/d.frameHeight,
+    r:d.screenRadius/d.frameWidth,
+    rOuter:d.screenRadiusOuter/d.frameWidth
+  };
+}
+function phoneFrameAspect(frameKey){
+  const d=phoneDevice(frameKey);
+  return d.frameWidth/d.frameHeight;
+}
+const PHONE_DEVICE=PHONE_DEVICES.black;
+const PHONE_SCREEN_R=phoneScreenRatios('black');
+const PHONE_FRAME_ASPECT=phoneFrameAspect('black');
 const _phoneFrameCache={};
 function canvasCompositionEnabled(){return canvasOptions&&canvasOptions.enabled!==false;}
 function getCanvasExportSize(){
@@ -8246,20 +8278,23 @@ function getPhoneRect(W,H,frameKey=canvasOptions.frame){
     const w=W*.84,h=H*.84;
     return {x:(W-w)/2,y:(H-h)/2,w,h};
   }
+  const aspect=phoneFrameAspect(frameKey);
   let h=H*(canvasOptions.aspect==='9:16'?.9:.92);
-  let w=h*PHONE_FRAME_ASPECT;
+  let w=h*aspect;
   const maxW=W*.82;
-  if(w>maxW){w=maxW;h=w/PHONE_FRAME_ASPECT;}
+  if(w>maxW){w=maxW;h=w/aspect;}
   return {x:(W-w)/2,y:(H-h)/2,w,h};
 }
 function getPhoneScreenRect(phone,frameKey=canvasOptions.frame){
   if(frameKey==='none')return phone;
+  const R=phoneScreenRatios(frameKey);
   return {
-    x:phone.x+phone.w*PHONE_SCREEN_R.x,
-    y:phone.y+phone.h*PHONE_SCREEN_R.y,
-    w:phone.w*PHONE_SCREEN_R.w,
-    h:phone.h*PHONE_SCREEN_R.h,
-    r:phone.w*PHONE_SCREEN_R.r
+    x:phone.x+phone.w*R.x,
+    y:phone.y+phone.h*R.y,
+    w:phone.w*R.w,
+    h:phone.h*R.h,
+    r:phone.w*R.r,
+    rOuter:phone.w*R.rOuter
   };
 }
 function drawRedactionsInRect(ctx,t,events,rect,sourceW,sourceH,opts={}){
@@ -8332,12 +8367,17 @@ function sourceIslandAssetCutout(screen,mediaRect,sourceIslandRect,sourceW,sourc
 }
 function sourceIslandScreenClip(screen,hideDefaultIsland){
   if(!hideDefaultIsland)return screen;
+  // This rect is punched out of the bezel (even-odd) purely to erase the Dynamic Island
+  // that is baked into the mockup PNG. Everywhere else inside the aperture the PNG is
+  // already transparent, so the hole must never reach past the aperture's rounded
+  // corner -- if it does it removes real bezel and the corner curve breaks. rOuter is
+  // measured to stay strictly inside the aperture, so prefer it over any wider guess.
   return {
     x:screen.x,
     y:screen.y,
     w:screen.w,
     h:screen.h,
-    r:Math.max(screen.r||0,screen.w*.14)
+    r:Math.max(screen.rOuter||0,screen.r||0,screen.w*.14)
   };
 }
 const _frameApertureMaskCache=new Map();
@@ -8451,6 +8491,143 @@ function drawPhoneBottomSeamSeal(ctx,phone,frameKey=canvasOptions.frame){
   ctx.fillRect(x,y,w,h);
   ctx.restore();
 }
+// ---- Video clip mask derived from the mockup PNG's real alpha channel ----
+// roundedRectPath() draws a quadratic-Bezier corner. The mockup art's actual rounded
+// corner is a different curve family (closer to iOS's continuous "squircle" corner).
+// A single radius can be fitted to agree with the art at a couple of points (the flat
+// edges, the 45 deg diagonal) but the two curves genuinely cross in between -- measured
+// empirically (see D:/geomtest2 measurement scripts / report), the analytic curve can
+// sit up to ~0.4px (native asset px) *outside* the true transparent aperture just off
+// the flat edges, closest to the corner tip. Wherever that happens, clipping the video
+// with the analytic curve cuts it off a hair early and a shred of plain canvas
+// background shows between the video edge and the bezel art's opaque pixels -- a small
+// kink, worst on the 876px-wide assets (cosmic-orange/silver/deep-blue).
+// Fix: derive the clip from the PNG's own alpha channel instead of any analytic curve.
+//
+// The safety margin must DILATE the transparent/aperture region (grow it a little
+// towards the tip, into the bezel), not erode it. Eroding the aperture region -- i.e.
+// requiring every pixel in a neighbourhood to be transparent before counting a pixel as
+// "video allowed" -- shrinks where the video is drawn, which guarantees a margin-wide
+// strip where the PNG is already genuinely transparent but the video is withheld: since
+// nothing else is opaque there, that strip renders as bare canvas background, i.e. the
+// exact defect this is supposed to remove, just relocated and now a fixed width instead
+// of a curve-dependent one. Dilating instead means the video is allowed a little past
+// the true transparent edge, into pixels that are still (just) opaque bezel -- which is
+// harmless, because the frame PNG is drawn on top of the video afterwards and its own
+// opaque bezel pixels simply cover the extra sliver of video. Same principle the prior
+// radius fix used for screenRadius ("largest radius that still leaves no gap ... it
+// overshoots a little into the bezel, which is opaque there and hides it").
+// Computed once per mockup asset (not per frame, not per export run) and cached forever.
+const _videoClipMaskCache=new Map();
+let _previewMediaLayer=null,_previewMediaLayerCtx=null;
+function buildErodedApertureMask(img,frameKey){
+  const w=img.naturalWidth,h=img.naturalHeight;
+  if(!w||!h)return null;
+  const src=document.createElement('canvas');src.width=w;src.height=h;
+  const sctx=get2dCtx(src,true,true);
+  sctx.drawImage(img,0,0,w,h);
+  const data=sctx.getImageData(0,0,w,h).data;
+  const OPEN_ALPHA=18; // same "essentially fully transparent" threshold used elsewhere in this file
+  const margin=Math.max(2,Math.round(w/220)); // ~3px at 629w, ~4px at 876w -- dilation safety margin
+  const n=w*h;
+  const open=new Uint8Array(n);
+  for(let p=0,i=0;p<n;p++,i+=4)open[p]=data[i+3]<=OPEN_ALPHA?1:0;
+  // The transparent area surrounding the WHOLE phone silhouette (drop-shadow padding
+  // outside the device body) is also alpha<=OPEN_ALPHA, but it is a different region
+  // than the screen aperture -- it sits on the far side of the opaque bezel ring, not
+  // inside it. Dilating that outer region too would grow it inward and let video bleed
+  // onto the device's own outer rounded corner. Flood-fill from a seed point known (via
+  // PHONE_DEVICES) to be inside the aperture so only the aperture's own connected
+  // transparent region -- not the disconnected outer background -- gets dilated.
+  const device=phoneDevice(frameKey);
+  const seedX=Math.round(device.screenX+device.screenWidth/2);
+  const seedY=Math.round(device.screenY+device.screenHeight/2);
+  const aperture=new Uint8Array(n);
+  if(open[seedY*w+seedX]){
+    const stack=new Int32Array(n);
+    let sp=0;
+    stack[sp++]=seedY*w+seedX;
+    aperture[seedY*w+seedX]=1;
+    while(sp>0){
+      const p=stack[--sp];
+      const x=p%w,y=(p/w)|0;
+      if(x>0){const q=p-1;if(open[q]&&!aperture[q]){aperture[q]=1;stack[sp++]=q;}}
+      if(x<w-1){const q=p+1;if(open[q]&&!aperture[q]){aperture[q]=1;stack[sp++]=q;}}
+      if(y>0){const q=p-w;if(open[q]&&!aperture[q]){aperture[q]=1;stack[sp++]=q;}}
+      if(y<h-1){const q=p+w;if(open[q]&&!aperture[q]){aperture[q]=1;stack[sp++]=q;}}
+    }
+  }
+  // Separable max-filter dilation (square structuring element -- a bit more generous on
+  // the diagonal than a circular dilation would be, which only makes the safety margin
+  // more conservative there, never less).
+  function dilate(srcArr,horiz){
+    const out=new Uint8Array(n);
+    if(horiz){
+      for(let y=0;y<h;y++){
+        const row=y*w;
+        for(let x=0;x<w;x++){
+          let v=0;
+          for(let k=-margin;k<=margin;k++){
+            const xx=x+k;
+            if(xx>=0&&xx<w&&srcArr[row+xx]){v=1;break;}
+          }
+          out[row+x]=v;
+        }
+      }
+    }else{
+      for(let x=0;x<w;x++){
+        for(let y=0;y<h;y++){
+          let v=0;
+          for(let k=-margin;k<=margin;k++){
+            const yy=y+k;
+            if(yy>=0&&yy<h&&srcArr[yy*w+x]){v=1;break;}
+          }
+          out[y*w+x]=v;
+        }
+      }
+    }
+    return out;
+  }
+  const dilated=dilate(dilate(aperture,true),false);
+  const maskCanvas=document.createElement('canvas');maskCanvas.width=w;maskCanvas.height=h;
+  const mctx=get2dCtx(maskCanvas,true,true);
+  const outData=mctx.createImageData(w,h);
+  const od=outData.data;
+  for(let p=0,i=0;p<n;p++,i+=4){
+    od[i]=255;od[i+1]=255;od[i+2]=255;od[i+3]=dilated[p]?255:0;
+  }
+  mctx.putImageData(outData,0,0);
+  return maskCanvas;
+}
+function getVideoClipMask(frameKey,img){
+  if(!img||!img.complete||!img.naturalWidth)return null;
+  const key=frameKey||'black';
+  const cached=_videoClipMaskCache.get(key);
+  if(cached!==undefined)return cached;
+  let mask=null;
+  try{mask=buildErodedApertureMask(img,key);}catch(e){mask=null;}
+  _videoClipMaskCache.set(key,mask);
+  return mask;
+}
+// Clips ctx's current drawing to the phone's true screen aperture and returns whether
+// the precise alpha-derived mask was used ('mask') or the analytic curve fallback was
+// used ('analytic', only when the real asset/mask isn't available yet -- e.g. frame
+// 'none', or the PNG hasn't finished loading).
+function clipToScreenAperture(ctx,phone,screen,frameKey,frameImg){
+  const mask=frameImg?getVideoClipMask(frameKey,frameImg):null;
+  ctx.save();
+  ctx.globalCompositeOperation='destination-in';
+  if(mask){
+    ctx.drawImage(mask,phone.x,phone.y,phone.w,phone.h);
+    ctx.restore();
+    return 'mask';
+  }
+  roundedRectPath(ctx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
+  ctx.fillStyle='#fff';
+  ctx.fill();
+  ctx.restore();
+  return 'analytic';
+}
 function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   const W=ctx.canvas.width,H=ctx.canvas.height;
   const srcW=opts.sourceW||media.videoWidth||media.naturalWidth||media.width||W;
@@ -8459,18 +8636,34 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   applyCanvasBackground(ctx,W,H,{transparent:!!opts.transparentBackground});
   const requestedFrameKey=opts.frameKey!==undefined?opts.frameKey:(canvasOptions.frame||'black');
   const frameKey=opts.requireFrameAsset?exportPhoneFrameKey(requestedFrameKey):requestedFrameKey;
-  const phone=getPhoneRect(W,H,frameKey);
-  const screen=getPhoneScreenRect(phone,frameKey);
   const frameAsset=readyPhoneFrameForDraw(frameKey,!!opts.requireFrameAsset);
   const frameImg=frameAsset.img;
   const drawFrameKey=frameAsset.key||frameKey;
   const frameReady=frameAsset.ready;
+  // Geometry must describe the asset actually drawn -- readyPhoneFrameForDraw can fall
+  // back to black titanium, whose PNG is a different size with a different aperture.
+  const geomKey=frameKey==='none'?frameKey:(frameReady?drawFrameKey:frameKey);
+  const phone=getPhoneRect(W,H,geomKey);
+  const screen=getPhoneScreenRect(phone,geomKey);
   const dr=containRect(srcW,srcH,screen.x,screen.y,screen.w,screen.h);
   const sourceIslandCutout=opts.hideNotch?sourceIslandFrameCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
   const frameIslandCutout=opts.hideNotch?sourceIslandAssetCutout(screen,dr,opts.sourceIslandRect,srcW,srcH):null;
-  const mediaCtx=ctx;
+  // Compose the video/placeholder/redactions onto a reused offscreen layer first, then
+  // clip that layer to the phone's TRUE screen aperture (real PNG alpha, eroded --
+  // see clipToScreenAperture / getVideoClipMask above) rather than clipping the video
+  // directly with the analytic roundedRectPath curve. The coarse rect clip below is
+  // just a cheap draw-bound and is intentionally a superset of the aperture in every
+  // direction; clipToScreenAperture does the precise shaping.
+  if(!_previewMediaLayer||_previewMediaLayer.width!==W||_previewMediaLayer.height!==H){
+    _previewMediaLayer=document.createElement('canvas');
+    _previewMediaLayer.width=W;_previewMediaLayer.height=H;
+    _previewMediaLayerCtx=get2dCtx(_previewMediaLayer,false,true);
+  }
+  const mediaCtx=_previewMediaLayerCtx;
+  mediaCtx.clearRect(0,0,W,H);
   mediaCtx.save();
-  roundedRectPath(mediaCtx,screen.x,screen.y,screen.w,screen.h,screen.r||Math.max(12,screen.w*.065));
+  mediaCtx.beginPath();
+  mediaCtx.rect(phone.x,phone.y,phone.w,phone.h);
   mediaCtx.clip();
   if(!mediaHasContent(media)){
     mediaCtx.fillStyle='#111';mediaCtx.fillRect(screen.x,screen.y,screen.w,screen.h);
@@ -8489,6 +8682,8 @@ function drawComposedMediaFrame(ctx,media,t,events,opts={}){
   }
   if(opts.includeRedactions!==false)drawRedactionsInRect(mediaCtx,t||0,events,dr,srcW,srcH,{force:!!opts.forceRedactions});
   mediaCtx.restore();
+  clipToScreenAperture(mediaCtx,phone,screen,drawFrameKey,frameReady?frameImg:null);
+  ctx.drawImage(_previewMediaLayer,0,0);
   if(frameReady){
     try{
       ctx.save();
@@ -9025,11 +9220,15 @@ function eraseSourceStatusbarForComposition(canvas,island=null){
   return applyStatusBarRemoval(ctx,0,0,canvas.width,canvas.height,{protectRect:protect,islandRect:island});
 }
 function fastCompositorLayout(W,H,sourceW,sourceH,frameKey,sourceIslandRect){
-  const phone=getPhoneRect(W,H,frameKey);
-  const screen=getPhoneScreenRect(phone,frameKey);
-  const dr=containRect(sourceW,sourceH,screen.x,screen.y,screen.w,screen.h);
+  // Resolve the asset first: readyPhoneFrameForDraw can fall back to black titanium,
+  // which is a differently sized PNG with a different aperture, and the geometry has to
+  // describe the image we actually draw.
   const frameAsset=readyPhoneFrameForDraw(frameKey,true);
   if(!frameAsset.ready)throw new Error('iPhone mockup asset not ready');
+  const geomKey=frameKey==='none'?frameKey:(frameAsset.key||frameKey);
+  const phone=getPhoneRect(W,H,geomKey);
+  const screen=getPhoneScreenRect(phone,geomKey);
+  const dr=containRect(sourceW,sourceH,screen.x,screen.y,screen.w,screen.h);
   const sourceIslandCutout=sourceIslandRect?sourceIslandFrameCutout(screen,dr,sourceIslandRect,sourceW,sourceH):null;
   const frameIslandCutout=sourceIslandRect?sourceIslandAssetCutout(screen,dr,sourceIslandRect,sourceW,sourceH):null;
   const frameLayer=document.createElement('canvas');
@@ -9038,7 +9237,11 @@ function fastCompositorLayout(W,H,sourceW,sourceH,frameKey,sourceIslandRect){
   drawPhoneBottomSeamSeal?.(fctx,phone,frameKey);
   drawPhoneFrameImage(fctx,frameAsset.img,phone,screen,!!sourceIslandRect,frameIslandCutout||sourceIslandCutout);
   drawPhoneInnerBandOverlay?.(fctx,frameAsset.img,phone,screen,frameIslandCutout||sourceIslandCutout);
-  return {phone,screen,dr,frameLayer,sourceIslandCutout};
+  // Precomputed once per source video (not per frame): the true-alpha video clip mask,
+  // see clipToScreenAperture/getVideoClipMask above. Keeps export visually identical to
+  // preview at the corners without paying the mask-erosion cost on every frame.
+  const videoClipMask=geomKey==='none'?null:getVideoClipMask(geomKey,frameAsset.img);
+  return {phone,screen,dr,frameLayer,sourceIslandCutout,videoClipMask};
 }
 function drawFastStatusbarOverlay(ctx,layout,bg){
   const {screen,sourceIslandCutout}=layout;
@@ -9148,6 +9351,13 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     // Without it the canvas stays GPU-backed and every getImageData stalls on a
     // GPU->CPU sync over ~3.6 megapixels.
     const cleanCtx=get2dCtx(clean,true,false);
+    // Reused across every frame of every source: the video (+ redactions + status bar
+    // overlay) is composited here first, then clipped to the true screen aperture mask
+    // (clipToScreenAperture), then stamped onto the main canvas. One extra full-canvas
+    // layer per frame is cheap next to everything else this loop already does per frame.
+    const mediaLayer=document.createElement('canvas');
+    mediaLayer.width=size.w;mediaLayer.height=size.h;
+    const mediaLayerCtx=get2dCtx(mediaLayer,false,true);
     // Streaming mode pipes encoded chunks straight out (into the ZIP entry), so
     // the finished MP4 never has to exist in memory -- a 34min export at 12Mbps
     // is ~3GB, well past the ~2GB ArrayBuffer ceiling BufferTarget would hit.
@@ -9234,15 +9444,35 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       }
       const bg=job.src.statusBgCache.bg;
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.save();
-      roundedRectPath(ctx,job.src.layout.screen.x,job.src.layout.screen.y,job.src.layout.screen.w,job.src.layout.screen.h,job.src.layout.screen.r||Math.max(12,job.src.layout.screen.w*.065));
-      ctx.clip();
-      ctx.imageSmoothingEnabled=true;
-      try{ctx.imageSmoothingQuality='high';}catch(e){}
-      ctx.drawImage(clean,job.src.layout.dr.x,job.src.layout.dr.y,job.src.layout.dr.w,job.src.layout.dr.h);
-      drawRedactionsInRect(ctx,localT,job.src.redactions,job.src.layout.dr,job.src.sourceW,job.src.sourceH,{force:true});
-      if(removeStatusBar)drawFastStatusbarOverlay(ctx,job.src.layout,bg);
-      ctx.restore();
+      mediaLayerCtx.clearRect(0,0,mediaLayer.width,mediaLayer.height);
+      mediaLayerCtx.save();
+      // Cheap draw-bound only (a plain rect, guaranteed superset of the aperture in
+      // every direction) -- clipToScreenAperture below does the precise shaping from
+      // the mockup PNG's real alpha channel instead of the analytic roundedRectPath
+      // curve, so the video can never be cut off before the true transparent aperture.
+      mediaLayerCtx.beginPath();
+      mediaLayerCtx.rect(job.src.layout.phone.x,job.src.layout.phone.y,job.src.layout.phone.w,job.src.layout.phone.h);
+      mediaLayerCtx.clip();
+      mediaLayerCtx.imageSmoothingEnabled=true;
+      try{mediaLayerCtx.imageSmoothingQuality='high';}catch(e){}
+      mediaLayerCtx.drawImage(clean,job.src.layout.dr.x,job.src.layout.dr.y,job.src.layout.dr.w,job.src.layout.dr.h);
+      drawRedactionsInRect(mediaLayerCtx,localT,job.src.redactions,job.src.layout.dr,job.src.sourceW,job.src.sourceH,{force:true});
+      if(removeStatusBar)drawFastStatusbarOverlay(mediaLayerCtx,job.src.layout,bg);
+      mediaLayerCtx.restore();
+      if(job.src.layout.videoClipMask){
+        mediaLayerCtx.save();
+        mediaLayerCtx.globalCompositeOperation='destination-in';
+        mediaLayerCtx.drawImage(job.src.layout.videoClipMask,job.src.layout.phone.x,job.src.layout.phone.y,job.src.layout.phone.w,job.src.layout.phone.h);
+        mediaLayerCtx.restore();
+      }else{
+        mediaLayerCtx.save();
+        mediaLayerCtx.globalCompositeOperation='destination-in';
+        roundedRectPath(mediaLayerCtx,job.src.layout.screen.x,job.src.layout.screen.y,job.src.layout.screen.w,job.src.layout.screen.h,job.src.layout.screen.r||Math.max(12,job.src.layout.screen.w*.065));
+        mediaLayerCtx.fillStyle='#fff';
+        mediaLayerCtx.fill();
+        mediaLayerCtx.restore();
+      }
+      ctx.drawImage(mediaLayer,0,0);
       ctx.drawImage(job.src.layout.frameLayer,0,0);
       await canvasSource.add(outT,1/fps,{keyFrame:renderedFrames%Math.max(1,fps*2)===0});
       if(audioSource&&renderedFrames%Math.max(1,Math.round(fps/2))===0)await addAudioThrough(outT+.75);
