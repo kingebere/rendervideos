@@ -9607,6 +9607,61 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       }
       cleanCtx.clearRect(0,0,clean.width,clean.height);
       sample.draw(cleanCtx,0,0,clean.width,clean.height);
+      // Capture a mockup-less JPEG screenshot at sparse sample points, piggybacking on
+      // this decode (NO second decode pass). Only runs when the export has no pre-extracted
+      // frames (opts.captureScreenshots). RIGHT HERE `clean` is still the RAW decoded frame:
+      // the status-bar erase + motion-gate below has not touched it yet, and the redaction /
+      // status-bar / keyboard treatment for the exported image is applied later by
+      // frameCanvasForExport when the synthetic frame is serialized. So the screenshot base
+      // only bakes in the active CONTENT redactions; keyboard blur + status-bar normalization
+      // are deliberately left to the export serializer (matching the extracted-frame path).
+      if(opts.captureScreenshots&&Array.isArray(opts.captureSink)){
+        const SHOT_INTERVAL=2.5; // seconds of OUTPUT time between captures (~1400 shots/hr)
+        const lastShot=job.src._lastShotT;
+        if(lastShot==null||outT-lastShot>=SHOT_INTERVAL){
+          job.src._lastShotT=outT;
+          try{
+            const cw=clean.width,ch=clean.height;
+            const events=job.src.redactions||[];
+            const activeBoxes=[];
+            events.forEach(ev=>{if(localT>=ev.start&&localT<=ev.end)(ev.boxes||[]).forEach(b=>{if(b)activeBoxes.push(b);});});
+            // Screenshot base: raw frame + active content redactions baked in (keyboard still
+            // sharp here; frameCanvasForExport blurs it + normalizes the status bar on export).
+            const shot=document.createElement('canvas');shot.width=cw;shot.height=ch;
+            const sctx=get2dCtx(shot,false,false);
+            sctx.drawImage(clean,0,0);
+            if(activeBoxes.length)drawRedactionsInRect(sctx,localT,events,{x:0,y:0,w:cw,h:ch},cw,ch,{force:true});
+            const shotBlob=await new Promise(r=>shot.toBlob(r,'image/jpeg',0.92));
+            const fr={
+              id:'cap_'+job.src.v.id+'_'+Math.round(localT*1000)+'_'+Math.random().toString(36).slice(2,6),
+              videoId:job.src.v.id,
+              timestamp:localT,
+              timeSec:localT,
+              wordBoxes:[],
+              // redactBoxes drives frameHasExportRedactions -> original + redaction metadata.
+              // Keyboard is NOT a content redaction, so keyboard-only frames get an empty
+              // list here and therefore no original, exactly as required.
+              redactBoxes:activeBoxes.slice(),
+              flows:(job.src.v.flowRanges||[]).filter(rr=>localT>=(Number(rr.start)||0)&&localT<=(Number(rr.end)||0)).map(rr=>rr.flowId).filter((id,i,a)=>id&&a.indexOf(id)===i),
+              _synthetic:true
+            };
+            if(shotBlob)fr.blobUrl=URL.createObjectURL(shotBlob);
+            // Original (only when a content redaction is active): raw frame + keyboard blur,
+            // NOT content-redacted, so it reveals the redacted region -- matches how the
+            // extracted-frame path stores originals. frameOriginalBlobForExport re-encodes
+            // _originalBuf as-is (no keyboard blur added there), so bake the keyboard here.
+            if(activeBoxes.length){
+              const orig=document.createElement('canvas');orig.width=cw;orig.height=ch;
+              const octx=get2dCtx(orig,false,false);
+              octx.drawImage(clean,0,0);
+              applyKeyboardBlur(orig);
+              const origBlob=await new Promise(r=>orig.toBlob(r,'image/jpeg',0.92));
+              if(origBlob){fr._originalBuf=await origBlob.arrayBuffer();fr._originalBlobType='image/jpeg';}
+            }
+            if(shotBlob)opts.captureSink.push(fr);
+          }catch(e){console.warn('export screenshot capture failed',e);}
+        }
+      }
       // The status bar erase protects the Dynamic Island, so the red recording
       // dot living inside it survived that pass and had to be cleaned
       // separately -- previously this only ran when the status bar was kept.
@@ -11081,6 +11136,11 @@ async function exportZip(vid,opts={}){
   if(!appName){toast('⚠️','Enter an App Name before exporting');nameInput?.focus();return;}
   if(!opts.keepModal)document.getElementById('exp-modal').classList.remove('on');
   if(!opts.keepCancelState)zipCancelFlag=false;
+  // Pause the live preview while exporting: its per-frame compositing loop
+  // (drawVideoPreviewOverlay, driven by _startPreviewOverlayLoop) keeps running only while
+  // vid-main plays, and it competes with the export render for CPU/GPU -- measurably slowing
+  // the export. Pausing the video stops that loop within a frame.
+  try{const _prevVid=document.getElementById('vid-main');if(_prevVid&&!_prevVid.paused)_prevVid.pause();}catch(e){}
   const expAll=document.getElementById('e-all').checked;
   const expMan=document.getElementById('e-manifest').checked;
   const expCsv=document.getElementById('e-csv').checked;
@@ -11099,7 +11159,7 @@ async function exportZip(vid,opts={}){
   const rangeDuration=range?Math.max(0,range.end-range.start):0;
   const rangesByVideoId=range?rangesByVideoIdForEffectiveSessionRange(targetVideos,range.start,range.end):null;
   const baseFramesForZip=targetVideos.flatMap(v=>expAll?v.frames:v.frames.filter(fr=>fr.flows.length>0));
-  const selectedFramesForZip=exportableFramesInVideoOrder(baseFramesForZip.filter(fr=>{
+  let selectedFramesForZip=exportableFramesInVideoOrder(baseFramesForZip.filter(fr=>{
     if(!range)return true;
     const ts=effectiveGlobalFrameSec(fr,targetVideos);
     const isLastPart=!!(opts.partIndex&&opts.partCount&&opts.partIndex===opts.partCount);
@@ -11110,8 +11170,13 @@ async function exportZip(vid,opts={}){
     if(!framesByVideoId.has(fr.videoId))framesByVideoId.set(fr.videoId,[]);
     framesByVideoId.get(fr.videoId).push(fr);
   });
-  const totalFramesToExport=selectedFramesForZip.length||(targetVideos.some(v=>v&&v.objectURL)?1:0);
-  const zipFlowOrder=flowExportOrderForFrames(flows.filter(f=>selectedFramesForZip.some(fr=>fr.flows.includes(f.id))),selectedFramesForZip);
+  let totalFramesToExport=selectedFramesForZip.length||(targetVideos.some(v=>v&&v.objectURL)?1:0);
+  let zipFlowOrder=flowExportOrderForFrames(flows.filter(f=>selectedFramesForZip.some(fr=>fr.flows.includes(f.id))),selectedFramesForZip);
+  // Screenshots captured DURING the render pass (mockup-less JPEGs) land here when the user
+  // has no pre-extracted frames; injected into the frame-serialization structures after the
+  // render returns so they flow through the exact same untagged/flows/originals pipeline.
+  const captureScreenshots=selectedFramesForZip.length===0;
+  const captureSink=[];
   const zipDefaultFrameKey=exportPhoneFrameKey(canvasOptions.frame);
   const zipFrameEventsByVideoId={};
   targetVideos.forEach(v=>{zipFrameEventsByVideoId[v.id]=_videoRedactionEvents(v);});
@@ -11286,6 +11351,8 @@ async function exportZip(vid,opts={}){
     includeCuts:!rangesByVideoId,
     videoBitsPerSecond:12_000_000,
     requireMediabunny:true,
+    captureScreenshots,
+    captureSink,
     maxRenderMs:exportRenderTimeoutMs(sessionDuration),
     shouldCancel:()=>zipCancelFlag,
     onProgress:(done,total)=>{
@@ -11413,6 +11480,19 @@ async function exportZip(vid,opts={}){
       a.confidence,csvCell(a.ffmpegCut)
     ].join(','));
   });
+  // Inject the screenshots captured during the render pass into every structure the
+  // frame-serialization loop derives from the pre-render frame list. Without this the
+  // captures would be invisible to the loop (framesByVideoId), no flow folders would be
+  // created for them (zipFlowOrder/assignedFlows), and the progress bar would be wrong.
+  if(captureScreenshots&&captureSink.length){
+    captureSink.forEach(fr=>{
+      if(!framesByVideoId.has(fr.videoId))framesByVideoId.set(fr.videoId,[]);
+      framesByVideoId.get(fr.videoId).push(fr);
+    });
+    selectedFramesForZip=selectedFramesForZip.concat(captureSink);
+    zipFlowOrder=flowExportOrderForFrames(flows.filter(f=>selectedFramesForZip.some(fr=>fr.flows.includes(f.id))),selectedFramesForZip);
+    totalFramesToExport=selectedFramesForZip.length||totalFramesToExport;
+  }
   for(const v of targetVideos){
     const baseName=String(v.name||'video').replace(/\.(mp4|webm|mov)$/i,'');
     const safeName=exportFileStem(baseName,'video');
@@ -11512,6 +11592,11 @@ async function exportZip(vid,opts={}){
         const firstOriginal=originalImageFiles[0]||'';
         dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName),csvCell(firstOriginal),redactionMeta.length].join(','));
         manifestData.screenshots.push({index:seq-1,id:snapId,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,localTimeSec:localTs,videoId:v.id,videoName:v.name,kind:'image',flowIds:fr.flows,flows:flowNames,imageFile:targets[0].path+imgName,originalImageFile:firstOriginal,originalImageFiles,redactionCount:redactionMeta.length,redactions:redactionMeta});
+        // Render-captured screenshots are not in videos[].frames, so the frame-canvas LRU
+        // (rememberFrameCanvas -> getFrame) can never null their decoded canvas. Release it
+        // (and the JPEG blob URL) here, once consumed, so a long export doesn't accumulate
+        // hundreds of full-resolution canvases in memory.
+        if(fr._synthetic){fr.canvas=null;if(fr.blobUrl){try{URL.revokeObjectURL(fr.blobUrl);}catch(e){}fr.blobUrl=null;}}
       }));
       setLdPb(34+Math.round(globalSeq/totalFramesToExport*48),'Encoding reference frames…');
       await yieldUI();
