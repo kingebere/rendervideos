@@ -9384,6 +9384,14 @@ function fastCompositorLayout(W,H,sourceW,sourceH,frameKey,sourceIslandRect){
   const cutoutIslandRect=plausibleIslandRect(sourceIslandRect)?sourceIslandRect:null;
   const sourceIslandCutout=cutoutIslandRect?sourceIslandFrameCutout(screen,dr,cutoutIslandRect,sourceW,sourceH):null;
   const frameIslandCutout=cutoutIslandRect?sourceIslandAssetCutout(screen,dr,cutoutIslandRect,sourceW,sourceH):null;
+  // The rounded pill the finished island is repainted to (see renderSampleFrame). Unlike the
+  // cutouts above this stays non-null whenever ANY island was detected -- falling back to the
+  // normalized default pill for an implausible "recording in progress" capsule -- because it
+  // is what actually paints the clean final island, mirroring the preview's own island step
+  // (drawComposedMediaFrame). Gating it on cutoutIslandRect instead would leave the export
+  // with no clean repaint for recording captures, which is what let the mockup's baked-in
+  // island glint show and let the status-bar erase boxes clip the island's cap.
+  const islandPatch=sourceIslandRect?sourceIslandAssetCutout(screen,dr,cutoutIslandRect,sourceW,sourceH):null;
   const frameLayer=document.createElement('canvas');
   frameLayer.width=W;frameLayer.height=H;
   const fctx=get2dCtx(frameLayer,false,true);
@@ -9394,7 +9402,7 @@ function fastCompositorLayout(W,H,sourceW,sourceH,frameKey,sourceIslandRect){
   // see clipToScreenAperture/getVideoClipMask above. Keeps export visually identical to
   // preview at the corners without paying the mask-erosion cost on every frame.
   const videoClipMask=geomKey==='none'?null:getVideoClipMask(geomKey,frameAsset.img);
-  return {phone,screen,dr,frameLayer,sourceIslandCutout,videoClipMask};
+  return {phone,screen,dr,frameLayer,sourceIslandCutout,islandPatch,videoClipMask};
 }
 function drawFastStatusbarOverlay(ctx,layout,bg){
   const {screen,sourceIslandCutout}=layout;
@@ -9643,6 +9651,20 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       }
       ctx.drawImage(mediaLayer,0,0);
       ctx.drawImage(job.src.layout.frameLayer,0,0);
+      // Repaint the island as a clean rounded pill of source content on top of the bezel,
+      // exactly as the preview (drawComposedMediaFrame) does. This is what keeps the two in
+      // sync: without it the export island was whatever leaked through the frame hole -- the
+      // mockup's baked-in island glint, and the source's wider recording capsule with its
+      // left cap sliced flat by the status-bar erase boxes. clean already has the source
+      // status bar erased and the red recording dot removed, so the pill comes out solid.
+      const islandPatch=job.src.layout.islandPatch;
+      if(removeStatusBar&&islandPatch){
+        ctx.save();
+        roundedRectPath(ctx,islandPatch.x,islandPatch.y,islandPatch.w,islandPatch.h,islandPatch.h/2);
+        ctx.clip();
+        ctx.drawImage(clean,job.src.layout.dr.sx,job.src.layout.dr.sy,job.src.layout.dr.sw,job.src.layout.dr.sh,job.src.layout.dr.x,job.src.layout.dr.y,job.src.layout.dr.w,job.src.layout.dr.h);
+        ctx.restore();
+      }
       await canvasSource.add(outT,1/fps,{keyFrame:renderedFrames%Math.max(1,fps*2)===0});
       if(audioSource&&renderedFrames%Math.max(1,Math.round(fps/2))===0)await addAudioThrough(outT+.75);
       renderedFrames++;
