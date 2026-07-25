@@ -9610,16 +9610,72 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       // The status bar erase protects the Dynamic Island, so the red recording
       // dot living inside it survived that pass and had to be cleaned
       // separately -- previously this only ran when the status bar was kept.
-      if(removeStatusBar)eraseSourceStatusbarForComposition(clean,job.src.island);
-      if(job.src.island)removeRecordingIndicator(clean,job.src.island);
+      // Motion-gate the status-bar removal. The whole erase+recdot+bg pipeline (~46ms/frame)
+      // only depends on the SOURCE top band, which is pixel-identical across most frames (the
+      // iOS clock shows H:MM, no seconds, and static viewing leaves the band unchanged for
+      // hundreds of frames). So: hash the RAW top band before erasing; if it matches the last
+      // processed frame for this source, blit back the cached PATCHED band and reuse the cached
+      // bg (~1ms) instead of recomputing. Any change (minute tick, scroll, transition) misses
+      // the gate and recomputes exactly as before -- that's what preserves correctness (no lag,
+      // no stale patch, no uncovered indicator). Keyboard blur is a separate bottom region and
+      // stays outside the gate, running every frame. bandH covers the status bar + Dynamic
+      // Island + margin; the erase/patch/recording-dot never touch below ~sourceH*0.10.
+      let bg;
+      if(removeStatusBar){
+        const bandH=Math.max(1,Math.min(clean.height,Math.ceil(clean.height*0.11)));
+        const bandW=clean.width;
+        let sig=null;
+        try{
+          // Downscale the top band to a small tile before hashing. Reading all ~396k source
+          // band pixels every frame just to detect change cost ~9ms/frame -- more than the
+          // erase it was trying to save. A 192x48 averaged tile is ~1ms and still captures a
+          // clock-minute digit change (~30px at source -> ~4px in the tile) and any content
+          // scroll (whole regions shift). The browser's drawImage downsample averages, so a
+          // localized change still moves several tile pixels. If a fast transition ever showed
+          // a stale/lagging status-bar background, enlarge the tile.
+          const TW=192,TH=48;
+          let sc=job.src._sbSigCanvas;
+          if(!sc){sc=job.src._sbSigCanvas=document.createElement('canvas');sc.width=TW;sc.height=TH;}
+          let sctx=job.src._sbSigCtx;
+          if(!sctx)sctx=job.src._sbSigCtx=sc.getContext('2d',{willReadFrequently:true});
+          sctx.drawImage(clean,0,0,bandW,bandH,0,0,TW,TH);
+          const d=sctx.getImageData(0,0,TW,TH).data;
+          let h=0x811c9dc5>>>0;
+          for(let i=0;i<d.length;i+=4){
+            const lum=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
+            h=Math.imul(h^lum,16777619)>>>0;
+          }
+          sig=h>>>0;
+        }catch(e){sig=null;}
+        const cached=job.src._sbBandCanvas;
+        if(sig!==null&&sig===job.src._sbSig&&cached&&job.src._sbBandH===bandH&&cached.width===bandW&&cached.height===bandH){
+          // Hit: the raw band is identical to when the cache was built (that's the gate),
+          // so blitting the patched band reproduces the exact same output as recomputing.
+          cleanCtx.drawImage(cached,0,0);
+          bg=job.src._sbBg;
+        }else{
+          eraseSourceStatusbarForComposition(clean,job.src.island);
+          if(job.src.island)removeRecordingIndicator(clean,job.src.island);
+          bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
+          let bc=job.src._sbBandCanvas;
+          if(!bc)bc=job.src._sbBandCanvas=document.createElement('canvas');
+          if(bc.width!==bandW||bc.height!==bandH){bc.width=bandW;bc.height=bandH;job.src._sbBandCtx=null;}
+          let bctx=job.src._sbBandCtx;
+          if(!bctx)bctx=job.src._sbBandCtx=bc.getContext('2d');
+          bctx.clearRect(0,0,bandW,bandH);
+          bctx.drawImage(clean,0,0,bandW,bandH,0,0,bandW,bandH);
+          job.src._sbBg=bg;
+          job.src._sbSig=sig;
+          job.src._sbBandH=bandH;
+        }
+      }else{
+        // Status bar kept: no erase (and no band cache), but the red recording dot inside the
+        // island is still removed and the bg is still sampled, exactly as before.
+        if(job.src.island)removeRecordingIndicator(clean,job.src.island);
+        bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
+      }
       job.src.keyboardCache=job.src.keyboardCache||{step:.25,lastT:null,lastRect:null};
       applyKeyboardBlurThrottled(clean,job.src.keyboardCache,localT);
-      // Sample the status-bar background every frame, not on a 0.5s throttle: the synthetic
-      // status bar's fill boxes must track fast background changes (scrolls, page/app
-      // transitions) or the replacement patch lags the real background by up to half a second
-      // and shows as a visible off-shade rectangle. cleanCtx is willReadFrequently and
-      // applyStatusBarRemoval above already reads it every frame, so this sampling is cheap.
-      const bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
       ctx.clearRect(0,0,canvas.width,canvas.height);
       mediaLayerCtx.clearRect(0,0,mediaLayer.width,mediaLayer.height);
       mediaLayerCtx.save();
