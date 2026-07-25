@@ -11422,14 +11422,16 @@ async function exportZip(vid,opts={}){
         globalSeq++;
         const seq=globalSeq;
         const _fc=await frameCanvasForExport(fr,removeStatusBar,{compose:false});
-        const blob=await new Promise(r=>_fc.toBlob(r,'image/png'));
+        // JPEG q92 keeps 1000+ screenshots to ~400MB instead of ~1GB as PNG, still clean
+        // for ML annotation and viewing. Browser toBlob is 4:2:0 (no 4:4:4 control).
+        const blob=await new Promise(r=>_fc.toBlob(r,'image/jpeg',0.92));
         if(!blob)return;
         const localTs=Number(fr.timestamp??fr.timeSec??0)||0;
         const sourceSessionTs=effectiveGlobalFrameSec(fr,targetVideos);
         const ts=range?Math.max(0,sourceSessionTs-range.start):sourceSessionTs;
         const snapId=`snap_${Date.now()+seq}_${Math.random().toString(36).slice(2,6)}`;
         const stem=`${String(seq).padStart(5,'0')}_${exportTimeName(ts)}_snap_${snapId}`;
-        const imgName=`${stem}.png`;
+        const imgName=`${stem}.jpg`;
         const redactionMeta=frameRedactionExportMeta(fr);
         const originalBlob=frameHasExportRedactions(fr)?await frameOriginalBlobForExport(fr):null;
         const originalName=originalBlob?`${stem}_original.jpg`:'';
@@ -11449,7 +11451,7 @@ async function exportZip(vid,opts={}){
           if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName,originalImageFile:originalPath,redactionCount:redactionMeta.length});
           if(t.redactions&&redactionMeta.length)t.redactions.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,imageFile:t.path+imgName,originalImageFile:originalPath,redactions:redactionMeta});
           if(t.flow&&exportFlowFrameRefs[t.flow.id])exportFlowFrameRefs[t.flow.id].push(fr);
-          inventory.push(`${sessionFolder}/${t.path}${imgName},image/png,${blob.size}`);
+          inventory.push(`${sessionFolder}/${t.path}${imgName},image/jpeg,${blob.size}`);
         });
         const firstOriginal=originalImageFiles[0]||'';
         dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName),csvCell(firstOriginal),redactionMeta.length].join(','));
@@ -11474,12 +11476,12 @@ async function exportZip(vid,opts={}){
       for(const pt of points){
         const canvas=await directVideoSnapshotCanvas(v,pt.source,removeStatusBar);
         if(!canvas)continue;
-        const blob=await canvasToBlobSafe(canvas,'image/png',0.95);
+        const blob=await canvasToBlobSafe(canvas,'image/jpeg',0.92);
         if(!blob)continue;
         globalSeq++;
         const snapId=`snap_${Date.now()+globalSeq}_${Math.random().toString(36).slice(2,6)}`;
         const stem=`${String(globalSeq).padStart(5,'0')}_${exportTimeName(pt.session)}_${pt.kind}_${snapId}`;
-        const imgName=`${stem}.png`;
+        const imgName=`${stem}.jpg`;
         data.folder.file(imgName,blob,{binary:true,compression:'STORE'});
         const imageFile=data.path+imgName;
         const rowIdx=(data.frames?.length||0)+1;
@@ -11488,7 +11490,7 @@ async function exportZip(vid,opts={}){
         data.frames.push(shot);
         dbScreens.push([snapId,csvCell(v.name),csvCell(fl.name),exportClock(pt.session),pt.session.toFixed(3),csvCell(imageFile),csvCell(''),0].join(','));
         manifestData.screenshots.push({index:globalSeq-1,id:snapId,time:exportClock(pt.session),timeSec:pt.session,sourceSessionTimeSec:Number(r.sourceSessionStartSec)||pt.session,localTimeSec:pt.source,videoId:v.id,videoName:v.name,kind:'image',flowIds:[fl.id],flows:[fl.name],imageFile,originalImageFile:'',originalImageFiles:[],redactionCount:0,redactions:[],direct:true});
-        inventory.push(`${sessionFolder}/${imageFile},image/png,${blob.size}`);
+        inventory.push(`${sessionFolder}/${imageFile},image/jpeg,${blob.size}`);
       }
       await yieldUI();
     }
