@@ -9614,12 +9614,12 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       if(job.src.island)removeRecordingIndicator(clean,job.src.island);
       job.src.keyboardCache=job.src.keyboardCache||{step:.25,lastT:null,lastRect:null};
       applyKeyboardBlurThrottled(clean,job.src.keyboardCache,localT);
-      job.src.statusBgCache=job.src.statusBgCache||{step:.5,lastT:null,bg:null};
-      if(!job.src.statusBgCache.bg||job.src.statusBgCache.lastT==null||Math.abs(localT-job.src.statusBgCache.lastT)>=job.src.statusBgCache.step){
-        job.src.statusBgCache.bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
-        job.src.statusBgCache.lastT=localT;
-      }
-      const bg=job.src.statusBgCache.bg;
+      // Sample the status-bar background every frame, not on a 0.5s throttle: the synthetic
+      // status bar's fill boxes must track fast background changes (scrolls, page/app
+      // transitions) or the replacement patch lags the real background by up to half a second
+      // and shows as a visible off-shade rectangle. cleanCtx is willReadFrequently and
+      // applyStatusBarRemoval above already reads it every frame, so this sampling is cheap.
+      const bg=sourceStatusPatchBgs(cleanCtx,job.src.sourceW,job.src.sourceH,job.src.island);
       ctx.clearRect(0,0,canvas.width,canvas.height);
       mediaLayerCtx.clearRect(0,0,mediaLayer.width,mediaLayer.height);
       mediaLayerCtx.save();
