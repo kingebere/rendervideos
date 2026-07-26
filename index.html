@@ -8979,7 +8979,12 @@ function exportRenderTimeoutMs(durationSec=0,opts={}){
   // measures ~2.8x realtime on the WebCodecs path, so a legitimate render was
   // being aborted near the end. This is only a stuck-render backstop -- the user
   // can cancel at any point -- so give it real headroom.
-  return Math.max(120000,Math.ceil(d*6000+120000));
+  // 6x was still too tight for macOS: profiling there measured 4.23x realtime on
+  // motion-heavy content (the status-bar CPU pass is ~90% of render time and runs
+  // ~2x slower than the Windows baseline), leaving barely 1.4x margin before a
+  // perfectly healthy export got killed near the end -- and thermal throttling on a
+  // laptop eats that. 12x restores real headroom on the slowest observed machine.
+  return Math.max(120000,Math.ceil(d*12000+300000));
 }
 function selectedVideoExportFps(maxFps=60){
   return Math.max(1,Math.min(maxFps,parseInt(document.getElementById('vex-fps')?.value)||30));
@@ -9481,7 +9486,26 @@ async function audioBuffersFromSink(sink,duration,limit=2000000){
   }
   return buffers;
 }
+// Why the mediabunny render last returned null. Every `return null` below is a distinct
+// failure mode, but they all looked identical to the caller, which could only show a
+// generic "render failed" toast -- so a user report never said WHICH failure it was and
+// the real error only ever reached the console. Recording it here lets exportZip put the
+// actual cause in front of the user (and decide whether a retry is even worth attempting:
+// a timeout will just time out again, an encoder fault often won't).
+let _lastMediabunnyFailure=null;
+function setMediabunnyFailure(kind,extra){_lastMediabunnyFailure={kind,...(extra||{})};}
+function mediabunnyFailureText(){
+  const f=_lastMediabunnyFailure;
+  if(!f)return 'unknown cause (nothing was reported)';
+  if(f.kind==='cancelled')return 'cancelled';
+  if(f.kind==='timeout')return `hit the ${Math.round((f.limitMs||0)/1000)}s safety timeout after ${f.frames||0} frames (${Math.round((f.elapsedMs||0)/1000)}s elapsed)`;
+  if(f.kind==='no-frames')return 'no renderable frames in the selected range';
+  if(f.kind==='too-small')return 'encoder produced an empty file';
+  if(f.kind==='unavailable')return `video engine failed to load (${f.message||'unknown'})`;
+  return f.message||'unknown error';
+}
 async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}){
+  _lastMediabunnyFailure=null;
   const sourceVideos=(videoList||[]).filter(v=>v&&v.objectURL&&v.file&&(Number(v.duration)||0)>0);
   if(!sourceVideos.length||typeof VideoEncoder==='undefined')return null;
   if((opts.format||'mp4')!=='mp4')return null;
@@ -9492,7 +9516,7 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
   if(!compositionOn)return null;
   let mb;
   try{mb=await loadMediabunnyModule();}
-  catch(e){console.warn('Mediabunny unavailable, using fallback renderer',e);return null;}
+  catch(e){setMediabunnyFailure('unavailable',{message:String(e&&e.message||e)});console.warn('Mediabunny unavailable, using fallback renderer',e);return null;}
   const {
     Input,BlobSource,ALL_FORMATS,VideoSampleSink,AudioBufferSink,AudioBufferSource,
     Output,Mp4OutputFormat,BufferTarget,AppendOnlyStreamTarget,CanvasSource
@@ -9540,7 +9564,11 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       ? new AppendOnlyStreamTarget(new WritableStream({write:u8=>streamWrite(u8)}))
       : new BufferTarget();
     const output=new Output({format:new Mp4OutputFormat(streamWrite?{fastStart:'fragmented'}:{fastStart:'in-memory'}),target});
-    const canvasSource=new CanvasSource(canvas,{codec:'avc',bitrate:opts.videoBitsPerSecond||12_000_000,keyFrameInterval:4,hardwareAcceleration:'prefer-hardware'});
+    // 'prefer-hardware' is right for the first attempt (VideoToolbox on macOS is much
+    // faster), but a hardware encode session can drop out mid-render under memory or
+    // thermal pressure and take a long export down with it. exportZip retries with
+    // 'prefer-software' when that happens -- slower, but it finishes.
+    const canvasSource=new CanvasSource(canvas,{codec:'avc',bitrate:opts.videoBitsPerSecond||12_000_000,keyFrameInterval:4,hardwareAcceleration:opts.hardwareAcceleration||'prefer-hardware'});
     output.addVideoTrack(canvasSource);
     let audioSource=null,audioPlan=[];
     if(sourceWithAudio.length){
@@ -9555,6 +9583,14 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     const frameEventsByVideoId=opts.frameEventsByVideoId||{};
     let outputOffset=0;
     const renderJobs=[];
+    // Audio used to be fully decoded into memory here, before a single video frame was
+    // rendered: every AudioBuffer for the whole track, held for the entire render. That is
+    // duration x sampleRate x channels x 4 bytes -- ~600MB for a 26-minute 48kHz stereo
+    // source -- sitting alongside the encoder and canvases for an hour-plus, which is a
+    // prime suspect for the intermittent mid-render failures on lower-RAM machines.
+    // Collect the plan (cheap descriptors) here instead, and decide below whether it can
+    // be streamed lazily during the render or has to fall back to the old eager drain.
+    const audioSourcePlans=[];
     for(const src of sources){
       src.island=removeStatusBar?await detectSourceIslandFromTrack(VideoSampleSink,src.track,src.v,src.sourceW,src.sourceH):null;
       src.layout=fastCompositorLayout(size.w,size.h,src.sourceW,src.sourceH,frameKey,src.island);
@@ -9564,15 +9600,9 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
         : [{start:0,end:Number(src.v.duration)||src.duration||0}];
       const segments=ranges.flatMap(range=>_sourceSegments(src.v,Math.max(0,Number(range.start)||0),Math.min(Number(src.v.duration)||src.duration||0,Number(range.end)||0),opts.includeCuts!==false));
       if(src.audioTrack&&audioSource){
-        const bufferSink=new AudioBufferSink(src.audioTrack);
-        const buffers=await audioBuffersFromSink(bufferSink,src.duration);
-        segments.forEach(seg=>{
-          buffers.forEach(item=>{
-            const end=item.timestamp+(item.duration||0);
-            if(item.timestamp>=seg.end+.05||end<=seg.start) return;
-            audioPlan.push({buffer:item.buffer,timestamp:outputOffset+Math.max(0,item.timestamp-seg.start)});
-          });
-        });
+        // outBase is outputOffset as it stands BEFORE this source's segments advance it,
+        // which is exactly the base the previous eager mapping used.
+        audioSourcePlans.push({track:src.audioTrack,duration:src.duration,segments,outBase:outputOffset});
       }
       for(const seg of segments){
         const len=Math.max(0,seg.end-seg.start);
@@ -9582,23 +9612,81 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       }
     }
     const totalDur=outputOffset;
-    if(!renderJobs.length||totalDur<=0)return null;
+    if(!renderJobs.length||totalDur<=0){setMediabunnyFailure('no-frames');return null;}
+    // Lazy streaming reproduces the old emission order exactly only when each source maps
+    // to a single segment: then buffers come out of the sink already ascending, the output
+    // timestamp is a monotonic shift of the input one, and sources are consumed in order,
+    // so the global sort below is a no-op. With cuts (multiple segments per source) one
+    // buffer can be emitted several times at interleaved timestamps and the sort genuinely
+    // reorders -- not worth reproducing lazily, so those keep the original eager path.
+    const lazyAudio=!!audioSource&&audioSourcePlans.length>0&&audioSourcePlans.every(p=>p.segments.length===1);
+    if(audioSource&&!lazyAudio){
+      for(const p of audioSourcePlans){
+        const bufferSink=new AudioBufferSink(p.track);
+        const buffers=await audioBuffersFromSink(bufferSink,p.duration);
+        p.segments.forEach(seg=>{
+          buffers.forEach(item=>{
+            const end=item.timestamp+(item.duration||0);
+            if(item.timestamp>=seg.end+.05||end<=seg.start) return;
+            audioPlan.push({buffer:item.buffer,timestamp:p.outBase+Math.max(0,item.timestamp-seg.start)});
+          });
+        });
+      }
+    }
+    async function* audioLazyStream(plans){
+      for(const p of plans){
+        const seg=p.segments[0];
+        const sink=new AudioBufferSink(p.track);
+        for await(const item of sink.buffers(0,Math.max(.001,Number(p.duration)||0))){
+          if(!item)continue;
+          const end=item.timestamp+(item.duration||0);
+          if(item.timestamp>=seg.end+.05||end<=seg.start)continue;
+          yield {buffer:item.buffer,timestamp:p.outBase+Math.max(0,item.timestamp-seg.start)};
+        }
+      }
+    }
     audioPlan.sort((a,b)=>a.timestamp-b.timestamp);
-    let audioIndex=0,audioSamples=0;
+    let audioIndex=0,audioSamples=0,audioIter=null,audioPeek=null;
     async function addAudioThrough(maxT){
       // AudioBufferSource has no explicit-timestamp API: it encodes each AudioBuffer
       // as playing right after whatever was added before it. That's fine here because
       // audioPlan is already the gapless, cut-compressed output timeline (same model
       // the video side uses via outputOffset), so adding in sorted order reproduces
       // the correct timeline as long as nothing is skipped or reordered.
-      while(audioSource&&audioIndex<audioPlan.length&&audioPlan[audioIndex].timestamp<=maxT){
+      if(!audioSource)return;
+      if(lazyAudio){
+        // Same contract, pulled on demand: one buffer is held at a time (audioPeek) so a
+        // buffer decoded past maxT isn't dropped, it just waits for the next call.
+        if(!audioIter)audioIter=audioLazyStream(audioSourcePlans);
+        for(;;){
+          if(!audioPeek){
+            const r=await audioIter.next();
+            if(r.done)return;
+            audioPeek=r.value;
+          }
+          if(audioPeek.timestamp>maxT)return;
+          await audioSource.add(audioPeek.buffer);
+          audioPeek=null;
+          audioSamples++;
+        }
+      }
+      while(audioIndex<audioPlan.length&&audioPlan[audioIndex].timestamp<=maxT){
         const item=audioPlan[audioIndex++];
         await audioSource.add(item.buffer);
         audioSamples++;
       }
     }
     const startedAt=performance.now();
-    const shouldAbort=()=>!!(opts.shouldCancel&&opts.shouldCancel())||(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs);
+    // Records WHICH abort happened. Both used to be an anonymous `return null`, which is
+    // exactly why a timed-out render and a user cancel were indistinguishable downstream.
+    const shouldAbort=()=>{
+      if(opts.shouldCancel&&opts.shouldCancel()){setMediabunnyFailure('cancelled');return true;}
+      if(Number.isFinite(opts.maxRenderMs)&&performance.now()-startedAt>opts.maxRenderMs){
+        setMediabunnyFailure('timeout',{limitMs:opts.maxRenderMs,elapsedMs:performance.now()-startedAt,frames:renderedFrames});
+        return true;
+      }
+      return false;
+    };
     await output.start();
     let renderedFrames=0;
     async function renderSampleFrame(sample,job,localT,outT){
@@ -9817,9 +9905,10 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     const meta={mime:'video/mp4',ext:'mp4',frames:renderedFrames,fps,duration:totalDur,audioTracks:audioSource?1:0,audioPackets:audioSamples,engine:streamWrite?'mediabunny-webcodecs-streamed':'mediabunny-webcodecs',renderMs:performance.now()-startedAt,finalizeMs:performance.now()-finalizeStart};
     if(streamWrite)return {...meta,blob:null,streamed:true};
     const blob=new Blob([target.buffer],{type:'video/mp4'});
-    if(blob.size<2048)return null;
+    if(blob.size<2048){setMediabunnyFailure('too-small');return null;}
     return {...meta,blob};
   }catch(e){
+    setMediabunnyFailure('error',{message:String(e&&e.message||e),stack:String(e&&e.stack||'')});
     console.warn('Mediabunny combined render failed, using fallback renderer',e);
     return null;
   }finally{
@@ -11368,30 +11457,68 @@ async function exportZip(vid,opts={}){
   // every other export, since streaming only kicks in for very large source files)
   // never gets touched until everything below is known to have worked.
   const streamedToRealFile=!!(canRenderMaster&&zipWriter);
+  let masterFailureText='';
   if(streamedToRealFile){
-    streamedMasterBytes=await zipWriter.addStream(`${sessionFolder}/video.mp4`,async write=>{
-      combinedVideo=await renderCombinedSourceEditedVideo(targetVideos,'video',{...masterRenderOpts,streamWrite:write});
-    });
-    if(!combinedVideo)streamedMasterBytes=0;
+    // Swapping a different video into a half-written stream is impossible (the entry
+    // header and however many bytes already reached disk are committed), but starting
+    // the ARCHIVE over is not: createWritable() on the same handle truncates the file
+    // and a fresh UZipWriter resets the central directory, so nothing from the failed
+    // attempt survives. That makes exactly one clean retry safe -- and it is what stops
+    // an hour-plus render from evaporating over a transient encoder fault. The retry
+    // forces software encoding, since a dropped hardware (VideoToolbox) session is the
+    // failure this most often recovers from on macOS.
+    // Only 'error' is retried: a timeout would simply time out again, and a cancel was
+    // the user's own decision -- retrying either would just burn another hour.
+    const attempts=['prefer-hardware','prefer-software'];
+    for(let i=0;i<attempts.length;i++){
+      if(i>0){
+        setLdPb(5,'Encoder failed — restarting the export with software encoding…');
+        try{
+          try{await zipWritable.abort();}catch(e){}
+          zipWritable=await saveHandle.createWritable();
+          zipWriter=new UZipWriter(uzipFileSink(zipWritable));
+        }catch(e){
+          // Reopening the output failed (permission revoked, volume unmounted, disk full).
+          // Nothing usable survives, so stop retrying and fall through to the failure
+          // toast rather than throwing out of exportZip and leaving the UI mid-export.
+          console.warn('[export] could not reopen the output file for the retry',e);
+          masterFailureText=`${masterFailureText} (retry could not reopen the file: ${String(e&&e.message||e)})`;
+          break;
+        }
+      }
+      combinedVideo=null;
+      streamedMasterBytes=await zipWriter.addStream(`${sessionFolder}/video.mp4`,async write=>{
+        combinedVideo=await renderCombinedSourceEditedVideo(targetVideos,'video',{...masterRenderOpts,streamWrite:write,hardwareAcceleration:attempts[i]});
+      });
+      if(combinedVideo)break;
+      streamedMasterBytes=0;
+      masterFailureText=mediabunnyFailureText();
+      const kind=_lastMediabunnyFailure&&_lastMediabunnyFailure.kind;
+      console.warn(`[export] streamed master render attempt ${i+1}/${attempts.length} (${attempts[i]}) failed: ${masterFailureText}`,_lastMediabunnyFailure);
+      if(kind!=='error')break;
+    }
   }else if(canRenderMaster){
     combinedVideo=await renderCombinedSourceEditedVideo(targetVideos,'video',masterRenderOpts);
+    if(!combinedVideo)masterFailureText=mediabunnyFailureText();
   }
   if(!combinedVideo&&hasSourceForZip&&streamedToRealFile){
-    // The streamed entry's local file header (and whatever bytes made it out before
-    // the failure) are already committed to the real output file at this point, so a
-    // different fallback video can't be swapped in without corrupting the archive.
-    // This case is rare (it only applies to the large-export "save to disk" path);
-    // abort cleanly rather than ship a half-written or self-contradictory ZIP.
+    // Both attempts are spent. Whatever reached disk is discarded rather than shipping a
+    // half-written or self-contradictory ZIP -- but the toast now names the actual cause
+    // instead of a generic failure, and says plainly that tagging survives, because the
+    // expensive thing users were doing was reloading and re-tagging from scratch.
     hideLd();
     try{await zipWritable?.abort();}catch(e){}
-    toast('⚠️','Mediabunny MP4 render failed partway through a streamed save. Nothing was written -- try again (or use a shorter "5-min ZIP parts" export).');
-    return {ok:false,reason:'mediabunny-render-failed-streamed',partIndex:opts.partIndex||0};
+    const cancelled=(_lastMediabunnyFailure&&_lastMediabunnyFailure.kind)==='cancelled';
+    toast('⚠️',cancelled
+      ? 'Export cancelled — nothing was written.'
+      : `Video render failed: ${masterFailureText}. Nothing was written. Your videos, tags and flows are still loaded — retry the export without redoing them, or use "5-min ZIP parts".`);
+    return {ok:false,reason:'mediabunny-render-failed-streamed',detail:masterFailureText,partIndex:opts.partIndex||0};
   }
   if(!combinedVideo&&hasSourceForZip){
     // Nothing has been written anywhere yet (the in-memory zip tree only gets an
     // entry once a render actually succeeds), so it's always safe to try the
     // frame-based WebM fallback before giving up on a real video entirely.
-    console.warn('Mediabunny MP4 render failed; falling back to the frame-based WebM renderer for this ZIP.');
+    console.warn(`[export] mediabunny MP4 render failed (${masterFailureText||'unknown'}); falling back to the frame-based WebM renderer for this ZIP.`);
   }
   if(!combinedVideo)combinedVideo=await renderCombinedZipVideo(selectedFramesForZip,'video',{
     removeStatusBar,
