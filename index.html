@@ -8165,6 +8165,16 @@ const PHONE_DEVICE=PHONE_DEVICES.black;
 const PHONE_SCREEN_R=phoneScreenRatios('black');
 const PHONE_FRAME_ASPECT=phoneFrameAspect('black');
 const _phoneFrameCache={};
+let _phoneFrameLoadWarned=false;
+function preloadExportAssets(){
+  // Load the fast export engine + all mockup frames up front, while the connection is
+  // (presumably) up, instead of lazily at export time. If the network drops before the user
+  // exports, these are already cached -- so the export still uses the mediabunny MP4 path with
+  // the mockup, rather than failing to fetch and silently falling back to the mockup-less WebM
+  // renderer (the reported ERR_INTERNET_DISCONNECTED case).
+  try{loadMediabunnyModule().catch(e=>console.warn('mediabunny preload failed (will retry at export)',e));}catch(e){}
+  try{Object.keys(PHONE_FRAME_SRC||{}).forEach(k=>{if(k&&k!=='none'){try{getPhoneFrameImage(k);}catch(e){}}});}catch(e){}
+}
 function canvasCompositionEnabled(){return canvasOptions&&canvasOptions.enabled!==false;}
 function getCanvasExportSize(){
   return canvasOptions.aspect==='9:16'?{w:1080,h:1920}:{w:1080,h:1350};
@@ -8178,7 +8188,12 @@ function getPhoneFrameImage(key){
   img=new Image();
   img.decoding='async';
   img.onload=()=>{try{drawVideoPreviewOverlay();}catch(e){}};
-  img.onerror=()=>{console.warn('phone frame failed to load',src);};
+  let _tries=0;
+  img.onerror=()=>{
+    console.warn('phone frame failed to load',src);
+    if(_tries++<3){setTimeout(()=>{img.src=src+(src.includes('?')?'&':'?')+'r='+_tries;},500*_tries);return;}
+    if(!_phoneFrameLoadWarned){_phoneFrameLoadWarned=true;try{toast('⚠️','Mockup image couldn\'t load — check your connection. The export may skip the phone frame.');}catch(e){}}
+  };
   img.src=src;
   _phoneFrameCache[key]=img;
   return img;
@@ -9333,12 +9348,21 @@ async function loadMediabunnyModule(){
       'https://cdn.jsdelivr.net/npm/mediabunny@1.51.0/dist/bundles/mediabunny.mjs'
     ];
     let lastErr=null;
-    for(const url of urls){
-      try{return await import(url);}
-      catch(e){lastErr=e;}
+    // Retry the whole source list a few times with backoff. mediabunny is the fast MP4 engine;
+    // a transient network blip at export time otherwise forces the slower, mockup-less WebM
+    // fallback (see the ERR_INTERNET_DISCONNECTED reports). Local /vendor first, CDN last.
+    for(let attempt=0;attempt<3;attempt++){
+      for(const url of urls){
+        try{return await import(url);}
+        catch(e){lastErr=e;}
+      }
+      if(attempt<2)await new Promise(r=>setTimeout(r,400*(attempt+1)));
     }
     throw lastErr||new Error('Mediabunny module unavailable');
   })();
+  // Don't cache a rejection: if the load failed (e.g. offline), clear it so a later export --
+  // by which time the connection may be back -- retries from scratch instead of being stuck.
+  mediabunnyModulePromise.catch(()=>{mediabunnyModulePromise=null;});
   return mediabunnyModulePromise;
 }
 function cloneCanvasFast(src,alpha=false){
@@ -11283,10 +11307,23 @@ async function exportZip(vid,opts={}){
   // is still valid and showSaveFilePicker() is allowed. By the time the render
   // finishes (minutes later) it would be long gone, hence grabbing it now.
   const sourceBytes=targetVideos.reduce((n,v)=>n+(v?.file?.size||0),0);
+  // Also estimate the OUTPUT size, not just the source. A long (esp. multi-clip) export
+  // encodes a large master video even when the SOURCE is well under the streaming threshold:
+  // e.g. ~24min of clips from ~670MB of low-bitrate source re-encodes to ~2GB at 12Mbps. The
+  // in-memory BufferTarget can't allocate past Chrome's ~2GB ArrayBuffer ceiling, so without
+  // streaming the render fails and the export falls back to shipping the raw, un-composited
+  // source clips (no mockup, no effects). So trigger the streamed save-to-file path on the
+  // projected output too (12Mbps matches masterRenderOpts.videoBitsPerSecond below).
+  const estOutputBytes=Math.round((Number(totalEffectiveDuration(targetVideos))||0)*12_000_000/8);
+  // Source uses the 768MB prompt threshold; output uses the 1.6GB blob ceiling, because a
+  // large OUTPUT is only a problem once it can neither be held in memory (~2GB ArrayBuffer
+  // cap) nor downloaded as a blob (~1.6GB) -- below that the in-memory path still works, so
+  // don't prompt for a save location unnecessarily on medium exports.
+  const needsStream=sourceBytes>UZIP_STREAM_THRESHOLD||estOutputBytes>UZIP_BLOB_CEILING;
   let saveHandle=null;
-  if(!opts.partIndex&&sourceBytes>UZIP_STREAM_THRESHOLD){
+  if(!opts.partIndex&&needsStream){
     saveHandle=await uzipPickSaveHandle(zipName);
-    if(!saveHandle&&sourceBytes>UZIP_BLOB_CEILING){
+    if(!saveHandle&&(sourceBytes>UZIP_BLOB_CEILING||estOutputBytes>UZIP_BLOB_CEILING)){
       hideLd();
       toast('⚠️','Too big for a normal download — choose a save location, or use "5-min ZIP parts"');
       return {ok:false,reason:'needs-streaming-save',partIndex:0};
@@ -11519,6 +11556,14 @@ async function exportZip(vid,opts={}){
     // entry once a render actually succeeds), so it's always safe to try the
     // frame-based WebM fallback before giving up on a real video entirely.
     console.warn(`[export] mediabunny MP4 render failed (${masterFailureText||'unknown'}); falling back to the frame-based WebM renderer for this ZIP.`);
+    // Tell the user why the result is degraded rather than silently shipping a mockup-less
+    // WebM. 'unavailable' means the engine couldn't be fetched (usually a dropped connection).
+    try{
+      const kind=_lastMediabunnyFailure&&_lastMediabunnyFailure.kind;
+      toast('⚠️',kind==='unavailable'
+        ? 'Fast MP4 engine couldn\'t load — check your connection. Used the slower WebM fallback (phone mockup may be missing). Reload while online, then re-export.'
+        : 'Fast MP4 export failed — used the slower WebM fallback (phone mockup may be missing).');
+    }catch(e){}
   }
   if(!combinedVideo)combinedVideo=await renderCombinedZipVideo(selectedFramesForZip,'video',{
     removeStatusBar,
@@ -13329,6 +13374,7 @@ async function init(){
   setView(currentView);
   setCenterView('video');
   updateCanvasControls();
+  preloadExportAssets();  // warm the fast export engine + mockup frames now, while online
   initDirectVideoRedactionTools();
   initTrimmer();
   setTimeout(()=>initOcr(),800);
