@@ -16,3 +16,10 @@ prod_statusbar_*/
 # ML checkpoints are large and distributed separately
 ui-detector-service/models/*.pth
 ui-detector-service/__pycache__/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
