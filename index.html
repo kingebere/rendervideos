@@ -2908,10 +2908,15 @@ function fillStatusPatch(ctx,rect,fallback,protectRect=null,sourceCanvas=null,op
     const ring={x:piece.x-pad,y:piece.y-pad,w:piece.w+pad*2,h:piece.h+pad*2};
     const bg=sampleCanvasMedian(ctx,ring,protectRect,Math.max(2,Math.round(pad/2)),fallback);
     const src=sourceCanvas||ctx.canvas;
-    const redInPatch=statusRedRatio(src,piece)>.012;
     const forceSolid=!!opts.forceSolid;
+    // redInPatch and the candidate search feed ONLY the blur-sample branch below, which is
+    // unreachable once forceSolid is set -- and the status-bar erase path always sets it.
+    // statusRedRatio getImageData()s the whole zone before striding, so at ~6 zones/frame
+    // that was ~1.16M pixels read and thrown away per frame. Skipping both when forceSolid
+    // is dead-code elimination: the values cannot affect the branch that actually runs.
+    const redInPatch=forceSolid?false:statusRedRatio(src,piece)>.012;
     const offset=Math.max(2,Math.round(piece.h*.22));
-    const candidates=[
+    const candidates=forceSolid?[]:[
       {x:piece.x,y:piece.y+piece.h+offset,w:piece.w,h:piece.h},
       {x:piece.x,y:piece.y-piece.h-offset,w:piece.w,h:piece.h},
       {x:piece.x+piece.w+offset,y:piece.y,w:piece.w,h:piece.h},
