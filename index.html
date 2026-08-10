@@ -9713,6 +9713,13 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
     };
     await output.start();
     let renderedFrames=0;
+    // Screenshot JPEG encodes run OFF the render's critical path. Chrome encodes toBlob on an
+    // internal thread, so awaiting each one inline (as we used to) stalled the render ~1.3s per
+    // shot (~26min on a 48-min export). We snapshot the pixels synchronously (the shared `clean`
+    // decode canvas is reused every frame, so the copy must happen now) then encode async with a
+    // bounded in-flight cap so memory stays ~SHOT_CAP*2 source-res canvases. Flushed after the
+    // frame loop, before serialization consumes captureSink.
+    const _shotEncodes=[];const SHOT_CAP=4;
     async function renderSampleFrame(sample,job,localT,outT){
       if(clean.width!==job.src.sourceW||clean.height!==job.src.sourceH){
         clean.width=job.src.sourceW;clean.height=job.src.sourceH;
@@ -9739,11 +9746,22 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
             events.forEach(ev=>{if(localT>=ev.start&&localT<=ev.end)(ev.boxes||[]).forEach(b=>{if(b)activeBoxes.push(b);});});
             // Screenshot base: raw frame + active content redactions baked in (keyboard still
             // sharp here; frameCanvasForExport blurs it + normalizes the status bar on export).
+            // Snapshot pixels NOW (synchronous): `clean` is the shared decode canvas, overwritten
+            // by the next frame, so the copy can't be deferred. Only the JPEG encode is deferred.
             const shot=document.createElement('canvas');shot.width=cw;shot.height=ch;
             const sctx=get2dCtx(shot,false,false);
             sctx.drawImage(clean,0,0);
             if(activeBoxes.length)drawRedactionsInRect(sctx,localT,events,{x:0,y:0,w:cw,h:ch},cw,ch,{force:true});
-            const shotBlob=await new Promise(r=>shot.toBlob(r,'image/jpeg',0.92));
+            // Original (only when a content redaction is active): raw frame + keyboard blur,
+            // NOT content-redacted, so it reveals the redacted region -- matches how the
+            // extracted-frame path stores originals. Snapshot synchronously here too.
+            let orig=null;
+            if(activeBoxes.length){
+              orig=document.createElement('canvas');orig.width=cw;orig.height=ch;
+              const octx=get2dCtx(orig,false,false);
+              octx.drawImage(clean,0,0);
+              applyKeyboardBlur(orig);
+            }
             const fr={
               id:'cap_'+job.src.v.id+'_'+Math.round(localT*1000)+'_'+Math.random().toString(36).slice(2,6),
               videoId:job.src.v.id,
@@ -9757,20 +9775,24 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
               flows:(job.src.v.flowRanges||[]).filter(rr=>localT>=(Number(rr.start)||0)&&localT<=(Number(rr.end)||0)).map(rr=>rr.flowId).filter((id,i,a)=>id&&a.indexOf(id)===i),
               _synthetic:true
             };
-            if(shotBlob)fr.blobUrl=URL.createObjectURL(shotBlob);
-            // Original (only when a content redaction is active): raw frame + keyboard blur,
-            // NOT content-redacted, so it reveals the redacted region -- matches how the
-            // extracted-frame path stores originals. frameOriginalBlobForExport re-encodes
-            // _originalBuf as-is (no keyboard blur added there), so bake the keyboard here.
-            if(activeBoxes.length){
-              const orig=document.createElement('canvas');orig.width=cw;orig.height=ch;
-              const octx=get2dCtx(orig,false,false);
-              octx.drawImage(clean,0,0);
-              applyKeyboardBlur(orig);
-              const origBlob=await new Promise(r=>orig.toBlob(r,'image/jpeg',0.92));
-              if(origBlob){fr._originalBuf=await origBlob.arrayBuffer();fr._originalBlobType='image/jpeg';}
+            // Deferred encode: overlaps with subsequent frames' decode/render. frameOriginalBlobForExport
+            // re-encodes _originalBuf as-is (no keyboard blur added there), so bake the keyboard above.
+            const shotTask=(async()=>{
+              const shotBlob=await new Promise(r=>shot.toBlob(r,'image/jpeg',0.92));
+              if(shotBlob)fr.blobUrl=URL.createObjectURL(shotBlob);
+              if(orig){
+                const origBlob=await new Promise(r=>orig.toBlob(r,'image/jpeg',0.92));
+                if(origBlob){fr._originalBuf=await origBlob.arrayBuffer();fr._originalBlobType='image/jpeg';}
+              }
+              if(shotBlob)opts.captureSink.push(fr);
+            })();
+            shotTask._settled=false;shotTask.then(()=>{shotTask._settled=true;},()=>{shotTask._settled=true;});
+            _shotEncodes.push(shotTask);
+            // Backpressure: keep at most SHOT_CAP encodes in flight so memory stays bounded.
+            if(_shotEncodes.length>=SHOT_CAP){
+              await Promise.race(_shotEncodes);
+              for(let _i=_shotEncodes.length-1;_i>=0;_i--){if(_shotEncodes[_i]._settled)_shotEncodes.splice(_i,1);}
             }
-            if(shotBlob)opts.captureSink.push(fr);
           }catch(e){console.warn('export screenshot capture failed',e);}
         }
       }
@@ -9923,6 +9945,8 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       }
       try{lastSample&&lastSample.close();}catch(e){}
     }
+    // Flush any screenshot JPEG encodes still in flight before serialization reads captureSink.
+    if(_shotEncodes.length)await Promise.all(_shotEncodes.map(p=>p.catch(()=>{})));
     if(audioSource)await addAudioThrough(totalDur+1);
     const finalizeStart=performance.now();
     await output.finalize();
