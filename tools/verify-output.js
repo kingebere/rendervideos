@@ -19,8 +19,8 @@ const OUT = process.argv[4] || `/tmp/out_${TOL}.zip`;
   const browser = await chromium.launch({ channel: 'chrome', headless: false });
   const page = await browser.newPage();
   page.on('pageerror', e => console.log('  [pageerror]', String(e).slice(0, 200)));
-  await page.goto('http://127.0.0.1:8080/index.html', { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => typeof window.exportZip === 'function', { timeout: 60000 });
+  await page.goto('http://127.0.0.1:8080/index.html', { waitUntil: 'domcontentloaded', timeout: 180000 });
+  await page.waitForFunction(() => typeof window.exportZip === 'function', { timeout: 180000 });
 
   await page.evaluate(async ([clip, tol]) => {
     if (typeof waitForOcrReady === 'function') { try { await waitForOcrReady(120000); } catch (e) {} }

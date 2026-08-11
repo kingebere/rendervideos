@@ -16,3 +16,4 @@ prod_statusbar_*/
 # ML checkpoints are large and distributed separately
 ui-detector-service/models/*.pth
 ui-detector-service/__pycache__/
+_src.MP4

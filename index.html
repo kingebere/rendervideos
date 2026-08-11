@@ -2906,7 +2906,19 @@ function fillStatusPatch(ctx,rect,fallback,protectRect=null,sourceCanvas=null,op
     if(piece.w<=0||piece.h<=0)return;
     const pad=Math.max(4,Math.round(Math.min(piece.w,piece.h)*.45));
     const ring={x:piece.x-pad,y:piece.y-pad,w:piece.w+pad*2,h:piece.h+pad*2};
-    const bg=sampleCanvasMedian(ctx,ring,protectRect,Math.max(2,Math.round(pad/2)),fallback);
+    // Each piece samples a median of the ring around it -- a getImageData plus typed-array
+    // sorts, and with ~6 zones/frame it is the single largest remaining cost in the
+    // status-bar stage. Under a motion-gate hit the source band is unchanged, the zone
+    // geometry is recomputed identically, and the pieces are visited in the same order, so
+    // the cursor replays the medians recorded when the cache was built. Same class of reuse
+    // as the rest of the cached analysis; output is verified byte-identical.
+    const _cur=opts.bgCursor||null;
+    let bg;
+    if(_cur&&!_cur.write&&_cur.i<_cur.arr.length){bg=_cur.arr[_cur.i++];}
+    else{
+      bg=sampleCanvasMedian(ctx,ring,protectRect,Math.max(2,Math.round(pad/2)),fallback);
+      if(_cur&&_cur.write){_cur.arr.push(bg);_cur.i++;}
+    }
     const src=sourceCanvas||ctx.canvas;
     const forceSolid=!!opts.forceSolid;
     // redInPatch and the candidate search feed ONLY the blur-sample branch below, which is
@@ -3166,7 +3178,12 @@ function applyStatusBarRemoval(ctx,sX,sY,sW,sH,opts={}){
       _sctx.clearRect(0,0,sourceSnap.width,snapH);
       _sctx.drawImage(ctx.canvas,0,0,ctx.canvas.width,snapH,0,0,ctx.canvas.width,snapH);
     }catch(e){}
-    zones.forEach(z=>fillStatusPatch(ctx,z,bg,protect,sourceSnap,{forceSolid:true}));
+    // On a gate hit replay the per-zone medians recorded at cache-build time; on a miss
+    // record them. Zone order and piece order are deterministic given the same layout,
+    // island and leftIndicator, all of which are themselves cached together with these.
+    const _bgCursor=cache?{i:0,arr:reuse?(cache.zoneBgs||[]):[],write:!reuse}:null;
+    zones.forEach(z=>fillStatusPatch(ctx,z,bg,protect,sourceSnap,{forceSolid:true,bgCursor:_bgCursor}));
+    if(cache&&!reuse)cache.zoneBgs=_bgCursor.arr;
     return bg;
   }catch(e){return null;}
 }

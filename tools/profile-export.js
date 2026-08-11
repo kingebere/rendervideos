@@ -11,6 +11,7 @@ const { chromium } = require('playwright');
 
 const CLIP = process.argv[2] || 'prof90.mp4';
 const RUN_S = Number(process.argv[3] || 240);
+const TOL = process.argv[4];
 
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: false });
@@ -22,7 +23,8 @@ const RUN_S = Number(process.argv[3] || 240);
   await page.waitForFunction(() => typeof window.exportZip === 'function', { timeout: 60000 });
   console.log('app loaded, coi =', await page.evaluate(() => crossOriginIsolated));
 
-  const setup = await page.evaluate(async (clip) => {
+  const setup = await page.evaluate(async ([clip, tol]) => {
+    if (tol !== undefined) { try { SB_STATUS_GATE_TOLERANCE = Number(tol); } catch (e) {} }
     if (typeof waitForOcrReady === 'function') { try { await waitForOcrReady(120000); } catch (e) {} }
     const blob = await (await fetch('/media/' + clip)).blob();
     const file = new File([blob], clip, { type: 'video/mp4' });
@@ -52,13 +54,14 @@ const RUN_S = Number(process.argv[3] || 240);
     window.__t0 = performance.now();
     exportZip('all', { keepModal: true }).then(() => { window.__done = true; }).catch(e => { window.__err = String(e && e.stack || e); window.__done = true; });
     return { duration: DUR, mb: +(blob.size / 1048576).toFixed(1), w: v.videoWidth, h: v.videoHeight };
-  }, CLIP);
+  }, [CLIP, TOL]);
   console.log('source:', JSON.stringify(setup));
 
   const deadline = Date.now() + RUN_S * 1000;
   let last = null;
   while (Date.now() < deadline) {
-    await page.waitForTimeout(15000);
+    await page.waitForTimeout(8000);
+    try { await page.evaluate(() => { SB_STATUS_GATE_TOLERANCE = (SB_STATUS_GATE_TOLERANCE < 0 ? 4 : -1); }); } catch (e) {}
     const s = await page.evaluate(() => ({
       pf: window.__exportProfile ? Object.assign({}, window.__exportProfile) : null,
       done: window.__done, err: window.__err,
@@ -84,6 +87,16 @@ const RUN_S = Number(process.argv[3] || 240);
     console.log(`${'TOTAL'.padEnd(13)} ${tot.toFixed(2).padStart(8)}   frames=${f}  wall=${final.elapsed.toFixed(1)}s`);
     const gh=p.gateHit||0, gm=p.gateMiss||0;
     if(gh+gm) console.log(`gate hits ${gh}/${gh+gm} = ${(100*gh/(gh+gm)).toFixed(1)}%`);
+    const hp = p.gateHit ? p.hitMs / p.gateHit : 0, mp = p.gateMiss ? p.missMs / p.gateMiss : 0;
+    console.log("");
+    console.log("=== status-bar hit vs miss (same run, drift-controlled) ===");
+    console.log("hit  path " + hp.toFixed(2) + " ms/frame  (" + p.gateHit + " frames)");
+    console.log("miss path " + mp.toFixed(2) + " ms/frame  (" + p.gateMiss + " frames)");
+    for (const hr of [0.69, 0.82, 0.87]) {
+      const sb = hr * hp + (1 - hr) * mp;
+      const other = (p.decodeDraw + p.composite + p.encode) / f;
+      console.log("  @ " + (hr * 100).toFixed(0) + "% real-content hit rate -> status-bar " + sb.toFixed(1) + " ms/frame, TOTAL " + (sb + other).toFixed(1) + " ms/frame (Windows 54.0)");
+    }
     console.log('RAW ' + JSON.stringify(final.pf));
   } else console.log('NO PROFILE DATA', JSON.stringify(final).slice(0, 300));
   await browser.close();
