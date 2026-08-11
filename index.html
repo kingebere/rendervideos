@@ -5549,6 +5549,25 @@ function detectSource(w,h,filename,mimeType){
   if(ar<0.8)return'iphone';if(ar>1.2)return ar<1.5?'mac':'web';
   return'unknown';
 }
+// Small downscaled sample of a decoded frame, used to spot near-duplicate screenshots
+// during export. Deliberately excludes the top and bottom of the frame: the status-bar clock
+// and the recording indicator tick constantly and would make every frame look "changed",
+// which is the same reason the old extraction path compared a safe centre zone.
+let _shotSampleCanvas=null,_shotSampleCtx=null;
+function shotDedupSample(src){
+  try{
+    if(!src||!src.width||!src.height)return null;
+    const TW=64,TH=128;
+    if(!_shotSampleCanvas){
+      _shotSampleCanvas=document.createElement('canvas');
+      _shotSampleCanvas.width=TW;_shotSampleCanvas.height=TH;
+      _shotSampleCtx=_shotSampleCanvas.getContext('2d',{willReadFrequently:true});
+    }
+    const sy=Math.round(src.height*0.12),sh=Math.round(src.height*0.76);
+    _shotSampleCtx.drawImage(src,0,sy,src.width,sh,0,0,TW,TH);
+    return _shotSampleCtx.getImageData(0,0,TW,TH);
+  }catch(e){return null;}
+}
 function similar(a,b,sens){
   const step=Math.max(4,Math.floor(a.data.length/4/500))*4;let d=0;const th=sens*800;
   for(let i=0;i<a.data.length&&i<b.data.length;i+=step){d+=Math.abs(a.data[i]-b.data[i])+Math.abs(a.data[i+1]-b.data[i+1])+Math.abs(a.data[i+2]-b.data[i+2]);if(d>th)return false;}return d<th;
@@ -9783,10 +9802,41 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
       // only bakes in the active CONTENT redactions; keyboard blur + status-bar normalization
       // are deliberately left to the export serializer (matching the extracted-frame path).
       if(opts.captureScreenshots&&Array.isArray(opts.captureSink)){
-        const SHOT_INTERVAL=2.5; // seconds of OUTPUT time between captures (~1400 shots/hr)
+        // Near-duplicate filtering, matching the standard the old frontend extraction path
+        // used (similar() at sensitivity 5, plus a max-gap guard). When capture moved into
+        // the export render in 513a2bb that filtering was lost, so every interval tick wrote
+        // an image no matter what: a 46-min recording produced ~1100 shots, and a screen
+        // sitting still for 20s emitted 8 identical copies. Reported result was an 8GB ZIP
+        // with 7GB of it images.
+        //
+        // Compared against the last KEPT frame rather than the previous candidate, so a slow
+        // drift cannot creep past one frame at a time. SHOT_MAX_GAP forces a capture after a
+        // while regardless, so a static screen still leaves periodic evidence in the flow.
+        const SHOT_INTERVAL=2.5;   // seconds of OUTPUT time between capture attempts
+        const SHOT_SENS=5;         // same default the extraction UI shipped with
+        const SHOT_MAX_GAP=30;     // never go longer than this without keeping one
         const lastShot=job.src._lastShotT;
+        let _skipShot=false;
         if(lastShot==null||outT-lastShot>=SHOT_INTERVAL){
+          const prevSample=job.src._lastShotSample;
+          const withinGap=(outT-(job.src._lastKeptShotT!=null?job.src._lastKeptShotT:-1e9))<SHOT_MAX_GAP;
+          let curSample=null;
+          if(prevSample&&withinGap){
+            curSample=shotDedupSample(clean);
+            if(curSample&&similar(prevSample,curSample,SHOT_SENS)){
+              // Duplicate: re-arm the cadence and skip only the capture. Must NOT return --
+              // the rest of this function still has to render and encode the frame.
+              job.src._lastShotT=outT;
+              job.src._shotsSkipped=(job.src._shotsSkipped||0)+1;
+              _skipShot=true;
+            }
+          }else{
+            curSample=shotDedupSample(clean);
+          }
+          if(!_skipShot){
           job.src._lastShotT=outT;
+          job.src._lastKeptShotT=outT;
+          if(curSample)job.src._lastShotSample=curSample;
           try{
             const cw=clean.width,ch=clean.height;
             const events=job.src.redactions||[];
@@ -9842,6 +9892,7 @@ async function renderCombinedSourceEditedVideoMediabunny(videoList,label,opts={}
               for(let _i=_shotEncodes.length-1;_i>=0;_i--){if(_shotEncodes[_i]._settled)_shotEncodes.splice(_i,1);}
             }
           }catch(e){console.warn('export screenshot capture failed',e);}
+          }
         }
       }
       // The status bar erase protects the Dynamic Island, so the red recording
@@ -11836,20 +11887,32 @@ async function exportZip(vid,opts={}){
         const originalImageFiles=[];
         const flowNames=fr.flows.map(fid=>{const fl=flows.find(f=>f.id===fid);return fl?fl.name:'';}).filter(Boolean);
         const targets=fr.flows.length?fr.flows.filter(fid=>flowFolders[fid]).map(fid=>flowFolders[fid]):[{folder:untaggedFolder,path:'untagged/',rows:null,frames:null,flow:null,index:null}];
+        // Write each image ONCE, then reference it from every flow it belongs to.
+        //
+        // This previously wrote the full JPEG (and its original) into each target folder, so
+        // a frame tagged into N flows was stored N times. With overlapping flow ranges that
+        // multiplies fast: a reported export had ~1000 images in EVERY one of 27 flows,
+        // turning ~210MB of unique screenshots into a ~7GB ZIP. The bytes were identical
+        // copies -- the flow CSVs already carry the path, so a single copy plus references
+        // conveys exactly the same information.
+        //
+        // The image lives in the first flow that claims it; other flows point at that path.
+        const primary=targets[0];
+        primary.folder.file(imgName,blob,{binary:true,compression:'STORE'});
+        const sharedImgPath=primary.path+imgName;
+        let originalPath='';
+        if(originalBlob){
+          originalPath=`${primary.path}originals/${originalName}`;
+          primary.folder.folder('originals').file(originalName,originalBlob,{binary:true,compression:'STORE'});
+          originalImageFiles.push(originalPath);
+          inventory.push(`${sessionFolder}/${originalPath},image/jpeg,${originalBlob.size}`);
+        }
+        inventory.push(`${sessionFolder}/${sharedImgPath},image/jpeg,${blob.size}`);
         targets.forEach(t=>{
-          t.folder.file(imgName,blob,{binary:true,compression:'STORE'});
-          let originalPath='';
-          if(originalBlob){
-            originalPath=`${t.path}originals/${originalName}`;
-            t.folder.folder('originals').file(originalName,originalBlob,{binary:true,compression:'STORE'});
-            originalImageFiles.push(originalPath);
-            inventory.push(`${sessionFolder}/${originalPath},image/jpeg,${originalBlob.size}`);
-          }
-          if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},image,${csvCell('')},${csvCell(t.path+imgName)},${csvCell(originalPath)},${redactionMeta.length}`);
-          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:t.path+imgName,originalImageFile:originalPath,redactionCount:redactionMeta.length});
-          if(t.redactions&&redactionMeta.length)t.redactions.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,imageFile:t.path+imgName,originalImageFile:originalPath,redactions:redactionMeta});
+          if(t.rows)t.rows.push(`${t.frames.length+1},${csvCell(snapId)},${csvCell(exportClock(ts))},${ts.toFixed(3)},image,${csvCell('')},${csvCell(sharedImgPath)},${csvCell(originalPath)},${redactionMeta.length}`);
+          if(t.frames)t.frames.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,localTimeSec:localTs,videoId:v.id,videoName:v.name,imageFile:sharedImgPath,originalImageFile:originalPath,redactionCount:redactionMeta.length});
+          if(t.redactions&&redactionMeta.length)t.redactions.push({id:snapId,index:seq,time:exportClock(ts),timeSec:ts,sourceSessionTimeSec:sourceSessionTs,imageFile:sharedImgPath,originalImageFile:originalPath,redactions:redactionMeta});
           if(t.flow&&exportFlowFrameRefs[t.flow.id])exportFlowFrameRefs[t.flow.id].push(fr);
-          inventory.push(`${sessionFolder}/${t.path}${imgName},image/jpeg,${blob.size}`);
         });
         const firstOriginal=originalImageFiles[0]||'';
         dbScreens.push([snapId,csvCell(v.name),csvCell(flowNames.join('|')||'untagged'),exportClock(ts),ts.toFixed(3),csvCell(targets[0].path+imgName),csvCell(firstOriginal),redactionMeta.length].join(','));
