@@ -11334,6 +11334,8 @@ async function exportZip(vid,opts={}){
   const nameInput=document.getElementById('exp-appname');
   const appName=(nameInput?.value||'').trim();
   if(!appName){toast('⚠️','Enter an App Name before exporting');nameInput?.focus();return;}
+  resetExportSpeedWatch();
+  warnIfExportConditionsPoor();
   if(!opts.keepModal)document.getElementById('exp-modal').classList.remove('on');
   if(!opts.keepCancelState)zipCancelFlag=false;
   // Pause the live preview while exporting: its per-frame compositing loop
@@ -11570,7 +11572,8 @@ async function exportZip(vid,opts={}){
     shouldCancel:()=>zipCancelFlag,
     onProgress:(done,total)=>{
       const pct=5+Math.round((total?done/total:0)*80);
-      setLdPb(Math.min(85,pct),`Rendering source video for ZIP... ${fmt(done)} / ${fmt(total)}`);
+      const extra=exportSpeedWatch(done,total);
+      setLdPb(Math.min(85,pct),`Rendering source video for ZIP... ${fmt(done)} / ${fmt(total)}${extra}`);
     }
   };
   const canRenderMaster=targetVideos.every(v=>v.objectURL);
@@ -12094,6 +12097,72 @@ function setLdPb(p,s){
   document.getElementById('ldp').style.width=pct+'%';
   const pl=document.getElementById('ld-pct');if(pl)pl.textContent=pct+'%';
   document.getElementById('lds').textContent=s;
+}
+// --- Export speed advisor -------------------------------------------------------------
+//
+// macOS clamps CPU clock (pmset -g therm: CPU_Speed_Limit) for Low Power Mode, running on
+// battery, thermal pressure, or a degraded battery -- and the page cannot read that value.
+// Measured on the dev Mac: the SAME 12s export took 221s at CPU_Speed_Limit=25 and 30.1s at
+// 100. A 7.3x swing from machine state alone, larger than any code change in the export
+// path. Users hitting that deserve to be told what to change.
+//
+// A synthetic CPU benchmark was tried first and rejected: three consecutive 15ms probes on
+// one machine returned 1517 / 3678 / 23258 ops/ms, because a short loop gets descheduled
+// under load. It cannot separate "clamped clock" from "busy moment", so it would have fired
+// on healthy machines and stayed silent on clamped ones. These two signals are used instead:
+//
+//   1. Battery state, straight from navigator.getBattery() -- a fact, not a measurement.
+//   2. Sustained drop in the export's OWN throughput vs its opening baseline. Relative, so
+//      it needs no reference machine, and averaged over minutes so it ignores brief stalls.
+let _speedWatch=null;
+const SPEED_WINDOW_S=60;   // rate is measured over this trailing window
+const SPEED_DROP_WARN=0.6; // warn once the recent rate falls below this fraction of baseline
+function resetExportSpeedWatch(){
+  _speedWatch={t0:performance.now(),samples:[],baseRate:0,baseAt:0,warnedThermal:false};
+}
+// Returns an ETA suffix for the progress label, and raises a one-time warning if the export
+// slows down markedly mid-run.
+//
+// Rate must be measured over a trailing WINDOW, not cumulatively. A cumulative done/elapsed
+// average barely moves when the machine halves its speed halfway through, so a drop
+// threshold against it fires far too late or never -- the first version of this did exactly
+// that and never warned at all.
+function exportSpeedWatch(done,total){
+  try{
+    if(!_speedWatch)resetExportSpeedWatch();
+    const w=_speedWatch;
+    const el=(performance.now()-w.t0)/1000;
+    if(!(done>0)||el<1)return '';
+    w.samples.push({t:el,d:done});
+    // Keep a little more than the window so there is always a point to look back to.
+    while(w.samples.length>2&&el-w.samples[0].t>SPEED_WINDOW_S*2)w.samples.shift();
+    const old=w.samples.find(s=>el-s.t<=SPEED_WINDOW_S)||w.samples[0];
+    const dt=el-old.t,dd=done-old.d;
+    // Fall back to the cumulative rate until the window has filled.
+    const rate=(dt>=5&&dd>=0)?dd/dt:done/el;
+    if(!w.baseRate&&el>=SPEED_WINDOW_S&&rate>0){w.baseRate=rate;w.baseAt=el;}
+    if(w.baseRate&&!w.warnedThermal&&el>w.baseAt+SPEED_WINDOW_S&&rate>0&&rate<w.baseRate*SPEED_DROP_WARN){
+      w.warnedThermal=true;
+      toast('🌡️','Export slowed ~'+Math.round(100-100*rate/w.baseRate)+'% mid-run — your Mac is throttling its CPU. Keep it plugged in, on a hard surface with clear vents, and quit other apps.');
+    }
+    if(total>0&&rate>0){
+      const remain=Math.max(0,(total-done)/rate);
+      const m=Math.round(remain/60),h=Math.floor(m/60);
+      return h>0?`  ·  ~${h}h ${m%60}m left`:`  ·  ~${m}m left`;
+    }
+  }catch(e){}
+  return '';
+}
+// Checked once when an export starts. Being on battery is the single most common and most
+// fixable cause of a clamped clock, and unlike a benchmark it is directly observable.
+async function warnIfExportConditionsPoor(){
+  try{
+    if(!navigator.getBattery)return;
+    const b=await navigator.getBattery();
+    if(!b.charging){
+      toast('🔌','Running on battery — macOS limits CPU speed, which can make this export several times slower. Plug in, and set Settings ▸ Battery ▸ Low Power Mode to Never.');
+    }
+  }catch(e){}
 }
 function toast(icon,msg){
   const t=document.getElementById('toast');

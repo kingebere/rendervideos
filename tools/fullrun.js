@@ -11,7 +11,7 @@
 // Usage: node tools/fullrun.js <srcPath-on-server> <tolerance>
 const { chromium } = require('playwright');
 
-const SRC = process.argv[2] || '/_src.MP4';
+const SRC_PATH = process.argv[2] || '/Users/mac/Documents/rendervideos/_src.MP4';
 const TOL = process.argv[3] !== undefined ? process.argv[3] : '4';
 const FLOWS = Number(process.argv[4] || 27);
 
@@ -20,25 +20,23 @@ const FLOWS = Number(process.argv[4] || 27);
   const page = await browser.newPage();
   page.on('pageerror', e => console.log('[pageerror]', String(e).slice(0, 200)));
   await page.goto('http://127.0.0.1:8080/index.html', { waitUntil: 'domcontentloaded', timeout: 300000 });
-  await page.waitForFunction(() => typeof window.exportZip === 'function', { timeout: 300000 });
+  await page.waitForFunction(() => typeof window.exportZip === 'function', null, { timeout: 300000 });
   console.log('app loaded, coi=', await page.evaluate(() => crossOriginIsolated), 'tolerance=', TOL, 'flows=', FLOWS);
 
-  const setup = await page.evaluate(async ([src, tol, nflows]) => {
+  // Load the source the way a user does: through the app's own file input, which yields a
+  // disk-backed File. Fetching it into a Blob first fails on this 8GB machine -- a plain
+  // fetch().blob() of 2.25GB throws "Failed to fetch", and even a streamed Blob cannot back
+  // a <video> ("video load failed"). setInputFiles hands Chrome the path directly, so the
+  // bytes never have to sit in the renderer heap.
+  await page.setInputFiles('#fi', SRC_PATH);
+  console.log('file handed to app, waiting for it to register...');
+  await page.waitForFunction(() => typeof videos !== 'undefined' && videos.length > 0 && videos[0].duration > 0, null, { timeout: 900000 });
+
+  const setup = await page.evaluate(async ([tol, nflows]) => {
     if (typeof waitForOcrReady === 'function') { try { await waitForOcrReady(300000); } catch (e) {} }
     SB_STATUS_GATE_TOLERANCE = Number(tol);
-    const t0 = performance.now();
-    const blob = await (await fetch(src)).blob();
-    const loadSec = (performance.now() - t0) / 1000;
-    const file = new File([blob], 'src.MP4', { type: 'video/mp4' });
-    const url = URL.createObjectURL(file);
-    const v = await new Promise((res, rej) => {
-      const el = document.createElement('video');
-      el.preload = 'metadata'; el.muted = true; el.src = url;
-      el.onloadedmetadata = () => res(el);
-      el.onerror = () => rej(new Error('video load failed'));
-      setTimeout(() => rej(new Error('video metadata timeout')), 300000);
-    });
-    const DUR = v.duration;
+    const vid = videos[0];
+    const DUR = vid.duration;
     flows.length = 0;
     const ranges = [];
     for (let i = 0; i < nflows; i++) {
@@ -47,13 +45,7 @@ const FLOWS = Number(process.argv[4] || 27);
       const s = i * (DUR / nflows) + 1;
       ranges.push({ flowId: id, start: s, end: s + (DUR / nflows) - 2 });
     }
-    videos.length = 0;
-    videos.push({
-      id: 'v_full', name: file.name, sizeMB: String((blob.size / 1048576).toFixed(0)), duration: DUR,
-      source: 'unknown', objectURL: url, originalObjectURL: url, frames: [], extracted: false,
-      cutRanges: [], flowRanges: ranges, redactionRanges: [], mimeType: file.type, file,
-      codec: 'hevc', needsTranscode: false,
-    });
+    vid.flowRanges = ranges;
     try { UZIP_STREAM_THRESHOLD = 1; } catch (e) {}
     let written = 0;
     window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async (x) => { written += (x && x.byteLength) || 0; window.__zipMB = +(written / 1048576).toFixed(1); }, close: async () => {}, abort: async () => {} }) });
@@ -62,8 +54,8 @@ const FLOWS = Number(process.argv[4] || 27);
     set('exp-appname', 'FullRun'); set('vex-fps', '30'); chk('e-all', true); chk('e-manifest', true);
     window.__done = false; window.__err = null; window.__t0 = performance.now();
     exportZip('all', { keepModal: true }).then(() => { window.__done = true; }).catch(e => { window.__err = String(e && e.stack || e); window.__done = true; });
-    return { durationSec: DUR, mb: +(blob.size / 1048576).toFixed(1), loadSec: +loadSec.toFixed(1), flows: ranges.length, w: v.videoWidth, h: v.videoHeight };
-  }, [SRC, TOL, FLOWS]);
+    return { durationSec: DUR, mb: Number(vid.sizeMB) || 0, flows: ranges.length, name: vid.name };
+  }, [TOL, FLOWS]);
   console.log('SOURCE', JSON.stringify(setup));
 
   const started = Date.now();
@@ -81,7 +73,7 @@ const FLOWS = Number(process.argv[4] || 27);
   const fin = await page.evaluate(() => ({ el: (performance.now() - window.__t0) / 1000, err: window.__err, zipMB: window.__zipMB }));
   console.log('');
   console.log('=== FULL EXPORT RESULT (measured, end to end) ===');
-  console.log('source duration : ' + (setup.durationSec / 60).toFixed(1) + ' min (' + setup.mb + ' MB, ' + setup.w + 'x' + setup.h + ')');
+  console.log('source duration : ' + (setup.durationSec / 60).toFixed(1) + ' min (' + setup.mb + ' MB)');
   console.log('flows           : ' + setup.flows);
   console.log('gate tolerance  : ' + TOL);
   console.log('TOTAL WALL TIME : ' + (fin.el / 60).toFixed(1) + ' min  (' + (fin.el / 3600).toFixed(2) + ' h)');
